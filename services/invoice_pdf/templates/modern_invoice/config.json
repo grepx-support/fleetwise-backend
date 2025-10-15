@@ -1,0 +1,13 @@
+{
+  "name": "modern_invoice",
+  "description": "A modern, clean invoice template with professional styling",
+  "sections": {
+    "header": "header.html",
+    "billing_info": "billing_info.html",
+    "items_table": "items_table.html",
+    "totals": "totals.html",
+    "footer": "footer.html"
+  },
+  "layout": "modern_invoice_layout.html",
+  "styles": "styles.css"
+}
