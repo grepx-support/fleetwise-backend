@@ -1,0 +1,72 @@
+header:
+  logo:
+    max_height: 80
+    max_width: 180
+  customer_info:
+    offset_y: 20
+  invoice_details:
+    font_size: 10
+    leading: 12
+  table_style:
+    - ["VALIGN", [0, 0], [-1, -1], "TOP"]
+    - ["ALIGN", [0, 0], [0, 0], "LEFT"]
+    - ["ALIGN", [1, 0], [1, 0], "RIGHT"]
+    - ["ALIGN", [0, 1], [0, 1], "LEFT"]
+    - ["ALIGN", [1, 1], [1, 1], "RIGHT"]
+    - ["BOTTOMPADDING", [0, 0], [-1, -1], 10]
+    - ["TOPPADDING", [0, 0], [-1, -1], 0]
+    - ["LEFTPADDING", [0, 0], [-1, -1], 0]
+    - ["RIGHTPADDING", [0, 0], [-1, -1], 0]
+
+footer:
+  paragraph:
+    font_size: 7
+    leading: 9
+  qr_code:
+    width_percent: 0.25 
+    height_percent: 0.25
+  col_widths:
+    width_percent_col1: 0.7
+    width_percent_col2: 0.3
+  footer_table_style:
+    - ['VALIGN', [0, 0], [-1, -1], 'TOP']
+    - ['LEFTPADDING', [0, 0], [0, 0], 0]
+    - ['RIGHTPADDING', [1, 0], [1, 0], 0]
+    - ['ALIGN', [0, 0], [0, 0], 'LEFT']
+    - ['ALIGN', [1, 0], [1, 0], 'RIGHT']
+    - ['BOTTOMPADDING', [0, 0], [-1, -1], 5]
+
+table:
+  body:
+    padding:
+      left: 50
+      right: 50
+      top: 200
+      bottom: 200
+    align_last_column_right: true
+  col_widths_header:
+    row1: 0.12
+    row2: 0.12
+    row3: 0.46
+    row4: 0.15
+    row5: 0.15
+  styles:
+    invoice_table_style:
+      # Header styling
+      - ['BACKGROUND', [0, 0], [-1, 0], '#20A7DB']
+      - ['TEXTCOLOR', [0, 0], [-1, 0], 'white']
+      - ['ALIGN', [0, 0], [-1, 0], 'CENTER']
+      - ['FONTNAME', [0, 0], [-1, 0], 'Helvetica-Bold']
+      - ['FONTSIZE', [0, 0], [-1, 0], 10]
+
+      # Body styling
+      - ['ALIGN', [-1, 1], [-1, -1], 'RIGHT']
+      - ['LEFTPADDING', [0, 0], [-1, -1], 2]
+      - ['RIGHTPADDING', [0, 0], [-1, -1], 2]
+      - ['TOPPADDING', [0, 0], [-1, -1], 3]
+      - ['BOTTOMPADDING', [0, 0], [-1, -1], 10]
+
+      # Total row styling
+      - ['BACKGROUND', [0, -1], [-1, -1], '#A7DFF4']
+      - ['FONTNAME', [0, -1], [-1, -1], 'Helvetica-Bold']
+

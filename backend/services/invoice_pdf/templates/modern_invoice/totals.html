@@ -1,0 +1,15 @@
+<div class="totals-card">
+  <div class="totals-row totals-sub">
+    <span class="label">Sub Total</span>
+    <span class="value">{{ sub_total | round(2) }}</span>
+  </div>
+  <div class="totals-row totals-gst">
+    <span class="label">GST{% if gst_percent is defined %} ({{ gst_percent }}%){% endif %}</span>
+    <span class="value">{{ gst_amount | round(2) }}</span>
+  </div>
+  <div class="totals-divider"></div>
+  <div class="totals-row totals-grand">
+    <span class="label">Total</span>
+    <span class="value">{{ total_amount | round(2) }}</span>
+  </div>
+</div>
