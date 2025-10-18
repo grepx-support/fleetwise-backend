@@ -18,4 +18,5 @@ class CustomerSchema(SQLAlchemyAutoSchema):
     zip_code = auto_field()
     country = auto_field()
     type = auto_field()
+    is_deleted = auto_field()
     sub_customers = SubCustomerSchema(many=True)

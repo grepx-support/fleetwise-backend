@@ -13,6 +13,7 @@ class DriverSchema(SQLAlchemyAutoSchema):
     mobile = auto_field()
     license_number = auto_field()
     vehicle_id = fields.Integer(allow_none=True)
-    status = auto_field() 
+    status = auto_field()
+    is_deleted = auto_field()
     
     vehicle = ma_fields.Nested('VehicleSchema', dump_only=True)

@@ -9,3 +9,4 @@ class VehicleTypeSchema(SQLAlchemyAutoSchema):
     name = auto_field()
     description = auto_field()
     status = auto_field()
+    is_deleted = auto_field()

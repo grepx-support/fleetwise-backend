@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 from backend.services.contractor_service import ContractorService, ServiceError
 from backend.schemas.contractor_schema import ContractorSchema
 import logging
-from flask_security import roles_required, roles_accepted, auth_required
+from flask_security.decorators import roles_required, roles_accepted, auth_required
 from backend.extensions import db
 
 contractor_bp = Blueprint('contractor', __name__)
@@ -128,6 +128,27 @@ def delete_contractor(contractor_id):
         return jsonify({'error': se.message}), 400
     except Exception as e:
         logging.error(f"Unhandled error in delete_contractor: {e}", exc_info=True)
+        return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
+
+@contractor_bp.route('/contractors/<int:contractor_id>/soft-delete', methods=['PUT'])
+@roles_accepted('admin', 'manager')
+def toggle_contractor_soft_delete(contractor_id):
+    try:
+        data = request.get_json()
+        is_deleted = data.get('is_deleted', True)
+        
+        contractor = ContractorService.toggle_soft_delete(contractor_id, is_deleted)
+        if not contractor:
+            return jsonify({'error': 'Contractor not found'}), 404
+            
+        return jsonify({
+            'message': f'Contractor {"deleted" if is_deleted else "restored"} successfully',
+            'contractor': schema.dump(contractor)
+        }), 200
+    except ServiceError as se:
+        return jsonify({'error': se.message}), 400
+    except Exception as e:
+        logging.error(f"Unhandled error in toggle_contractor_soft_delete: {e}", exc_info=True)
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @contractor_bp.route('/contractors/active', methods=['GET'])
