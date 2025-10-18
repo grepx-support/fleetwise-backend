@@ -26,3 +26,4 @@ curl
 wget
 rsync
 alembic
+sqlite3
