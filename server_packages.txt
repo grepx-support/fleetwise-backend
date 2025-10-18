@@ -17,7 +17,6 @@ PostgreSQL
 
 # Web Server and Process Manager
 Nginx
-PM2
 
 # Version Control
 Git
