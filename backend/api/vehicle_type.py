@@ -82,3 +82,24 @@ def delete_vehicle_type(vehicle_type_id):
     except Exception as e:
         logging.error(f"Unhandled error in delete_vehicle_type: {e}", exc_info=True)
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
+
+@vehicle_type_bp.route('/vehicle-types/<int:vehicle_type_id>/soft-delete', methods=['PUT'])
+@roles_accepted('admin', 'manager')
+def toggle_vehicle_type_soft_delete(vehicle_type_id):
+    try:
+        data = request.get_json()
+        is_deleted = data.get('is_deleted', True)
+        
+        vehicle_type = VehicleTypeService.toggle_soft_delete(vehicle_type_id, is_deleted)
+        if not vehicle_type:
+            return jsonify({'error': 'Vehicle type not found'}), 404
+            
+        return jsonify({
+            'message': f'Vehicle type {"deleted" if is_deleted else "restored"} successfully',
+            'vehicle_type': schema.dump(vehicle_type)
+        }), 200
+    except ServiceError as se:
+        return jsonify({'error': se.message}), 400
+    except Exception as e:
+        logging.error(f"Unhandled error in toggle_vehicle_type_soft_delete: {e}", exc_info=True)
+        return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500

@@ -12,7 +12,7 @@ class VehicleService:
     @staticmethod
     def get_all():
         try:
-            return Vehicle.query.all()
+            return Vehicle.query_active().all()
         except Exception as e:
             logging.error(f"Error fetching vehicles: {e}", exc_info=True)
             raise ServiceError("Could not fetch vehicles. Please try again later.")
@@ -20,7 +20,7 @@ class VehicleService:
     @staticmethod
     def get_by_id(vehicle_id):
         try:
-            return Vehicle.query.get(vehicle_id)
+            return Vehicle.query_active().filter_by(id=vehicle_id).first()
         except Exception as e:
             logging.error(f"Error fetching vehicle: {e}", exc_info=True)
             raise ServiceError("Could not fetch vehicle. Please try again later.")
@@ -40,7 +40,7 @@ class VehicleService:
     @staticmethod
     def update(vehicle_id, data):
         try:
-            vehicle = Vehicle.query.get(vehicle_id)
+            vehicle = Vehicle.query_active().filter_by(id=vehicle_id).first()
             if not vehicle:
                 return None
             for key, value in data.items():
@@ -55,13 +55,30 @@ class VehicleService:
     @staticmethod
     def delete(vehicle_id):
         try:
-            vehicle = Vehicle.query.get(vehicle_id)
+            vehicle = Vehicle.query_active().filter_by(id=vehicle_id).first()
             if not vehicle:
                 return False
-            db.session.delete(vehicle)
+            # Soft delete the vehicle instead of hard delete
+            vehicle.is_deleted = True
             db.session.commit()
             return True
         except Exception as e:
             db.session.rollback()
             logging.error(f"Error deleting vehicle: {e}", exc_info=True)
-            raise ServiceError("Could not delete vehicle. Please try again later.") 
+            raise ServiceError("Could not delete vehicle. Please try again later.")
+
+    @staticmethod
+    def toggle_soft_delete(vehicle_id, is_deleted):
+        try:
+            # Get vehicle including deleted ones for restore functionality
+            vehicle = Vehicle.query_all().filter_by(id=vehicle_id).first()
+            if not vehicle:
+                return None
+            
+            vehicle.is_deleted = is_deleted
+            db.session.commit()
+            return vehicle
+        except Exception as e:
+            db.session.rollback()
+            logging.error(f"Error toggling vehicle soft delete status: {e}", exc_info=True)
+            raise ServiceError("Could not update vehicle status. Please try again later.")

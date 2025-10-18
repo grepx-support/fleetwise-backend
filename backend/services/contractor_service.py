@@ -12,7 +12,7 @@ class ContractorService:
     @staticmethod
     def get_all():
         try:
-            return Contractor.query.all()
+            return Contractor.query_active().all()
         except Exception as e:
             logging.error(f"Error fetching contractors: {e}", exc_info=True)
             raise ServiceError("Could not fetch contractors. Please try again later.")
@@ -20,7 +20,7 @@ class ContractorService:
     @staticmethod
     def get_by_id(contractor_id):
         try:
-            return Contractor.query.get(contractor_id)
+            return Contractor.query_active().filter_by(id=contractor_id).first()
         except Exception as e:
             logging.error(f"Error fetching contractor: {e}", exc_info=True)
             raise ServiceError("Could not fetch contractor. Please try again later.")
@@ -40,7 +40,7 @@ class ContractorService:
     @staticmethod
     def update(contractor_id, data):
         try:
-            contractor = Contractor.query.get(contractor_id)
+            contractor = Contractor.query_active().filter_by(id=contractor_id).first()
             if not contractor:
                 return None
             for key, value in data.items():
@@ -55,10 +55,11 @@ class ContractorService:
     @staticmethod
     def delete(contractor_id):
         try:
-            contractor = Contractor.query.get(contractor_id)
+            contractor = Contractor.query_active().filter_by(id=contractor_id).first()
             if not contractor:
                 return False
-            db.session.delete(contractor)
+            # Soft delete the contractor instead of hard delete
+            contractor.is_deleted = True
             db.session.commit()
             return True
         except Exception as e:
@@ -67,9 +68,25 @@ class ContractorService:
             raise ServiceError("Could not delete contractor. Please try again later.")
 
     @staticmethod
+    def toggle_soft_delete(contractor_id, is_deleted):
+        try:
+            # Get contractor including deleted ones for restore functionality
+            contractor = Contractor.query_all().filter_by(id=contractor_id).first()
+            if not contractor:
+                return None
+            
+            contractor.is_deleted = is_deleted
+            db.session.commit()
+            return contractor
+        except Exception as e:
+            db.session.rollback()
+            logging.error(f"Error toggling contractor soft delete status: {e}", exc_info=True)
+            raise ServiceError("Could not update contractor status. Please try again later.")
+
+    @staticmethod
     def get_active_contractors():
         try:
-            return Contractor.query.filter_by(status='Active').all()
+            return Contractor.query_active().filter_by(status='Active').all()
         except Exception as e:
             logging.error(f"Error fetching active contractors: {e}", exc_info=True)
             raise ServiceError("Could not fetch active contractors. Please try again later.")
@@ -93,11 +110,10 @@ class ContractorService:
             if pricing:
                 pricing.cost = cost
             else:
-                pricing = ContractorServicePricing(
-                    contractor_id=contractor_id,
-                    service_id=service_id,
-                    cost=cost
-                )
+                pricing = ContractorServicePricing()
+                pricing.contractor_id = contractor_id
+                pricing.service_id = service_id
+                pricing.cost = cost
                 db.session.add(pricing)
             
             db.session.commit()
@@ -135,11 +151,10 @@ class ContractorService:
                 if pricing:
                     pricing.cost = cost
                 else:
-                    pricing = ContractorServicePricing(
-                        contractor_id=contractor_id,
-                        service_id=service_id,
-                        cost=cost
-                    )
+                    pricing = ContractorServicePricing()
+                    pricing.contractor_id = contractor_id
+                    pricing.service_id = service_id
+                    pricing.cost = cost
                     db.session.add(pricing)
                 
                 updated_pricing.append(pricing)

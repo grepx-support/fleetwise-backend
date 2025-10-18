@@ -2,7 +2,6 @@ import logging
 from backend.extensions import db
 from backend.models.driver import Driver
 from backend.models.vehicle import Vehicle
-from backend.models.driver_commission_table import DriverCommissionTable
 from flask_security.utils import verify_password
 
 class ServiceError(Exception):
@@ -14,7 +13,7 @@ class DriverService:
     @staticmethod
     def get_all():
         try:
-            return Driver.query.all()
+            return Driver.query_active().all()
         except Exception as e:
             logging.error(f"Error fetching drivers: {e}", exc_info=True)
             raise ServiceError("Could not fetch drivers. Please try again later.")
@@ -22,7 +21,7 @@ class DriverService:
     @staticmethod
     def get_by_id(driver_id):
         try:
-            return Driver.query.get(driver_id)
+            return Driver.query_active().filter_by(id=driver_id).first()
         except Exception as e:
             logging.error(f"Error fetching driver: {e}", exc_info=True)
             raise ServiceError("Could not fetch driver. Please try again later.")
@@ -42,7 +41,8 @@ class DriverService:
     @staticmethod
     def update(driver_id, data):
         try:
-            driver = Driver.query.get(driver_id)
+            # Use filter_by instead of get when using query_active
+            driver = Driver.query_active().filter_by(id=driver_id).first()
             if not driver:
                 return None
             for key, value in data.items():
@@ -57,10 +57,12 @@ class DriverService:
     @staticmethod
     def delete(driver_id):
         try:
-            driver = Driver.query.get(driver_id)
+            # Use filter_by instead of get when using query_active
+            driver = Driver.query_active().filter_by(id=driver_id).first()
             if not driver:
                 return False
-            db.session.delete(driver)
+            # Soft delete the driver instead of hard delete
+            driver.is_deleted = True
             db.session.commit()
             return True
         except Exception as e:
@@ -69,10 +71,26 @@ class DriverService:
             raise ServiceError("Could not delete driver. Please try again later.")
 
     @staticmethod
+    def toggle_soft_delete(driver_id, is_deleted):
+        try:
+            # Get driver including deleted ones for restore functionality
+            driver = Driver.query_all().filter_by(id=driver_id).first()
+            if not driver:
+                return None
+            
+            driver.is_deleted = is_deleted
+            db.session.commit()
+            return driver
+        except Exception as e:
+            db.session.rollback()
+            logging.error(f"Error toggling driver soft delete status: {e}", exc_info=True)
+            raise ServiceError("Could not update driver status. Please try again later.")
+
+    @staticmethod
     def get_billing_report(driver_id, start_date=None, end_date=None):
         try:
             from backend.models.job import Job
-            query = Job.query.filter_by(driver_id=driver_id)
+            query = Job.query_active().filter_by(driver_id=driver_id)
             if start_date:
                 query = query.filter(Job.pickup_date >= start_date)
             if end_date:
@@ -98,7 +116,7 @@ class DriverService:
             from backend.schemas.job_schema import JobSchema 
             job_schema_many = JobSchema(many=True)
 
-            query = Job.query.filter_by(driver_id=driver_id).filter(Job.status.in_(['confirmed', 'otw', 'ots','pob']))
+            query = Job.query_active().filter_by(driver_id=driver_id).filter(Job.status.in_(['confirmed', 'otw', 'ots','pob']))
             total = query.count()
             job_list = (
                 query.order_by(Job.pickup_date.desc())
@@ -121,7 +139,7 @@ class DriverService:
             from backend.schemas.job_schema import JobSchema 
             job_schema_many = JobSchema(many=True)
 
-            query = Job.query.filter_by(driver_id=driver_id).filter(Job.status.in_(['jc', 'canceled', 'sd']))
+            query = Job.query_active().filter_by(driver_id=driver_id).filter(Job.status.in_(['jc', 'canceled', 'sd']))
             total = query.count()
             job_list = (
                 query.order_by(Job.pickup_date.desc())
@@ -141,7 +159,7 @@ class DriverService:
     def update_single_job_status(driver_id, job_id, status):
         try:
             from backend.models.job import Job
-            job = Job.query.filter_by(id=job_id, driver_id=driver_id).first()
+            job = Job.query_active().filter_by(id=job_id, driver_id=driver_id).first()
             if not job:
                 return None
             job.status = status

@@ -90,6 +90,27 @@ def delete_driver(driver_id):
         logging.error(f"Unhandled error in delete_driver: {e}", exc_info=True)
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
+@driver_bp.route('/drivers/<int:driver_id>/soft-delete', methods=['PUT'])
+@roles_accepted('admin', 'manager')
+def toggle_driver_soft_delete(driver_id):
+    try:
+        data = request.get_json()
+        is_deleted = data.get('is_deleted', True)
+        
+        driver = DriverService.toggle_soft_delete(driver_id, is_deleted)
+        if not driver:
+            return jsonify({'error': 'Driver not found'}), 404
+            
+        return jsonify({
+            'message': f'Driver {"deleted" if is_deleted else "restored"} successfully',
+            'driver': schema.dump(driver)
+        }), 200
+    except ServiceError as se:
+        return jsonify({'error': se.message}), 400
+    except Exception as e:
+        logging.error(f"Unhandled error in toggle_driver_soft_delete: {e}", exc_info=True)
+        return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
+
 @driver_bp.route('/drivers/<int:driver_id>/billing', methods=['GET'])
 def driver_billing_report(driver_id):
     try:

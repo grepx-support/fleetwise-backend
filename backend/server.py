@@ -160,6 +160,7 @@ CORS(app, supports_credentials=True, resources={r"/api/*": {"origins": [
     "https://test.grepx.sg",
     "capacitor://localhost",
     "ionic://localhost",
+    "http://ec2-18-143-75-251.ap-southeast-1.compute.amazonaws.com:3000",
     "http://ec2-47-129-134-106.ap-southeast-1.compute.amazonaws.com:3001"  # Add this!
 ]}})
 
@@ -186,12 +187,12 @@ def log_authentication_details(email, provided_password, user_obj=None):
         logger.info("User found in DB: NO")
     logger.info("="*80)
 
-
+    
 # Import models and Flask-Security-Too setup after app/db are ready
 with app.app_context():
     # Try different import paths
     try:
-        from backend.models import user, role, customer, sub_customer, vehicle, driver, job, invoice, driver_commission_table, password_reset_token, contractor, contractor_service_pricing
+        from backend.models import user, role, customer, sub_customer, vehicle, driver, job, invoice, password_reset_token, contractor, contractor_service_pricing
         logger.info("Models imported successfully from backend.models")
         try:
             from flask_security.core import Security
@@ -208,7 +209,7 @@ with app.app_context():
                     result = original_find_user(*args, **kwargs)
                     if 'email' in kwargs:
                         email = kwargs['email']
-                        logger.info(f"🔍 User lookup for email: '{email}' -> {'Found' if result else 'Not Found'}")
+                        logger.info(f"[SEARCH] User lookup for email: '{email}' -> {'Found' if result else 'Not Found'}")
                     return result
                 user_datastore.find_user = logged_find_user
         except Exception as e:
@@ -217,7 +218,7 @@ with app.app_context():
     except ImportError as e:
         logger.warning(f"Failed to import from backend.models: {e}")
         try:
-            from models import user, role, customer, sub_customer, vehicle, driver, job, invoice, driver_commission_table, password_reset_token
+            from models import user, role, customer, sub_customer, vehicle, driver, job, invoice, password_reset_token
             logger.info("Models imported successfully from models")
             try:
                 from flask_security.core import Security
@@ -235,7 +236,7 @@ with app.app_context():
                         result = original_find_user(*args, **kwargs)
                         if 'email' in kwargs:
                             email = kwargs['email']
-                            logger.info(f"🔍 User lookup for email: '{email}' -> {'Found' if result else 'Not Found'}")
+                            logger.info(f"[SEARCH] User lookup for email: '{email}' -> {'Found' if result else 'Not Found'}")
                         return result
                     user_datastore.find_user = logged_find_user
             except Exception as e:
@@ -243,7 +244,7 @@ with app.app_context():
                 logger.error(traceback.format_exc())
         except ImportError as e:
             logger.error(f"Warning: Could not import all models: {e}")
-
+            
 
 # Register blueprints with fallback import handling
 blueprints = [
@@ -255,7 +256,6 @@ blueprints = [
     ('vehicle_type', '/api'),
     ('invoice', '/api'),
     ('sub_customer', '/api'),
-    ('driver_commission', '/api'),
     ('user', '/api/auth'),
     ('role', '/api'),
     ('service', '/api'),
@@ -298,7 +298,7 @@ try:
     if not hasattr(mobile_driver_module, 'init_app'):
         raise RuntimeError("mobile_driver module missing required init_app function for rate limiting")
     mobile_driver_module.init_app(app)  # Initialize limiter before blueprint registration
-
+    
     # Now import and register blueprint safely
     from backend.api.mobileapi.driver import mobile_driver_bp
     app.register_blueprint(mobile_driver_bp, url_prefix='/api/mobile')
@@ -367,26 +367,15 @@ def log_request_info():
                 logger.error(f"Error during authentication logging: {e}")
                 logger.error(traceback.format_exc())
 
-
 @app.after_request
 def log_response_info(response):
     logger.debug(f"Response: {response.status_code}")
-
-    # Log ALL responses, not just errors
-    if response.is_json:
-        response_data = response.get_json()
-        # Truncate to avoid huge logs
-        data_str = str(response_data)
-        if len(data_str) > 1000:
-            data_str = data_str[:1000] + "... (truncated)"
-        logger.debug(f"Response JSON: {data_str}")
-
-    # Keep the existing error handling
     if response.status_code >= 400:
         logger.error(f"Error response: {response.status_code} for {request.method} {request.url}")
         if response.is_json:
             response_data = response.get_json()
             logger.error(f"Response data: {response_data}")
+
             # Log additional details for authentication failures
             if (request.endpoint and 'login' in str(request.endpoint).lower() and
                 response.status_code == 400):
@@ -399,7 +388,6 @@ def log_response_info(response):
         else:
             logger.error(f"Response data: {response.get_data(as_text=True)}")
     return response
-
 
 
 from flask import request
@@ -483,14 +471,14 @@ def ratelimit_handler(e):
 def uploaded_file(filename):
     """
     Secure and optimized photo access endpoint that addresses TOCTOU vulnerabilities and performance issues.
-
-    This endpoint uses a single atomic query with eager loading to verify all relationships
+    
+    This endpoint uses a single atomic query with eager loading to verify all relationships 
     simultaneously, eliminating the TOCTOU gap and reducing database round-trips.
     """
     # All photo access requires authentication
     if not current_user or not hasattr(current_user, 'has_role'):
         abort(403)
-
+        
     try:
         # Parse filename to get job_id (format: job_id_driver_id_stage_timestamp.jpg)
         parts = filename.split('_')
@@ -498,7 +486,7 @@ def uploaded_file(filename):
             abort(404)
         job_id = int(parts[0])
         # Note: We don't trust the driver_id from filename for authorization checks
-
+        
         # Admins and managers can access all photos
         if current_user.has_role('admin') or current_user.has_role('manager'):
             # Single atomic query with eager-loaded relationship for admins/managers
@@ -509,7 +497,7 @@ def uploaded_file(filename):
                 JobPhoto.job_id == job_id,
                 JobPhoto.filename == filename  # Use exact matching instead of endswith for better performance
             ).first()
-
+            
             # Atomically verify photo exists and job relationship is valid
             if not photo or not photo.job:
                 abort(404)
@@ -524,7 +512,7 @@ def uploaded_file(filename):
                 JobPhoto.driver_id == current_user.driver_id,
                 JobPhoto.filename == filename  # Use exact matching instead of endswith for better performance
             ).first()
-
+            
             # Atomically verify photo exists and job relationship is valid
             if not photo or not photo.job or photo.job.driver_id != current_user.driver_id:
                 abort(403)
@@ -533,7 +521,7 @@ def uploaded_file(filename):
             user_driver_id = getattr(current_user, 'driver_id', None)
             if not user_driver_id:
                 abort(403)
-
+                
             # Single atomic query with eager-loaded relationship
             from sqlalchemy.orm import joinedload
             photo = JobPhoto.query.options(
@@ -543,16 +531,16 @@ def uploaded_file(filename):
                 JobPhoto.driver_id == user_driver_id,
                 JobPhoto.filename == filename  # Use exact matching instead of endswith for better performance
             ).first()
-
+            
             # Atomically verify photo exists and job relationship is valid
             if not photo or not photo.job or photo.job.driver_id != user_driver_id:
                 abort(403)
-
+                
     except (ValueError, IndexError):
         abort(404)
-
+ 
     return send_from_directory(app.config['JOB_PHOTO_UPLOAD_FOLDER'], filename)
 
 
 if __name__ == '__main__':
-    app.run(host="::", port=5000, debug=True)
+    app.run(host="::", port=5000, debug=True) 

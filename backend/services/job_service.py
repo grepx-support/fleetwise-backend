@@ -54,7 +54,6 @@ from backend.models.vehicle import Vehicle
 from backend.models.driver import Driver
 from backend.models.user import User
 from backend.models.invoice import Invoice
-from backend.models.driver_commission_table import DriverCommissionTable
 from backend.models.customer_service_pricing import CustomerServicePricing
 from backend.models.contractor_service_pricing import ContractorServicePricing
 from backend.models.service import Service
@@ -832,35 +831,6 @@ class JobService:
             return {"error": "Failed to calculate price."}
 
     
-    @staticmethod
-    def calculate_driver_commission(job_id):
-        try:
-            job = Job.query.get(job_id)
-            if not job or not job.driver_id or not job.vehicle_id or not job.service_type:
-                return {'error': 'Job, driver, vehicle, or service_type missing.'}
-            vehicle = Vehicle.query.get(job.vehicle_id)
-            commission_row = DriverCommissionTable.query.filter_by(
-                driver_id=job.driver_id,
-                job_type=job.service_type,
-                vehicle_type=vehicle.type if vehicle else None
-            ).first()
-            if not commission_row:
-                return {'error': 'No commission found for this driver/job_type/vehicle_type.'}
-            job.driver_commission = commission_row.commission_amount
-            db.session.commit()
-            return {
-                'driver_commission': commission_row.commission_amount,
-                'breakdown': {
-                    'driver_id': job.driver_id,
-                    'job_type': job.service_type,
-                    'vehicle_type': vehicle.type if vehicle else None,
-                    'commission_amount': commission_row.commission_amount
-                }
-            }
-        except Exception as e:
-            db.session.rollback()
-            logging.error(f"Error calculating driver commission: {e}", exc_info=True)
-            raise ServiceError("Could not calculate driver commission. Please try again later.")
 
     @staticmethod
     def set_penalty(job_id, penalty):
