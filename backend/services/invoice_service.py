@@ -573,7 +573,7 @@ class InvoiceService:
                 storage_root = Path(storage_root_env).resolve()
                 current_app.logger.info(f"Using configured invoice storage root: {storage_root}")
             else:
-            # Fallback: derive automatically
+                # Fallback: derive automatically
                 repos_root = Path(current_app.root_path).resolve().parents[2]
                 storage_root = repos_root / "fleetwise-storage"
                 current_app.logger.warning(
@@ -600,18 +600,13 @@ class InvoiceService:
             try:
                 shutil.copy2(pdf_path, storage_path)
                 current_app.logger.info(f"📦 Invoice archived successfully: {storage_path}")
-                return send_file(
-                pdf_path,
-                mimetype="application/pdf",
-                as_attachment=False,            # inline in browser
-                download_name=pdf_path.name     # Flask 2.0+ (fallbacks automatically if older)
-            )
+                
             except FileNotFoundError as e:
                 current_app.logger.error(
                     f"Backup failed: Source file not found ({pdf_path}). Invoice not archived."
                     )
                 raise  FileNotFoundError("Backup Failed: Source file not found.") from e
-            except PermissionError:
+            except PermissionError as e:
                 current_app.logger.critical(
                 f"Backup failed: Permission denied while writing to {storage_path}. "
                 f"Check directory permissions and user access."
@@ -627,6 +622,12 @@ class InvoiceService:
                 f"Unexpected error during invoice backup: {e}"
              )
                 raise InvoicePDFError("Unexpected error occurred while generating invoice PDF.") from e
+            return send_file(
+                pdf_path,
+                mimetype="application/pdf",
+                as_attachment=False,            # inline in browser
+                download_name=pdf_path.name     # Flask 2.0+ (fallbacks automatically if older)
+            )
            
             
         except FileNotFoundError as e:
