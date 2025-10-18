@@ -29,7 +29,6 @@ try:
     from backend.models.job import Job
     from backend.models.invoice import Invoice, Payment
     from backend.models.customer_service_pricing import CustomerServicePricing
-    from backend.models.driver_commission_table import DriverCommissionTable
     from backend.models.service import Service
     from backend.models.settings import UserSettings
     from backend.models.postal_code import PostalCode
@@ -178,7 +177,6 @@ def main():
             db.session.query(Job).delete()
             db.session.query(Invoice).delete()
             db.session.query(CustomerServicePricing).delete()
-            db.session.query(DriverCommissionTable).delete()
             db.session.query(SubCustomer).delete()
             db.session.query(Customer).delete()
             db.session.query(Vehicle).delete()
@@ -367,12 +365,6 @@ def main():
         driver_user2.driver_id = driver2.id
         db.session.commit()
 
-        # --- Driver Commission Tables ---
-        print("Creating driver commission tables...")
-        get_or_create(DriverCommissionTable, driver_id=driver1.id, job_type='Airport Transfer',
-                      vehicle_type='13-Seater', defaults={'commission_amount': 15.0})
-        get_or_create(DriverCommissionTable, driver_id=driver2.id, job_type='Corporate Charter',
-                      vehicle_type='23-Seater', defaults={'commission_amount': 30.0})
 
         passenger_names = [
             'Sarah Johnson', 'Michael Chen', 'Emily Rodriguez', 'David Kumar', 'Lisa Wang',
@@ -503,8 +495,6 @@ def main():
             (driver1, 'VIP Charter', 'Luxury', 38),
             (driver2, 'Airport Transfer', '13-Seater', 16),
         ]:
-            get_or_create(DriverCommissionTable, driver_id=drv.id, job_type=jtype, vehicle_type=vtype,
-                          defaults={'commission_amount': comm})
 
         # --- Services ---
         print("Creating services...")
@@ -798,7 +788,6 @@ def main():
         print(f'Jobs: {Job.query.count()}')
         print(f'Invoices: {Invoice.query.count()}')
         print(f'CustomerServicePricing: {CustomerServicePricing.query.count()}')
-        print(f'DriverCommissionTables: {DriverCommissionTable.query.count()}')
         print(f'Services: {Service.query.count()}')
         print(f'ServicesVehicleTypePrice: {ServicesVehicleTypePrice.query.count()}')
         print(f'Contractors: {Contractor.query.count()}')

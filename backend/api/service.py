@@ -44,38 +44,19 @@ def create_service():
         data = request.get_json()
         logging.info(f"Raw data received: {data}")
         
-        # Handle base_price as float
-        if 'base_price' in data:
-            if data['base_price'] is None or data['base_price'] == '':
-                data['base_price'] = 0.0
-            else:
-                try:
-                    data['base_price'] = float(data['base_price'])
-                    if data['base_price'] < 0:
-                        return jsonify({'error': 'base_price must be non-negative'}), 400
-                except (ValueError, TypeError):
-                    return jsonify({'error': 'base_price must be a valid number'}), 400
+        # Extract only the fields that exist in the Service model
+        service_data = {
+            'name': data.get('name'),
+            'description': data.get('description', ''),
+            'status': data.get('status', 'Active')
+        }
         
-        # Handle numeric fields as Decimal
-        decimal_fields = ['additional_ps', 'distance_levy', 'midnight_surcharge']
-        for field in decimal_fields:
-            if field in data:
-                if data[field] is None or data[field] == '':
-                    data[field] = Decimal('0.00')
-                else:
-                    try:
-                        data[field] = Decimal(str(data[field]))
-                        if data[field] < 0:
-                            return jsonify({'error': f'{field} must be non-negative'}), 400
-                    except (ValueError, TypeError, InvalidOperation):
-                        return jsonify({'error': f'{field} must be a valid number'}), 400
-        
-        logging.info(f"Processed data: {data}")
-        errors = schema.validate(data)
+        logging.info(f"Processed data: {service_data}")
+        errors = schema.validate(service_data)
         if errors:
             logging.error(f"Schema validation errors: {errors}")
             return jsonify(errors), 400
-        service = ServiceService.create(data)
+        service = ServiceService.create(service_data)
         result = schema.dump(service)
         logging.info(f"Service created successfully with ID: {service.id}")
         return jsonify(result), 201
@@ -92,40 +73,12 @@ def create_service_with_pricing():
         data = request.get_json()
         logging.info(f"Creating service with pricing data: {data}")
         
-        # Extract service data
+        # Extract only the fields that exist in the Service model
         service_data = {
             'name': data.get('name'),
             'description': data.get('description', ''),
-            'status': data.get('status', 'Active'),
-            'base_price': data.get('base_price', 0.0),
-            'additional_ps': data.get('additional_ps', '0.00'),
-            'distance_levy': data.get('distance_levy', '0.00'),
-            'midnight_surcharge': data.get('midnight_surcharge', '0.00')
+            'status': data.get('status', 'Active')
         }
-        
-        # Handle base_price as float
-        if service_data['base_price'] is None or service_data['base_price'] == '':
-            service_data['base_price'] = 0.0
-        else:
-            try:
-                service_data['base_price'] = float(service_data['base_price'])
-                if service_data['base_price'] < 0:
-                    return jsonify({'error': 'base_price must be non-negative'}), 400
-            except (ValueError, TypeError):
-                return jsonify({'error': 'base_price must be a valid number'}), 400
-        
-        # Handle numeric fields as Decimal
-        decimal_fields = ['additional_ps', 'distance_levy', 'midnight_surcharge']
-        for field in decimal_fields:
-            if service_data[field] is None or service_data[field] == '':
-                service_data[field] = Decimal('0.00')
-            else:
-                try:
-                    service_data[field] = Decimal(str(service_data[field]))
-                    if service_data[field] < 0:
-                        return jsonify({'error': f'{field} must be non-negative'}), 400
-                except (ValueError, TypeError, InvalidOperation):
-                    return jsonify({'error': f'{field} must be a valid number'}), 400
         
         logging.info(f"Processed service data: {service_data}")
         errors = schema.validate(service_data)
@@ -204,40 +157,12 @@ def create_service_with_all_pricing():
         data = request.get_json()
         logging.info(f"Creating service with all vehicle type pricing data: {data}")
         
-        # Extract service data with defaults for optional fields
+        # Extract only the fields that exist in the Service model
         service_data = {
             'name': data.get('name'),
             'description': data.get('description', ''),
-            'status': data.get('status', 'Active'),
-            'base_price': data.get('base_price', 0.0),
-            'additional_ps': data.get('additional_ps', '0.00'),
-            'distance_levy': data.get('distance_levy', '0.00'),
-            'midnight_surcharge': data.get('midnight_surcharge', '0.00')
+            'status': data.get('status', 'Active')
         }
-        
-        # Handle base_price as float with default
-        if service_data['base_price'] is None or service_data['base_price'] == '':
-            service_data['base_price'] = 0.0
-        else:
-            try:
-                service_data['base_price'] = float(service_data['base_price'])
-                if service_data['base_price'] < 0:
-                    return jsonify({'error': 'base_price must be non-negative'}), 400
-            except (ValueError, TypeError):
-                return jsonify({'error': 'base_price must be a valid number'}), 400
-        
-        # Handle numeric fields as Decimal with defaults
-        decimal_fields = ['additional_ps', 'distance_levy', 'midnight_surcharge']
-        for field in decimal_fields:
-            if service_data[field] is None or service_data[field] == '':
-                service_data[field] = Decimal('0.00')
-            else:
-                try:
-                    service_data[field] = Decimal(str(service_data[field]))
-                    if service_data[field] < 0:
-                        return jsonify({'error': f'{field} must be non-negative'}), 400
-                except (ValueError, TypeError, InvalidOperation):
-                    return jsonify({'error': f'{field} must be a valid number'}), 400
         
         logging.info(f"Processed service data: {service_data}")
         errors = schema.validate(service_data)
@@ -396,40 +321,12 @@ def update_service_with_all_pricing(service_id):
         data = request.get_json()
         logging.info(f"Updating service with all vehicle type pricing data for service {service_id}: {data}")
         
-        # Extract service data with defaults for optional fields
+        # Extract only the fields that exist in the Service model
         service_data = {
             'name': data.get('name'),
             'description': data.get('description', ''),
-            'status': data.get('status', 'Active'),
-            'base_price': data.get('base_price', 0.0),
-            'additional_ps': data.get('additional_ps', '0.00'),
-            'distance_levy': data.get('distance_levy', '0.00'),
-            'midnight_surcharge': data.get('midnight_surcharge', '0.00')
+            'status': data.get('status', 'Active')
         }
-        
-        # Handle base_price as float with default
-        if service_data['base_price'] is None or service_data['base_price'] == '':
-            service_data['base_price'] = 0.0
-        else:
-            try:
-                service_data['base_price'] = float(service_data['base_price'])
-                if service_data['base_price'] < 0:
-                    return jsonify({'error': 'base_price must be non-negative'}), 400
-            except (ValueError, TypeError):
-                return jsonify({'error': 'base_price must be a valid number'}), 400
-        
-        # Handle numeric fields as Decimal with defaults
-        decimal_fields = ['additional_ps', 'distance_levy', 'midnight_surcharge']
-        for field in decimal_fields:
-            if service_data[field] is None or service_data[field] == '':
-                service_data[field] = Decimal('0.00')
-            else:
-                try:
-                    service_data[field] = Decimal(str(service_data[field]))
-                    if service_data[field] < 0:
-                        return jsonify({'error': f'{field} must be non-negative'}), 400
-                except (ValueError, TypeError, InvalidOperation):
-                    return jsonify({'error': f'{field} must be a valid number'}), 400
         
         logging.info(f"Processed service data: {service_data}")
         errors = schema.validate(service_data, partial=True)
@@ -560,4 +457,25 @@ def delete_service(service_id):
         return jsonify({'error': se.message}), 400
     except Exception as e:
         logging.error(f"Unhandled error in delete_service: {e}", exc_info=True)
-        return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500 
+        return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
+
+@service_bp.route('/services/<int:service_id>/soft-delete', methods=['PUT'])
+@roles_accepted('admin', 'manager')
+def toggle_service_soft_delete(service_id):
+    try:
+        data = request.get_json()
+        is_deleted = data.get('is_deleted', True)
+        
+        service = ServiceService.toggle_soft_delete(service_id, is_deleted)
+        if not service:
+            return jsonify({'error': 'Service not found'}), 404
+            
+        return jsonify({
+            'message': f'Service {"deleted" if is_deleted else "restored"} successfully',
+            'service': schema.dump(service)
+        }), 200
+    except ServiceError as se:
+        return jsonify({'error': se.message}), 400
+    except Exception as e:
+        logging.error(f"Unhandled error in toggle_service_soft_delete: {e}", exc_info=True)
+        return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500

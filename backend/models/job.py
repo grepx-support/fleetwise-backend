@@ -1,5 +1,6 @@
 from backend.extensions import db
 from sqlalchemy.dialects.sqlite import JSON
+from sqlalchemy import false
 from enum import Enum
 from backend.models.driver import Driver
 from backend.models.vehicle import Vehicle
@@ -83,6 +84,7 @@ class Job(db.Model):
     
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
     updated_at = db.Column(db.DateTime, default=db.func.current_timestamp(), onupdate=db.func.current_timestamp())
+    is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default=false())
 
 
        # New fields for job tracking
@@ -150,6 +152,16 @@ class Job(db.Model):
         else:
             return query
     
+    @classmethod
+    def query_active(cls):
+        """Query active (non-deleted) records only"""
+        return cls.query.filter_by(is_deleted=False)
+    
+    @classmethod
+    def query_all(cls):
+        """Query all records including deleted ones"""
+        return cls.query
+    
     __table_args__ = (
         db.CheckConstraint(
             f"status IN ({', '.join([repr(status.value) for status in JobStatus])})",
@@ -200,19 +212,19 @@ class Job(db.Model):
         if self.status == JobStatus.PENDING.value:
             return new_status == JobStatus.CONFIRMED.value
             
-        # NEW can transition to Pending or Confirmed
+        # NEW can transition to PENDING or CONFIRMED
         if self.status == JobStatus.NEW.value:
             return new_status in [JobStatus.PENDING.value, JobStatus.CONFIRMED.value]
             
-        # Default case - no valid transition
-        return False
-    
+        return False  # Default case - no transition allowed
+
     @property
     def duration_minutes(self):
         if self.start_time and self.end_time:
             duration_seconds = (self.end_time - self.start_time).total_seconds()
             return max(0, duration_seconds / 60)  # Ensure non-negative
         return None
+
     @property
     def duration_str(self):
         """Return job duration formatted as 'Xh Ym'."""

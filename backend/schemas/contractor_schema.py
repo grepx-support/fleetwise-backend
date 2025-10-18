@@ -14,3 +14,4 @@ class ContractorSchema(SQLAlchemyAutoSchema):
     contact_number = auto_field()
     email = auto_field()
     status = auto_field()
+    is_deleted = auto_field()

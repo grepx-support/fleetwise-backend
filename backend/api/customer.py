@@ -2,7 +2,8 @@ from flask import Blueprint, request, jsonify
 from backend.services.customer_service import CustomerService, ServiceError
 from backend.schemas.customer_schema import CustomerSchema
 import logging
-from flask_security import roles_required, roles_accepted, auth_required, current_user
+from flask_security.decorators import roles_required, roles_accepted, auth_required
+from flask_security import current_user
 from backend.extensions import db
 
 customer_bp = Blueprint('customer', __name__)
@@ -94,4 +95,25 @@ def delete_customer(customer_id):
         return jsonify({'error': se.message}), 400
     except Exception as e:
         logging.error(f"Unhandled error in delete_customer: {e}", exc_info=True)
-        return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500 
+        return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
+
+@customer_bp.route('/customers/<int:customer_id>/soft-delete', methods=['PUT'])
+@roles_accepted('admin', 'manager')
+def toggle_customer_soft_delete(customer_id):
+    try:
+        data = request.get_json()
+        is_deleted = data.get('is_deleted', True)
+        
+        customer = CustomerService.toggle_soft_delete(customer_id, is_deleted)
+        if not customer:
+            return jsonify({'error': 'Customer not found'}), 404
+            
+        return jsonify({
+            'message': f'Customer {"deleted" if is_deleted else "restored"} successfully',
+            'customer': schema.dump(customer)
+        }), 200
+    except ServiceError as se:
+        return jsonify({'error': se.message}), 400
+    except Exception as e:
+        logging.error(f"Unhandled error in toggle_customer_soft_delete: {e}", exc_info=True)
+        return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500

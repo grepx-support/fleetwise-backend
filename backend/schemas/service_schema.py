@@ -10,3 +10,4 @@ class ServiceSchema(SQLAlchemyAutoSchema):
     name = auto_field(required=True)
     description = auto_field()
     status = auto_field(required=True)
+    is_deleted = auto_field()

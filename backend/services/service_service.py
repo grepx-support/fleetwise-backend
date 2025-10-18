@@ -12,7 +12,7 @@ class ServiceService:
     @staticmethod
     def get_all():
         try:
-            return Service.query.all()
+            return Service.query_active().all()
         except Exception as e:
             logging.error(f"Error fetching services: {e}", exc_info=True)
             raise ServiceError("Could not fetch services. Please try again later.")
@@ -20,7 +20,7 @@ class ServiceService:
     @staticmethod
     def get_by_id(service_id):
         try:
-            return Service.query.get(service_id)
+            return Service.query_active().filter_by(id=service_id).first()
         except Exception as e:
             logging.error(f"Error fetching service: {e}", exc_info=True)
             raise ServiceError("Could not fetch service. Please try again later.")
@@ -51,7 +51,7 @@ class ServiceService:
     def update(service_id, data):
         try:
             logging.info(f"Updating service {service_id} with data: {list(data.keys())}")
-            service = Service.query.get(service_id)
+            service = Service.query_active().filter_by(id=service_id).first()
             if not service:
                 return None
             for key, value in data.items():
@@ -74,30 +74,36 @@ class ServiceService:
 
     @staticmethod
     def delete(service_id):
-        from backend.models.customer_service_pricing import CustomerServicePricing
-        from backend.models.ServicesVehicleTypePrice import ServicesVehicleTypePrice
         try:
-            service = Service.query.get(service_id)
+            service = Service.query_active().filter_by(id=service_id).first()
             if not service:
                 return False
             
-            # Delete associated customer service pricing records
-            pricing_count = CustomerServicePricing.query.filter_by(service_id=service_id).count()
-            if pricing_count > 0:
-                CustomerServicePricing.query.filter_by(service_id=service_id).delete()
-                logging.info(f"Cascade deleted {pricing_count} customer service pricing records for service {service_id}")
+            # Soft delete the service instead of hard delete
+            service.is_deleted = True
             
-            # Delete associated service vehicle type price records
-            svc_price_count = ServicesVehicleTypePrice.query.filter_by(service_id=service_id).count()
-            if svc_price_count > 0:
-                ServicesVehicleTypePrice.query.filter_by(service_id=service_id).delete()
-                logging.info(f"Cascade deleted {svc_price_count} service vehicle type price records for service {service_id}")
-            
-            db.session.delete(service)
             db.session.commit()
-            logging.info(f"Service {service_id} deleted successfully")
+            logging.info(f"Service {service_id} soft deleted successfully")
             return True
         except Exception as e:
             db.session.rollback()
             logging.error(f"Error deleting service: {e}", exc_info=True)
             raise ServiceError("Could not delete service. Please try again later.")
+
+    @staticmethod
+    def toggle_soft_delete(service_id, is_deleted):
+        try:
+            # Get service including deleted ones for restore functionality
+            service = Service.query_all().filter_by(id=service_id).first()
+            if not service:
+                return None
+            
+            service.is_deleted = is_deleted
+            
+            db.session.commit()
+            logging.info(f"Service {service_id} soft delete status toggled to {is_deleted}")
+            return service
+        except Exception as e:
+            db.session.rollback()
+            logging.error(f"Error toggling service soft delete status: {e}", exc_info=True)
+            raise ServiceError("Could not update service status. Please try again later.")
