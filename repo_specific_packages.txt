@@ -7,6 +7,9 @@
 # Create Python virtual environment
 python3 -m venv venv
 
+# Verify venv is ready before using it
+sleep 2 && test -f venv/bin/activate
+
 # Upgrade pip
 source venv/bin/activate && pip install --upgrade pip
 
@@ -28,3 +31,4 @@ source venv/bin/activate && test -f requirements-firebase.txt && pip install -r 
 
 # Run database migrations (if Alembic is configured)
 source venv/bin/activate && test -d alembic && alembic upgrade head || echo "Alembic not configured, skipping migrations"
+
