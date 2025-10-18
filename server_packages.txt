@@ -25,3 +25,4 @@ Git
 curl
 wget
 rsync
+alembic
