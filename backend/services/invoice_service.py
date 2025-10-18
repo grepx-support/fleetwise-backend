@@ -20,6 +20,8 @@ from PIL import Image as PILImage
 import yaml
 from sqlalchemy.orm import joinedload
 from xml.sax.saxutils import escape
+import shutil
+from datetime import datetime
 
 # backend/services/invoice_service.py  
 import sys
@@ -551,13 +553,83 @@ class InvoiceService:
             if not pdf_result.success or not pdf_path.exists():
                 current_app.logger.error("Invoice generation failed: %s", getattr(pdf_result, "error", "unknown"))
                 raise FileNotFoundError("Invoice template or resource missing.")
+            # === Save a copy in fleetwise-storage organized by invoice.date month ===
+            if hasattr(invoice.date, "strftime"):
+                invoice_date = invoice.date
+            else:
+                try:
+                    invoice_date = datetime.strptime(str(invoice.date), "%Y-%m-%d")
+                except ValueError:
+                    current_app.logger.error(f"Invalid invoice date format: {invoice.date}")
+                    raise ValueError(f"Invalid invoice date format: {invoice.date}")
+            month_str = invoice_date.strftime("%Y-%m")
+            if not re.match(r'^\d{4}-\d{2}$', month_str):
+                current_app.logger.error(f"Date produced invalid month string: {month_str}")
+                raise ValueError(f"Invalid month format: {month_str}")
 
+            # --- Determine storage root ---
+            storage_root_env = current_app.config.get("INVOICE_STORAGE_ROOT")
+            if storage_root_env and Path(storage_root_env).exists():
+                storage_root = Path(storage_root_env).resolve()
+                current_app.logger.info(f"Using configured invoice storage root: {storage_root}")
+            else:
+                # Fallback: derive automatically
+                repos_root = Path(current_app.root_path).resolve().parents[2]
+                storage_root = repos_root / "fleetwise-storage"
+                current_app.logger.warning(
+                    f"INVOICE_STORAGE_ROOT not set or invalid. Falling back to: {storage_root}"
+                )
+
+            storage_base = storage_root / "invoices"    
+            storage_month_dir = storage_base / month_str
+  
+            try:
+                storage_month_dir.mkdir(parents=True, exist_ok=True)
+                if not storage_month_dir.is_dir():
+                    raise RuntimeError(f"Storage path exists but is not a directory: {storage_month_dir}")
+                if not os.access(storage_month_dir, os.W_OK):
+                     raise PermissionError(f"Storage directory is not writable: {storage_month_dir}")
+            except OSError as e:
+                current_app.logger.error(
+                f"Cannot create storage directory {storage_month_dir}: {e}"
+                )
+                raise RuntimeError(f"Failed to create invoice storage: {e}") from e
+
+            # Copy generated PDF into fleetwise-storage
+            storage_path = storage_month_dir / pdf_path.name
+            try:
+                shutil.copy2(pdf_path, storage_path)
+                current_app.logger.info(f"📦 Invoice archived successfully: {storage_path}")
+                
+            except FileNotFoundError as e:
+                current_app.logger.error(
+                    f"Backup failed: Source file not found ({pdf_path}). Invoice not archived."
+                    )
+                raise  FileNotFoundError("Backup Failed: Source file not found.") from e
+            except PermissionError as e:
+                current_app.logger.critical(
+                f"Backup failed: Permission denied while writing to {storage_path}. "
+                f"Check directory permissions and user access."
+                )
+                raise PermissionError("Insufficient permissions to generate invoice PDF.") from e
+            except OSError as e:
+                current_app.logger.error(
+                f"Backup failed: I/O error while copying invoice to {storage_path}. Error: {e}"
+             )
+                raise
+            except Exception as e:
+                current_app.logger.exception(
+                f"Unexpected error during invoice backup: {e}"
+             )
+                raise InvoicePDFError("Unexpected error occurred while generating invoice PDF.") from e
             return send_file(
                 pdf_path,
                 mimetype="application/pdf",
                 as_attachment=False,            # inline in browser
                 download_name=pdf_path.name     # Flask 2.0+ (fallbacks automatically if older)
             )
+           
+            
         except FileNotFoundError as e:
             logging.error(f"File not found while generating invoice PDF: {e}", exc_info=True)
             raise FileNotFoundError("Invoice template or resource missing.") from e

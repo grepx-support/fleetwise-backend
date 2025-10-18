@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key')
@@ -57,6 +58,12 @@ class Config:
     print("basedir ", BASE_DIR)
     JOB_PHOTO_UPLOAD_FOLDER = os.path.join(BASE_DIR, 'static', 'uploads')
     STATIC_FOLDER = os.environ.get('STATIC_FOLDER', 'uploads')  # base static folder
+
+    # invoice storage backup
+    INVOICE_STORAGE_ROOT = os.getenv(
+    "INVOICE_STORAGE_ROOT",
+    str(Path(__file__).resolve().parents[2] / "fleetwise-storage")
+)
  
 class DevConfig(Config):
     SESSION_COOKIE_SAMESITE = 'Lax'  # Use Lax for development
