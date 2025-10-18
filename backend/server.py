@@ -192,7 +192,7 @@ def log_authentication_details(email, provided_password, user_obj=None):
 with app.app_context():
     # Try different import paths
     try:
-        from backend.models import user, role, customer, sub_customer, vehicle, driver, job, invoice, password_reset_token, contractor, contractor_service_pricing
+        from backend.models import user, role, customer, sub_customer, vehicle, driver, job, invoice, password_reset_token, contractor_service_pricing, contractor
         logger.info("Models imported successfully from backend.models")
         try:
             from flask_security.core import Security

@@ -8,9 +8,9 @@ from backend.models.driver import Driver
 from backend.models.job import Job
 from backend.models.invoice import Invoice
 from backend.models.customer_service_pricing import CustomerServicePricing
-from backend.models.driver_commission_table import DriverCommissionTable
+# from backend.models.driver_commission_table import DriverCommissionTable  # File doesn't exist
 from backend.models.postal_code import PostalCode
 from backend.models.password_reset_token import PasswordResetToken
-from backend.models.contractor import Contractor
 from backend.models.contractor_service_pricing import ContractorServicePricing
+from backend.models.contractor import Contractor
 from backend.models.job_audit import JobAudit
