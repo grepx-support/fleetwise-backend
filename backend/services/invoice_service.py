@@ -20,6 +20,8 @@ from PIL import Image as PILImage
 import yaml
 from sqlalchemy.orm import joinedload
 from xml.sax.saxutils import escape
+import shutil
+from datetime import datetime
 
 # backend/services/invoice_service.py  
 import sys
@@ -551,6 +553,22 @@ class InvoiceService:
             if not pdf_result.success or not pdf_path.exists():
                 current_app.logger.error("Invoice generation failed: %s", getattr(pdf_result, "error", "unknown"))
                 raise FileNotFoundError("Invoice template or resource missing.")
+            # === Save a copy in fleetwise-storage organized by invoice.date month ===
+            if hasattr(invoice.date, "strftime"):
+                month_str = invoice.date.strftime("%Y-%m")
+            else:
+                month_str = datetime.strptime(str(invoice.date), "%Y-%m-%d").strftime("%Y-%m")
+
+            base_dir = Path(__file__).resolve().parents[3]  # backend/services/invoice_service.py → backend → fleetwise-backend → repos
+            storage_base = base_dir / "fleetwise-storage" / "invoices"
+            storage_month_dir = storage_base / month_str
+            storage_month_dir.mkdir(parents=True, exist_ok=True)
+
+            # Copy generated PDF into fleetwise-storage
+            storage_path = storage_month_dir / pdf_path.name
+            shutil.copy2(pdf_path, storage_path)
+
+            current_app.logger.info(f"📦 Invoice archived to: {storage_path}")
 
             return send_file(
                 pdf_path,
