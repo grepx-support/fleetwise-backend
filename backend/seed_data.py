@@ -495,29 +495,28 @@ def main():
             (driver1, 'VIP Charter', 'Luxury', 38),
             (driver2, 'Airport Transfer', '13-Seater', 16),
         ]:
-
-        # --- Services ---
-        print("Creating services...")
-        airTrsArr = get_or_create(Service, name='Airport Transfer - Arrival',
-                      defaults={'description': 'Airport Transfer - Arrival ', 'status': 'Active'})
-        airTraDep = get_or_create(Service, name='Airport Transfer - Departure',
-                      defaults={'description': 'Airport Transfer - Departure', 'status': 'Active'})
-        cityShortTrs = get_or_create(Service, name='City / Short Transfer',
-                      defaults={'description': 'City / Short Transfer', 'status': 'Active'})
-        outCityTrs = get_or_create(Service, name='Outside City Transfer',
-                      defaults={'description': 'Outside City Transfer', 'status': 'Active'})
-        studentTrip = get_or_create(Service, name='Student Trip',
-                      defaults={'description': 'Student Trip', 'status': 'Active'})
-        workerTrip = get_or_create(Service, name='Worker Trip',
-                      defaults={'description': 'Worker Trip', 'status': 'Active'})
-        crossBorderTrs = get_or_create(Service, name='Cross Border Transfer',
-                      defaults={'description': 'Cross Border Transfer', 'status': 'Active'})
-        tour4Hrs = get_or_create(Service, name='Tour Package - 4Hrs',
-                      defaults={'description': 'Tour Package - 4Hrs', 'status': 'Active'})
-        tour8Hrs = get_or_create(Service, name='Tour Package - 8Hrs',
-                      defaults={'description': 'Tour Package - 8Hrs', 'status': 'Active'})
-        tour10Hrs = get_or_create(Service, name='Tour Package - 10Hrs',
-                      defaults={'description': 'Tour Package - 10Hrs', 'status': 'Active'})
+            # --- Services ---
+            print("Creating services...")
+            airTrsArr = get_or_create(Service, name='Airport Transfer - Arrival',
+                        defaults={'description': 'Airport Transfer - Arrival ', 'status': 'Active'})
+            airTraDep = get_or_create(Service, name='Airport Transfer - Departure',
+                        defaults={'description': 'Airport Transfer - Departure', 'status': 'Active'})
+            cityShortTrs = get_or_create(Service, name='City / Short Transfer',
+                        defaults={'description': 'City / Short Transfer', 'status': 'Active'})
+            outCityTrs = get_or_create(Service, name='Outside City Transfer',
+                        defaults={'description': 'Outside City Transfer', 'status': 'Active'})
+            studentTrip = get_or_create(Service, name='Student Trip',
+                        defaults={'description': 'Student Trip', 'status': 'Active'})
+            workerTrip = get_or_create(Service, name='Worker Trip',
+                        defaults={'description': 'Worker Trip', 'status': 'Active'})
+            crossBorderTrs = get_or_create(Service, name='Cross Border Transfer',
+                        defaults={'description': 'Cross Border Transfer', 'status': 'Active'})
+            tour4Hrs = get_or_create(Service, name='Tour Package - 4Hrs',
+                        defaults={'description': 'Tour Package - 4Hrs', 'status': 'Active'})
+            tour8Hrs = get_or_create(Service, name='Tour Package - 8Hrs',
+                        defaults={'description': 'Tour Package - 8Hrs', 'status': 'Active'})
+            tour10Hrs = get_or_create(Service, name='Tour Package - 10Hrs',
+                        defaults={'description': 'Tour Package - 10Hrs', 'status': 'Active'})
 
         # --- Contractors ---
         print("Creating contractors...")
