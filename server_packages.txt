@@ -12,9 +12,11 @@ python3.12-venv
 
 # Build Tools
 build-essential
+libffi-dev  # Foreign Function Interface (required for many Python packages)
 
 # Database
 PostgreSQL
+sqlite3
 
 # Web Server and Process Manager
 Nginx
@@ -27,4 +29,12 @@ curl
 wget
 rsync
 alembic
-sqlite3
+
+# Graphics and Font Dependencies (for Cairo, Pango, etc.)
+libcairo2
+libpango-1.0-0
+libpangocairo-1.0-0
+libgdk-pixbuf2.0-0
+shared-mime-info
+fonts-dejavu-core
+
