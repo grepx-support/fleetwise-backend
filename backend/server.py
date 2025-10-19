@@ -158,6 +158,7 @@ CORS(app, supports_credentials=True, resources={r"/api/*": {"origins": [
     "http://localhost:8100",
     "http://127.0.0.1:8100",
     "https://test.grepx.sg",
+    "https://fleet.avant-garde.com.sg/",
     "capacitor://localhost",
     "ionic://localhost",
     "http://ec2-18-143-75-251.ap-southeast-1.compute.amazonaws.com:3000",
