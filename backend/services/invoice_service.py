@@ -539,20 +539,20 @@ class InvoiceService:
                 raise FileNotFoundError("Invoice template 'modern_invoice' not found")
 
             generator = InvoiceGenerator(templates_dir=str(templates_dir))
-            output_dir = templates_dir / "output"   # sibling of the package dir
-            output_dir.mkdir(parents=True, exist_ok=True)
+            # output_dir = templates_dir / "output"   # sibling of the package dir
+            # output_dir.mkdir(parents=True, exist_ok=True)
 
-            pdf_path = output_dir / f"{doc_invoice.number}.pdf"
-            pdf_result = generator.generate_invoice(
-            invoice=doc_invoice,
-            template_name="modern_invoice",
-            output_path=output_dir / f"{doc_invoice.number}.pdf",
-            format_type=OutputFormat.PDF,
-            )
-            output_path = output_dir / f"{doc_invoice.number}.pdf"
-            if not pdf_result.success or not pdf_path.exists():
-                current_app.logger.error("Invoice generation failed: %s", getattr(pdf_result, "error", "unknown"))
-                raise FileNotFoundError("Invoice template or resource missing.")
+            # pdf_path = output_dir / f"{doc_invoice.number}.pdf"
+            # pdf_result = generator.generate_invoice(
+            # invoice=doc_invoice,
+            # template_name="modern_invoice",
+            # output_path=output_dir / f"{doc_invoice.number}.pdf",
+            # format_type=OutputFormat.PDF,
+            # )
+            #output_path = output_dir / f"{doc_invoice.number}.pdf"
+            # if not pdf_result.success or not pdf_path.exists():
+            #     current_app.logger.error("Invoice generation failed: %s", getattr(pdf_result, "error", "unknown"))
+            #     raise FileNotFoundError("Invoice template or resource missing.")
             # === Save a copy in fleetwise-storage organized by invoice.date month ===
             if hasattr(invoice.date, "strftime"):
                 invoice_date = invoice.date
@@ -582,6 +582,7 @@ class InvoiceService:
 
             storage_base = storage_root / "invoices"    
             storage_month_dir = storage_base / month_str
+            
   
             try:
                 storage_month_dir.mkdir(parents=True, exist_ok=True)
@@ -589,18 +590,26 @@ class InvoiceService:
                     raise RuntimeError(f"Storage path exists but is not a directory: {storage_month_dir}")
                 if not os.access(storage_month_dir, os.W_OK):
                      raise PermissionError(f"Storage directory is not writable: {storage_month_dir}")
+                if storage_month_dir:
+                    storage_month_dir = storage_base / month_str
+                storage_month_dir.mkdir(parents=True, exist_ok=True)
+
+                # Generate directly in fleetwise-storage
+                pdf_path = storage_month_dir / f"{doc_invoice.number}.pdf"
+                pdf_result = generator.generate_invoice(
+                invoice=doc_invoice,
+                template_name="modern_invoice",
+                output_path=pdf_path,
+                format_type=OutputFormat.PDF,
+                )
+
             except OSError as e:
                 current_app.logger.error(
                 f"Cannot create storage directory {storage_month_dir}: {e}"
                 )
                 raise RuntimeError(f"Failed to create invoice storage: {e}") from e
-
-            # Copy generated PDF into fleetwise-storage
-            storage_path = storage_month_dir / pdf_path.name
-            try:
-                shutil.copy2(pdf_path, storage_path)
-                current_app.logger.info(f"📦 Invoice archived successfully: {storage_path}")
-                
+            
+  
             except FileNotFoundError as e:
                 current_app.logger.error(
                     f"Backup failed: Source file not found ({pdf_path}). Invoice not archived."
