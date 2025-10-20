@@ -10,6 +10,7 @@ from backend.models.invoice import Invoice
 from backend.models.customer_service_pricing import CustomerServicePricing
 from backend.models.postal_code import PostalCode
 from backend.models.password_reset_token import PasswordResetToken
-from backend.models.contractor_service_pricing import ContractorServicePricing
 from backend.models.contractor import Contractor
+from backend.models.contractor_service_pricing import ContractorServicePricing
 from backend.models.job_audit import JobAudit
+from backend.models.bill import Bill 

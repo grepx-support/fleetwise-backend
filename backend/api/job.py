@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify, send_file, make_response, current_app
 from backend.models.driver_remark import DriverRemark
 from backend.services.job_service import JobService, ServiceError
+from backend.services.bill_service import BillService, ServiceError as BillServiceError
 from backend.schemas.job_schema import JobSchema
 from backend.utils.validation import validate_job_row, get_validation_lookups, validate_excel_data
 import requests
@@ -1841,6 +1842,50 @@ def jobs_table_unbilled():
 
     except Exception as e:
         logging.error(f"Unhandled error in jobs_table_unbilled: {e}", exc_info=True)
+        return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
+
+@job_bp.route('/jobs/contractor-billable', methods=['GET'])
+@roles_accepted('admin', 'manager')
+def jobs_contractor_billable():
+    try:
+        contractor_id = request.args.get('contractor_id', type=int)
+        
+        # Get billable jobs from BillService
+        billable_jobs = BillService.get_billable_jobs(contractor_id)
+        
+        response_json = {
+            'items': schema_many.dump(billable_jobs),
+            'total': len(billable_jobs)
+        }
+        return jsonify(response_json), 200
+
+    except ServiceError as se:
+        logging.error(f"ServiceError in jobs_contractor_billable: {se.message}")
+        return jsonify({'error': se.message}), 400
+    except Exception as e:
+        logging.error(f"Unhandled error in jobs_contractor_billable: {e}", exc_info=True)
+        return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
+
+@job_bp.route('/jobs/driver-billable', methods=['GET'])
+@roles_accepted('admin', 'manager')
+def jobs_driver_billable():
+    try:
+        driver_id = request.args.get('driver_id', type=int)
+        
+        # Get billable jobs from BillService
+        billable_jobs = BillService.get_driver_billable_jobs(driver_id)
+        
+        response_json = {
+            'items': schema_many.dump(billable_jobs),
+            'total': len(billable_jobs)
+        }
+        return jsonify(response_json), 200
+
+    except ServiceError as se:
+        logging.error(f"ServiceError in jobs_driver_billable: {se.message}")
+        return jsonify({'error': se.message}), 400
+    except Exception as e:
+        logging.error(f"Unhandled error in jobs_driver_billable: {e}", exc_info=True)
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @job_bp.route('/jobs/remove/<int:id>', methods=['DELETE'])
