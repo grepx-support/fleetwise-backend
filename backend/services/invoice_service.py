@@ -22,6 +22,7 @@ from sqlalchemy.orm import joinedload
 from xml.sax.saxutils import escape
 import shutil
 from datetime import datetime
+from tempfile import NamedTemporaryFile
 
 # backend/services/invoice_service.py  
 import sys
@@ -539,20 +540,7 @@ class InvoiceService:
                 raise FileNotFoundError("Invoice template 'modern_invoice' not found")
 
             generator = InvoiceGenerator(templates_dir=str(templates_dir))
-            output_dir = templates_dir / "output"   # sibling of the package dir
-            output_dir.mkdir(parents=True, exist_ok=True)
 
-            pdf_path = output_dir / f"{doc_invoice.number}.pdf"
-            pdf_result = generator.generate_invoice(
-            invoice=doc_invoice,
-            template_name="modern_invoice",
-            output_path=output_dir / f"{doc_invoice.number}.pdf",
-            format_type=OutputFormat.PDF,
-            )
-            output_path = output_dir / f"{doc_invoice.number}.pdf"
-            if not pdf_result.success or not pdf_path.exists():
-                current_app.logger.error("Invoice generation failed: %s", getattr(pdf_result, "error", "unknown"))
-                raise FileNotFoundError("Invoice template or resource missing.")
             # === Save a copy in fleetwise-storage organized by invoice.date month ===
             if hasattr(invoice.date, "strftime"):
                 invoice_date = invoice.date
@@ -582,6 +570,7 @@ class InvoiceService:
 
             storage_base = storage_root / "invoices"    
             storage_month_dir = storage_base / month_str
+            
   
             try:
                 storage_month_dir.mkdir(parents=True, exist_ok=True)
@@ -589,44 +578,61 @@ class InvoiceService:
                     raise RuntimeError(f"Storage path exists but is not a directory: {storage_month_dir}")
                 if not os.access(storage_month_dir, os.W_OK):
                      raise PermissionError(f"Storage directory is not writable: {storage_month_dir}")
+                
             except OSError as e:
                 current_app.logger.error(
                 f"Cannot create storage directory {storage_month_dir}: {e}"
                 )
                 raise RuntimeError(f"Failed to create invoice storage: {e}") from e
+            # PDF generation with proper validation (separate concern)
 
-            # Copy generated PDF into fleetwise-storage
-            storage_path = storage_month_dir / pdf_path.name
+            pdf_final_path = storage_month_dir / f"{doc_invoice.number}.pdf"
+            temp_pdf = None
+
             try:
-                shutil.copy2(pdf_path, storage_path)
-                current_app.logger.info(f"📦 Invoice archived successfully: {storage_path}")
-                
-            except FileNotFoundError as e:
-                current_app.logger.error(
-                    f"Backup failed: Source file not found ({pdf_path}). Invoice not archived."
+                # Step 1: Write to a temporary file in the same directory (same filesystem)
+                with NamedTemporaryFile(dir=storage_month_dir, suffix=".pdf", delete=False) as tmp_file:
+                    temp_pdf = Path(tmp_file.name)
+                    pdf_result = generator.generate_invoice(
+                        invoice=doc_invoice,
+                        template_name="modern_invoice",
+                        output_path=temp_pdf,
+                        format_type=OutputFormat.PDF,
+                     )
+
+                # Step 2: Validate that PDF generation succeeded
+                if not pdf_result.success or not temp_pdf.exists() or temp_pdf.stat().st_size == 0:
+                    current_app.logger.error(
+                        f"Invoice generation failed for invoice {invoice_id}: {getattr(pdf_result, 'error', 'unknown error')}"
                     )
-                raise  FileNotFoundError("Backup Failed: Source file not found.") from e
-            except PermissionError as e:
-                current_app.logger.critical(
-                f"Backup failed: Permission denied while writing to {storage_path}. "
-                f"Check directory permissions and user access."
-                )
-                raise PermissionError("Insufficient permissions to generate invoice PDF.") from e
-            except OSError as e:
-                current_app.logger.error(
-                f"Backup failed: I/O error while copying invoice to {storage_path}. Error: {e}"
-             )
-                raise
+                    raise RuntimeError(f"Invoice generation failed or produced empty file: {temp_pdf}")
+
+                # Step 3: Atomically move the file into place
+                os.replace(temp_pdf, pdf_final_path)
+                current_app.logger.info(f"✅ Invoice PDF saved atomically: {pdf_final_path}")
+
             except Exception as e:
-                current_app.logger.exception(
-                f"Unexpected error during invoice backup: {e}"
-             )
-                raise InvoicePDFError("Unexpected error occurred while generating invoice PDF.") from e
+                current_app.logger.error(
+                    f"Error during PDF generation or atomic save for invoice {invoice_id}: {e}", 
+                    exc_info=True
+                )
+            # Cleanup temp file if it exists
+            if temp_pdf and temp_pdf.exists():
+                try:
+                    temp_pdf.unlink()
+                    current_app.logger.debug(f"🧹 Cleaned up temp file: {temp_pdf}")
+                except Exception as cleanup_err:
+                    current_app.logger.warning(f"Failed to delete temp file {temp_pdf}: {cleanup_err}")
+                raise
+
+            if not pdf_final_path.exists():
+                raise RuntimeError(f"Invoice PDF missing after atomic save: {pdf_final_path}")
+
             return send_file(
-                pdf_path,
+                pdf_final_path,
                 mimetype="application/pdf",
                 as_attachment=False,            # inline in browser
-                download_name=pdf_path.name     # Flask 2.0+ (fallbacks automatically if older)
+                download_name=pdf_final_path.name     # Flask 2.0+ (fallbacks automatically if older)
             )
            
             
