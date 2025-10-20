@@ -158,10 +158,11 @@ CORS(app, supports_credentials=True, resources={r"/api/*": {"origins": [
     "http://localhost:8100",
     "http://127.0.0.1:8100",
     "https://test.grepx.sg",
+    "https://fleet.avant-garde.com.sg/",
     "capacitor://localhost",
     "ionic://localhost",
     "http://ec2-18-143-75-251.ap-southeast-1.compute.amazonaws.com:3000",
-    "http://ec2-47-129-134-106.ap-southeast-1.compute.amazonaws.com:3001"  # Add this!
+    "http://ec2-52-76-147-189.ap-southeast-1.compute.amazonaws.com:3001"  # Add this!
 ]}})
 
 # Custom login logging function
@@ -192,7 +193,7 @@ def log_authentication_details(email, provided_password, user_obj=None):
 with app.app_context():
     # Try different import paths
     try:
-        from backend.models import user, role, customer, sub_customer, vehicle, driver, job, invoice, password_reset_token, contractor_service_pricing, contractor
+        from backend.models import user, role, customer, sub_customer, vehicle, driver, job, invoice, password_reset_token, contractor, contractor_service_pricing
         logger.info("Models imported successfully from backend.models")
         try:
             from flask_security.core import Security
@@ -265,7 +266,8 @@ blueprints = [
     ('admin', '/api/admin'),
     ('db_export', '/api'),
     ('contractor', '/api'),
-    ('services_vehicle_type_price', '/api')
+    ('services_vehicle_type_price', '/api'),
+    ('bill', '/api')
 ]
 
 for blueprint_name, prefix in blueprints:

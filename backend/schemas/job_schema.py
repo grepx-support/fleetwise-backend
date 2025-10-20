@@ -41,6 +41,7 @@ class JobSchema(SQLAlchemyAutoSchema):
     invoice_id = auto_field()
     driver_commission = auto_field()
     penalty = auto_field()
+    cash_to_collect = auto_field()
     customer_remark = auto_field()
     
     # Dropoff location fields
