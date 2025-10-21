@@ -1,10 +1,29 @@
+import logging
+import json
+import pytz
+from backend.extensions import db
+from backend.models.job import Job
+from backend.models.customer import Customer
+from backend.models.sub_customer import SubCustomer
+from backend.models.vehicle import Vehicle
+from backend.models.driver import Driver
+from backend.models.user import User
+from backend.models.invoice import Invoice
+from backend.models.customer_service_pricing import CustomerServicePricing
+from backend.models.contractor_service_pricing import ContractorServicePricing
+from backend.models.service import Service
+from backend.models.ServicesVehicleTypePrice import ServicesVehicleTypePrice
+from backend.models.vehicle_type import VehicleType
+from datetime import datetime
+from backend.services.push_notification_service import PushNotificationService
+from decimal import Decimal
+
+
 def compare_job_fields(old_job, new_data):
     """
     Compare all relevant fields between the old job object and the new data dict.
     Returns a list of (field, old_val, new_val) for changed fields.
     """
-    # Dynamically get fields from incoming data and custom fields
-    import json
     data_fields = set(new_data.keys())
     # Also include any custom fields that are explicitly provided
     custom_fields = set()
@@ -45,24 +64,6 @@ def compare_job_fields(old_job, new_data):
                 if old_val != new_val:
                     changed_fields.append((field, old_val, new_val))
     return changed_fields
-import logging
-from backend.extensions import db
-from backend.models.job import Job
-from backend.models.customer import Customer
-from backend.models.sub_customer import SubCustomer
-from backend.models.vehicle import Vehicle
-from backend.models.driver import Driver
-from backend.models.user import User
-from backend.models.invoice import Invoice
-from backend.models.customer_service_pricing import CustomerServicePricing
-from backend.models.contractor_service_pricing import ContractorServicePricing
-from backend.models.service import Service
-from backend.models.ServicesVehicleTypePrice import ServicesVehicleTypePrice
-from backend.models.vehicle_type import VehicleType
-from datetime import datetime
-from backend.services.push_notification_service import PushNotificationService
-import json
-from decimal import Decimal
 
 class ServiceError(Exception):
     def __init__(self, message):
@@ -192,20 +193,30 @@ class JobService:
             logging.error(f"Error fetching jobs for customer: {e}", exc_info=True)
             raise ServiceError("Could not fetch jobs. Please try again later.")
 
+   
     @staticmethod
     def create(data):
         try:
             # Validate driver-vehicle relationship if both are provided
             driver_id = data.get('driver_id')
             vehicle_id = data.get('vehicle_id')
+            contractor_id = data.get('contractor_id')
 
             if driver_id and vehicle_id:
                 driver = Driver.query.get(driver_id)
                 if driver and driver.vehicle_id != vehicle_id:
                     raise ServiceError("Selected driver is not assigned to the selected vehicle")
 
-            if not driver_id and not vehicle_id:
+            # Enforce contractor requirement for confirmed status
+            if not contractor_id:
+                # If no contractor, status cannot be confirmed - must be pending or new
+                if data.get('status') == 'confirmed':
+                    raise ServiceError("Contractor is required for confirmed jobs")
+                data['status'] = 'pending' if (driver_id and vehicle_id) else data.get('status', 'new')
+            elif not driver_id or not vehicle_id:
+                # Has contractor but missing driver/vehicle
                 data['status'] = 'pending'
+            # else: has all three (contractor, driver, vehicle) - status can be confirmed if requested
 
             # Handle extra_services - calculate extra_charges ONCE
             extra_services_data = []
@@ -217,17 +228,18 @@ class JobService:
                         extra_services_data = []
                 elif isinstance(data['extra_services'], list):
                     extra_services_data = data['extra_services']
-                
-                # Calculate extra_charges from extra_services
-                extra_charges = 0.0
-                if extra_services_data:
-                    for service in extra_services_data:
-                        if isinstance(service, dict) and 'price' in service:
-                            extra_charges += float(service['price'])
-                
-                # Set extra_charges (replaces any manually set value if extra_services provided)
-                data['extra_charges'] = extra_charges
-                data.pop('extra_services', None)  # Remove extra_services, keep only extra_charges
+                data.pop('extra_services', None)
+
+            # Calculate extra charges from extra services
+            extra_charges = 0.0
+            if extra_services_data:
+                for service in extra_services_data:
+                    if isinstance(service, dict) and 'price' in service:
+                        extra_charges += float(service['price'])
+
+            # Set the extra_charges in data if not already set or if we have extra services
+            if extra_charges > 0:
+                data['extra_charges'] = data.get('extra_charges', 0) + extra_charges
 
             # Ensure base_price is numeric, but allow 0 to enable manual updates
             base_price = data.get('base_price')
@@ -403,8 +415,9 @@ class JobService:
                         user_id = data.get('user_id')
                         if not user_id and hasattr(current_user, 'id') and current_user.is_authenticated:
                             user_id = current_user.id
-                        reason = data.get('reason', "Job updated")
-                        
+                        reason = data.get('reason')
+                        if not reason:
+                            reason = "Job updated"
                         audit_data = {
                             "fields_changed": [
                                 {"field": field, "old": convert_dt(old), "new": convert_dt(new)}
@@ -414,30 +427,43 @@ class JobService:
                         audit_record = JobAudit(
                             job_id=job_id,
                             changed_by=user_id,
-                            changed_at=datetime.now(),
+                            changed_at=datetime.now(pytz.timezone('Asia/Singapore')),  # Singapore local time
                             old_status=getattr(job_for_compare, 'status', None),
                             new_status=data.get('status', getattr(job_for_compare, 'status', None)),
                             additional_data=audit_data,
                             reason=reason
                         )
                         db.session.add(audit_record)
-                        db.session.flush()
+                        db.session.flush()  # Force flush to DB
+                        # Do not commit here; let main commit handle it
                     except Exception as e:
                         logging.warning(f"Failed to create audit record for job {job_id}: {e}")
 
-            # Validate driver-vehicle relationship
+            # Validate driver-vehicle relationship if both are provided
             driver_id = data.get('driver_id')
             vehicle_id = data.get('vehicle_id')
+            contractor_id = data.get('contractor_id')
 
             if driver_id and vehicle_id:
                 driver = Driver.query.get(driver_id)
                 if driver and driver.vehicle_id != vehicle_id:
                     raise ServiceError("Selected driver is not assigned to the selected vehicle")
 
-            if not driver_id and not vehicle_id:
-                data['status'] = 'pending'
+            # Enforce contractor requirement for confirmed status
+            if not contractor_id:
+                # If no contractor, status cannot be confirmed - must be pending or new
+                if data.get('status') == 'confirmed':
+                    raise ServiceError("Contractor is required for confirmed jobs")
+                # Auto-set status based on what we have
+                if 'status' not in data:  # Only auto-set if status not explicitly provided
+                    data['status'] = 'pending' if (driver_id and vehicle_id) else 'new'
+            elif not driver_id or not vehicle_id:
+                # Has contractor but missing driver/vehicle
+                if 'status' not in data:  # Only auto-set if status not explicitly provided
+                    data['status'] = 'pending'
+            # else: has all three (contractor, driver, vehicle) - status can be confirmed if requested
 
-            # Handle extra_services - calculate extra_charges ONCE
+            # Handle extra_services
             extra_services_data = []
             if 'extra_services' in data:
                 if isinstance(data['extra_services'], str):
@@ -447,23 +473,29 @@ class JobService:
                         extra_services_data = []
                 elif isinstance(data['extra_services'], list):
                     extra_services_data = data['extra_services']
-                
-                # Calculate extra_charges from extra_services
-                extra_charges = 0.0
+                else:
+                    extra_services_data = []
+
+                # Always calculate extra_charges from extra_services
+                extra_charges_from_services = 0.0
                 if extra_services_data:
                     for service in extra_services_data:
                         if isinstance(service, dict) and 'price' in service:
-                            extra_charges += float(service['price'])
-                data['extra_charges'] = extra_charges
-                data.pop('extra_services', None)  # Remove extra_services, keep only extra_charges
+                            extra_charges_from_services += float(service['price'])
+                data['extra_charges'] = extra_charges_from_services
 
-            # Pricing fields to check
+                # Remove extra_services from data as it's not a direct job field
+                data.pop('extra_services', None)
+
+            # Pricing fields to check - includes ALL fields that affect final_price calculation
             pricing_fields = [
+                'customer_id', 'service_type', 'vehicle_id', 'vehicle_type_id',  # Key fields that affect pricing
                 'pickup_loc1', 'pickup_loc2', 'pickup_loc3', 'pickup_loc4', 'pickup_loc5',
                 'pickup_loc1_price', 'pickup_loc2_price', 'pickup_loc3_price', 'pickup_loc4_price', 'pickup_loc5_price',
                 'dropoff_loc1', 'dropoff_loc2', 'dropoff_loc3', 'dropoff_loc4', 'dropoff_loc5',
                 'dropoff_loc1_price', 'dropoff_loc2_price', 'dropoff_loc3_price', 'dropoff_loc4_price', 'dropoff_loc5_price',
-                'base_price', 'midnight_surcharge', 'extra_charges'
+                'base_price', 'extra_services', 'midnight_surcharge', 'extra_charges', 'additional_discount',
+                'additional_stop_count', 'stop_charge', 'pickup_time'  # Additional fields affecting price
             ]
 
             # Use transaction with row-level locking
@@ -471,39 +503,38 @@ class JobService:
             if not job:
                 return None
 
-            # Determine if any pricing field value actually changed
+            # Track changed fields and determine if pricing needs update
             needs_pricing_update = False
+            changed_fields = []
             for field in pricing_fields:
                 if field in data:
                     new_val = data[field]
                     old_val = getattr(job, field, None)
-                    
                     # For floats, allow small tolerance
                     if isinstance(new_val, float) or isinstance(old_val, float):
                         try:
-                            if abs(float(new_val) - float(old_val or 0)) > 1e-6:
+                            if abs(float(new_val or 0) - float(old_val or 0)) > 1e-6:
                                 needs_pricing_update = True
-                                break
+                                changed_fields.append((field, old_val, new_val))
                         except Exception:
                             needs_pricing_update = True
-                            break
+                            changed_fields.append((field, old_val, new_val))
                     else:
                         if new_val != old_val:
                             needs_pricing_update = True
-                            break
+                            changed_fields.append((field, old_val, new_val))
 
-            # Store extra_services data
+            # Handle extra_services
             job.extra_services_data = extra_services_data
 
             # Update job fields
             for key, value in data.items():
                 setattr(job, key, value)
 
-            # Recalculate final_price only if a pricing field changed
+            # Recalculate final_price only if a pricing field value changed
             if needs_pricing_update:
                 vehicle_type = None
                 vehicle_type_id = None
-                
                 if data.get('vehicle_id') or job.vehicle_id:
                     vid = data.get('vehicle_id') or job.vehicle_id
                     vehicle = Vehicle.query.get(vid)
@@ -527,21 +558,48 @@ class JobService:
                         'customer_id': data.get('customer_id') or job.customer_id,
                         'service_type': data.get('service_type') or job.service_type,
                         'vehicle_id': data.get('vehicle_id') or job.vehicle_id,
-                        'base_price': data.get('base_price') or getattr(job, 'base_price', None),
+                        'base_price': data.get('base_price') if 'base_price' in data else getattr(job, 'base_price', 0),
                         'pickup_time': data.get('pickup_time') or getattr(job, 'pickup_time', None),
-                        'midnight_surcharge': data.get('midnight_surcharge') or getattr(job, 'midnight_surcharge', 0),
-                        'extra_charges': data.get('extra_charges') or getattr(job, 'extra_charges', 0),
-                        'additional_discount': data.get('additional_discount') or getattr(job, 'additional_discount', 0),
+                        'midnight_surcharge': data.get('midnight_surcharge', getattr(job, 'midnight_surcharge', 0)),
+                        'additional_discount': data.get('additional_discount', getattr(job, 'additional_discount', 0)),
+                        'extra_charges': data.get('extra_charges', getattr(job, 'extra_charges', 0)),
+                        'extra_services': getattr(job, 'extra_services_data', [])
                     }
 
-                    # Add location prices
+                    # Add location prices - ensure all are included even if not in update payload
                     for i in range(1, 6):
                         pickup_price_field = f'pickup_loc{i}_price'
                         dropoff_price_field = f'dropoff_loc{i}_price'
-                        price_data[pickup_price_field] = data.get(pickup_price_field) or getattr(job, pickup_price_field, 0)
-                        price_data[dropoff_price_field] = data.get(dropoff_price_field) or getattr(job, dropoff_price_field, 0)
+                        pickup_loc_field = f'pickup_loc{i}'
+                        dropoff_loc_field = f'dropoff_loc{i}'
 
-                    # Calculate final price
+                        # Prefer data value, fall back to job value, default to 0
+                        price_data[pickup_price_field] = data.get(pickup_price_field, getattr(job, pickup_price_field, 0) or 0)
+                        price_data[dropoff_price_field] = data.get(dropoff_price_field, getattr(job, dropoff_price_field, 0) or 0)
+                        price_data[pickup_loc_field] = data.get(pickup_loc_field, getattr(job, pickup_loc_field, None))
+                        price_data[dropoff_loc_field] = data.get(dropoff_loc_field, getattr(job, dropoff_loc_field, None))
+
+                    # Fetch customer service pricing data if both customer_id and service_type are provided
+                    if data.get('customer_id') or job.customer_id:
+                        customer_id = data.get('customer_id') or job.customer_id
+                        service_type = data.get('service_type') or job.service_type
+                        if customer_id and service_type:
+                            service = Service.query.filter_by(name=service_type).first()
+                            if service:
+                                customer_pricing = None
+                                if vehicle_type_id:
+                                    customer_pricing = CustomerServicePricing.query.filter_by(
+                                        cust_id=customer_id,
+                                        service_id=service.id,
+                                        vehicle_type_id=vehicle_type_id
+                                    ).first()
+                                if not customer_pricing:
+                                    customer_pricing = CustomerServicePricing.query.filter_by(
+                                        cust_id=customer_id,
+                                        service_id=service.id
+                                    ).first()
+
+
                     price_result = JobService.calculate_price(price_data, vehicle_type_id)
                     if isinstance(price_result, dict) and price_result.get('error'):
                         raise ServiceError(price_result['error'])
@@ -617,24 +675,30 @@ class JobService:
             
             # Location prices (pickup and dropoff)
             for i in range(1, 6):
-                final_price += safe_float(data.get(f'pickup_loc{i}_price', 0))
-                final_price += safe_float(data.get(f'dropoff_loc{i}_price', 0))
-            
-            # Midnight surcharge
-            midnight_surcharge = safe_float(data.get('midnight_surcharge', 0))
-            if midnight_surcharge == 0 and data.get('pickup_time'):
+                pickup_price_field = f'pickup_loc{i}_price'
+                dropoff_price_field = f'dropoff_loc{i}_price'
+                final_price += safe_float(data.get(pickup_price_field, 0))
+                final_price += safe_float(data.get(dropoff_price_field, 0))
+            # Midnight surcharge - always validate against pickup_time for consistency
+            midnight_surcharge = 0.0
+            if data.get('pickup_time'):
                 try:
                     hour, minute = map(int, data['pickup_time'].split(':'))
-                    if hour >= 23 or hour < 7:
-                        midnight_surcharge = 15.0
+                    # Midnight period: 23:00-06:59
+                    is_midnight_period = (hour >= 23 or hour < 7)
+                    if is_midnight_period:
+                        # Use provided surcharge value if given, else default to 15.0
+                        midnight_surcharge = safe_float(data.get('midnight_surcharge', 15.0))
+                    # else: outside midnight period, surcharge is 0 regardless of what was passed
                 except (ValueError, AttributeError):
+                    logging.warning(f"Invalid pickup_time format: {data.get('pickup_time')}")
                     midnight_surcharge = 0.0
+            else:
+                # No pickup_time provided, use explicit surcharge value if given
+                midnight_surcharge = safe_float(data.get('midnight_surcharge', 0))
             final_price += midnight_surcharge
-            
-            # ADD EXTRA CHARGES ONLY ONCE
-            # This includes all extra services prices combined
+            # Add extra charges (which now includes extra service prices)
             final_price += safe_float(data.get("extra_charges", 0))
-            
             # Apply discounts
             final_price -= safe_float(data.get("additional_discount", 0))
             
