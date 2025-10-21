@@ -326,11 +326,7 @@ def main():
         premium_transport_contractor = get_or_create(Contractor, name='Premium Transport Services',
                                                     defaults={'status': 'Active'})
         
-        # Create contractor service pricing entries for AG (Internal)
-        print("Creating contractor service pricing for AG (Internal)...")
-        services = Service.query.all()
-        
-        # Define realistic cost pricing for AG (Internal) contractor
+        # Define realistic cost pricing for AG (Internal) and Premium Transport Services contractors
         # These costs represent what AG charges for each service
         ag_service_costs = {
             'Airport Transfer - Arrival': 17.0,
@@ -344,18 +340,7 @@ def main():
             'Tour Package - 8Hrs': 34.0,
             'Tour Package - 10Hrs': 48.0
         }
-        
-        for service in services:
-            # Use the defined cost or default to 0.0 if service not in mapping
-            cost = ag_service_costs.get(service.name, 0.0)
-            get_or_create(ContractorServicePricing, 
-                         contractor_id=ag_internal_contractor.id,
-                         service_id=service.id,
-                         defaults={'cost': cost})
 
-        # Create contractor service pricing entries for Premium Transport Services
-        print("Creating contractor service pricing for Premium Transport Services...")
-        
         # Define pricing for Premium Transport Services (slightly higher costs)
         premium_service_costs = {
             'Airport Transfer - Arrival': 20.0,
@@ -370,16 +355,6 @@ def main():
             'Tour Package - 10Hrs': 52.0
         }
         
-        for service in services:
-            # Use the defined cost or default to 0.0 if service not in mapping
-            cost = premium_service_costs.get(service.name, 0.0)
-            get_or_create(ContractorServicePricing, 
-                         contractor_id=premium_transport_contractor.id,
-                         service_id=service.id,
-                         defaults={'cost': cost})
-
-        db.session.commit()
-
         # --- Customers & SubCustomers ---
         print("Creating customers and sub-customers...")
         grepx_tech = get_or_create(Customer, name='GrepX (Internal)',
@@ -595,6 +570,32 @@ def main():
                         defaults={'description': 'Tour Package - 8Hrs', 'status': 'Active'})
             tour10Hrs = get_or_create(Service, name='Tour Package - 10Hrs',
                         defaults={'description': 'Tour Package - 10Hrs', 'status': 'Active'})
+
+        services = Service.query.all()
+        
+        # Create contractor service pricing entries for AG (Internal)
+        print("Creating contractor service pricing for AG (Internal)...")
+        
+        for service in services:
+            # Use the defined cost or default to 0.0 if service not in mapping
+            cost = ag_service_costs.get(service.name, 0.0)
+            get_or_create(ContractorServicePricing, 
+                         contractor_id=ag_internal_contractor.id,
+                         service_id=service.id,
+                         defaults={'cost': cost})
+
+        # Create contractor service pricing entries for Premium Transport Services
+        print("Creating contractor service pricing for Premium Transport Services...")
+        
+        for service in services:
+            # Use the defined cost or default to 0.0 if service not in mapping
+            cost = premium_service_costs.get(service.name, 0.0)
+            get_or_create(ContractorServicePricing, 
+                         contractor_id=premium_transport_contractor.id,
+                         service_id=service.id,
+                         defaults={'cost': cost})
+
+        db.session.commit()
 
         # --- Services Vehicle Type Pricing (Default Pricing) ---
         print("Creating default service vehicle type pricing...")
