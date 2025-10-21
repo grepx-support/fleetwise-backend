@@ -332,7 +332,7 @@ def main():
         
         # Define realistic cost pricing for AG (Internal) contractor
         # These costs represent what AG charges for each service
-        service_costs = {
+        ag_service_costs = {
             'Airport Transfer - Arrival': 17.0,
             'Airport Transfer - Departure': 15.0,
             'City / Short Transfer': 10.0,
@@ -347,7 +347,7 @@ def main():
         
         for service in services:
             # Use the defined cost or default to 0.0 if service not in mapping
-            cost = service_costs.get(service.name, 0.0)
+            cost = ag_service_costs.get(service.name, 0.0)
             get_or_create(ContractorServicePricing, 
                          contractor_id=ag_internal_contractor.id,
                          service_id=service.id,
@@ -443,19 +443,19 @@ def main():
         job1 = get_or_create(Job, customer_id=grepx_tech.id, sub_customer_id=grepx_ops.id, driver_id=driver1.id,
                              vehicle_id=vehicle1.id, service_type='Airport Transfer - Arrival ', pickup_location='Alpha Airport',
                              dropoff_location='Orchard Hotel', pickup_date=str(today), pickup_time='10:00', status='jc',
-                             base_price=60.0, final_price=80.0, driver_commission=15.0, penalty=0.0, passenger_name=random.choice(passenger_names),
+                             base_price=60.0, final_price=80.0, job_cost=ag_service_costs['Airport Transfer - Arrival'], penalty=0.0, passenger_name=random.choice(passenger_names),
                              contractor_id=ag_internal_contractor.id)
         job2 = get_or_create(Job, customer_id=abc.id, sub_customer_id=abc_it.id, driver_id=driver2.id,
                              vehicle_id=vehicle2.id, service_type='Airport Transfer - Departure', pickup_location='ABC Tower',
                              dropoff_location='Jurong East', pickup_date=str(today + timedelta(days=1)),
                              pickup_time='14:00', status='jc', base_price=120.0, final_price=150.0,
-                             driver_commission=30.0, penalty=0.0, passenger_name=random.choice(passenger_names),
+                             job_cost=premium_service_costs['Airport Transfer - Departure'], penalty=0.0, passenger_name=random.choice(passenger_names),
                              contractor_id=premium_transport_contractor.id)
         job3 = get_or_create(Job, customer_id=beta_univ.id, sub_customer_id=beta_admin.id, driver_id=driver1.id,
                              vehicle_id=vehicle3.id, service_type='City / Short Transfer', pickup_location='Beta University',
                              dropoff_location='Marina Bay Sands', pickup_date=str(today + timedelta(days=2)),
                              pickup_time='18:00', status='canceled', base_price=200.0, final_price=0.0,
-                             driver_commission=0.0, penalty=50.0, passenger_name=random.choice(passenger_names),
+                             job_cost=ag_service_costs['City / Short Transfer'], penalty=50.0, passenger_name=random.choice(passenger_names),
                              contractor_id=ag_internal_contractor.id)
 
         # --- Invoices ---
@@ -509,6 +509,12 @@ def main():
             # Alternate between contractors for variety
             contractor = premium_transport_contractor if i % 2 == 0 else ag_internal_contractor
             
+            # Set job_cost based on contractor and service type using existing dictionaries
+            if contractor == ag_internal_contractor:
+                job_cost = ag_service_costs.get(service_type, 15.0)
+            else:  # premium_transport_contractor
+                job_cost = premium_service_costs.get(service_type, 15.0)
+            
             job = get_or_create(Job, 
                                customer_id=zenith.id, 
                                sub_customer_id=zenith_hr.id, 
@@ -522,7 +528,7 @@ def main():
                                status='jc', 
                                base_price=60.0, 
                                final_price=80.0,
-                               driver_commission=0.0, 
+                               job_cost=job_cost, 
                                penalty=0.0,
                                passenger_name=passenger_name,
                                contractor_id=contractor.id)
@@ -763,10 +769,17 @@ def main():
                 penalty = 0 if status != 'canceled' else 30 + (job_counter % 3) * 10
                 # Alternate between contractors
                 contractor = premium_transport_contractor if job_counter % 2 == 0 else ag_internal_contractor
+                
+                # Set job_cost based on contractor and service type using existing dictionaries
+                if contractor == ag_internal_contractor:
+                    job_cost = ag_service_costs.get(svc, 15.0)
+                else:  # premium_transport_contractor
+                    job_cost = premium_service_costs.get(svc, 15.0)
+                
                 get_or_create(Job, customer_id=cust.id, sub_customer_id=subcust.id, driver_id=drv.id, vehicle_id=veh.id,
                               service_type=svc, pickup_location='Alpha Airport', dropoff_location='Orchard Hotel',
                               pickup_date=str(today - timedelta(days=days_ago)), pickup_time='09:00', status=status,
-                              base_price=base, final_price=final, driver_commission=15.0, penalty=penalty, passenger_name=passenger_name,
+                              base_price=base, final_price=final, job_cost=job_cost, penalty=penalty, passenger_name=passenger_name,
                               contractor_id=contractor.id)
 
             # Future jobs (1 to 10 days ahead)
@@ -782,10 +795,17 @@ def main():
                 penalty = 0 if status != 'canceled' else 30 + (job_counter % 3) * 10
                 # Alternate between contractors
                 contractor = premium_transport_contractor if job_counter % 2 == 0 else ag_internal_contractor
+                
+                # Set job_cost based on contractor and service type using existing dictionaries
+                if contractor == ag_internal_contractor:
+                    job_cost = ag_service_costs.get(svc, 15.0)
+                else:  # premium_transport_contractor
+                    job_cost = premium_service_costs.get(svc, 15.0)
+                
                 get_or_create(Job, customer_id=cust.id, sub_customer_id=subcust.id, driver_id=drv.id, vehicle_id=veh.id,
                               service_type=svc, pickup_location='Raffles Place', dropoff_location='Jurong East',
                               pickup_date=str(today + timedelta(days=days_ahead)), pickup_time='15:00', status=status,
-                              base_price=base, final_price=final, driver_commission=15.0, penalty=penalty, passenger_name=passenger_name,
+                              base_price=base, final_price=final, job_cost=job_cost, penalty=penalty, passenger_name=passenger_name,
                               contractor_id=contractor.id)
 
         db.session.commit()
@@ -808,7 +828,7 @@ def main():
             status='pending',
             base_price=60.0,
             final_price=80.0,
-            driver_commission=15.0,
+            job_cost=ag_service_costs['Airport Transfer - Departure'],
             penalty=0.0,
             contractor_id=ag_internal_contractor.id
         )
