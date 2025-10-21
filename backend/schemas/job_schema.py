@@ -6,7 +6,6 @@ from backend.schemas.driver_schema import DriverSchema
 from backend.schemas.vehicle_schema import VehicleSchema
 from backend.schemas.service_schema import ServiceSchema
 from backend.schemas.invoice_schema import InvoiceSchema
-from backend.schemas.sub_customer_schema import SubCustomerSchema
 from backend.schemas.contractor_schema import ContractorSchema
 from marshmallow import fields
 import json
@@ -18,7 +17,7 @@ class JobSchema(SQLAlchemyAutoSchema):
         include_fk = True
     id = auto_field()
     customer_id = auto_field()
-    sub_customer_id = auto_field()
+    sub_customer_name = auto_field()
     driver_id = auto_field()
     vehicle_id = auto_field()
     service_id = auto_field()
@@ -31,6 +30,7 @@ class JobSchema(SQLAlchemyAutoSchema):
     passenger_name = auto_field()
     passenger_email = auto_field()
     passenger_mobile = auto_field()
+    booking_ref = auto_field()
     status = auto_field()
     # Handle extra_services as JSON data
     extra_services = fields.Method('get_extra_services', 'set_extra_services')
@@ -87,7 +87,6 @@ class JobSchema(SQLAlchemyAutoSchema):
     vehicle = ma_fields.Nested('VehicleSchema', dump_only=True)
     service = ma_fields.Nested('ServiceSchema', dump_only=True)
     invoice = ma_fields.Nested('InvoiceSchema', exclude=('jobs',), dump_only=True)
-    sub_customer = ma_fields.Nested('SubCustomerSchema', dump_only=True)
     contractor = ma_fields.Nested('ContractorSchema', dump_only=True)
     
     # Computed fields for frontend compatibility
@@ -107,9 +106,6 @@ class JobSchema(SQLAlchemyAutoSchema):
     
     # Driver computed fields
     driver_contact = fields.Method('get_driver_contact', dump_only=True)
-    
-    # Sub-customer computed fields
-    sub_customer_name = fields.Method('get_sub_customer_name', dump_only=True)
     
     # Additional fields for frontend compatibility (not in Job model)
     payment_mode = fields.Method('get_payment_mode', dump_only=True)
@@ -184,9 +180,6 @@ class JobSchema(SQLAlchemyAutoSchema):
     
     def get_driver_contact(self, obj):
         return obj.driver.mobile if obj.driver else None
-    
-    def get_sub_customer_name(self, obj):
-        return obj.sub_customer.name if obj.sub_customer else None
     
     def get_type_of_service(self, obj):
         return obj.service_type

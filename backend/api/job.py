@@ -245,7 +245,7 @@ def update_job(job_id):
         # These fields are computed or read-only and should not be updated
         read_only_fields = {
             'customer_name', 'customer_email', 'customer_mobile', 'customer_reference',
-            'vehicle_type', 'vehicle_number', 'driver_contact', 'sub_customer_name',
+            'vehicle_type', 'vehicle_number', 'driver_contact',
             'payment_mode', 'message', 'remarks', 'has_additional_stop', 'additional_stops',
             'base_discount_percent', 'customer_discount_percent', 'additional_discount_percent',
             'invoice_number', 'type_of_service', 'reference', 'locations', 'has_request',

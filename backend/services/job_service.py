@@ -4,7 +4,6 @@ import pytz
 from backend.extensions import db
 from backend.models.job import Job
 from backend.models.customer import Customer
-from backend.models.sub_customer import SubCustomer
 from backend.models.vehicle import Vehicle
 from backend.models.driver import Driver
 from backend.models.user import User
@@ -164,7 +163,7 @@ class JobService:
     def get_by_id(job_id):
         try:
             # Load all relationships for detailed view
-            return Job.get_with_relationships(job_id, include_relationships=['customer', 'driver', 'vehicle', 'service', 'invoice', 'sub_customer'])
+            return Job.get_with_relationships(job_id, include_relationships=['customer', 'driver', 'vehicle', 'service', 'invoice'])
         except Exception as e:
             logging.error(f"Error fetching job: {e}", exc_info=True)
             raise ServiceError("Could not fetch job. Please try again later.")
