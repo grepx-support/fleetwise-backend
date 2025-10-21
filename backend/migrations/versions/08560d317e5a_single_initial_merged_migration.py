@@ -177,22 +177,6 @@ def upgrade() -> None:
     sa.UniqueConstraint('name', 'customer_id', name='_subcustomer_uc')
     )
     op.create_index(op.f('ix_sub_customer_customer_id'), 'sub_customer', ['customer_id'], unique=False)
-    if 'bill' not in existing_tables:
-        op.create_table('bill',
-        sa.Column('id', sa.Integer(), nullable=False),
-        sa.Column('contractor_id', sa.Integer(), nullable=True),
-        sa.Column('driver_id', sa.Integer(), nullable=True),
-        sa.Column('date', sa.DateTime(), nullable=True),
-        sa.Column('status', sa.String(length=16), nullable=False),
-        sa.Column('total_amount', sa.Numeric(precision=12, scale=2), nullable=True),
-        sa.Column('file_path', sa.String(length=255), nullable=True),
-        sa.ForeignKeyConstraint(['contractor_id'], ['contractor.id'], ondelete='CASCADE'),
-        sa.ForeignKeyConstraint(['driver_id'], ['driver.id'], ondelete='CASCADE'),
-        sa.PrimaryKeyConstraint('id')
-        )
-        op.create_index(op.f('ix_bill_contractor_id'), 'bill', ['contractor_id'], unique=False)
-        op.create_index(op.f('ix_bill_driver_id'), 'bill', ['driver_id'], unique=False)
-        op.create_index(op.f('ix_bill_status'), 'bill', ['status'], unique=False)
     op.create_table('job',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('customer_id', sa.Integer(), nullable=False),
@@ -219,7 +203,6 @@ def upgrade() -> None:
     sa.Column('job_cost', sa.Float(), nullable=True),
     sa.Column('cash_to_collect', sa.Float(), nullable=True),
     sa.Column('invoice_id', sa.Integer(), nullable=True),
-    sa.Column('bill_id', sa.Integer(), nullable=True),
     sa.Column('driver_commission', sa.Float(), nullable=True),
     sa.Column('penalty', sa.Float(), nullable=True),
     sa.Column('dropoff_loc1', sa.Text(), nullable=True),
@@ -258,7 +241,6 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['sub_customer_id'], ['sub_customer.id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['vehicle_id'], ['vehicle.id'], ondelete='SET NULL'),
     sa.ForeignKeyConstraint(['vehicle_type_id'], ['vehicle_type.id'], ondelete='SET NULL'),
-    sa.ForeignKeyConstraint(['bill_id'], ['bill.id'], ondelete='SET NULL'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_job_contractor_id'), 'job', ['contractor_id'], unique=False)
@@ -272,7 +254,6 @@ def upgrade() -> None:
     op.create_index(op.f('ix_job_sub_customer_id'), 'job', ['sub_customer_id'], unique=False)
     op.create_index(op.f('ix_job_vehicle_id'), 'job', ['vehicle_id'], unique=False)
     op.create_index(op.f('ix_job_vehicle_type_id'), 'job', ['vehicle_type_id'], unique=False)
-    op.create_index(op.f('ix_job_bill_id'), 'job', ['bill_id'], unique=False)
     op.create_table('payment',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('invoice_id', sa.Integer(), nullable=False),
@@ -405,7 +386,6 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_job_driver_id'), table_name='job')
     op.drop_index(op.f('ix_job_customer_id'), table_name='job')
     op.drop_index(op.f('ix_job_contractor_id'), table_name='job')
-    op.drop_index(op.f('ix_job_bill_id'), table_name='job')
     op.drop_table('job')
     op.drop_index(op.f('ix_sub_customer_customer_id'), table_name='sub_customer')
     op.drop_table('sub_customer')
@@ -431,8 +411,4 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_customer_email'), table_name='customer')
     op.drop_table('customer')
     op.drop_table('contractor')
-    op.drop_index(op.f('ix_bill_status'), table_name='bill')
-    op.drop_index(op.f('ix_bill_driver_id'), table_name='bill')
-    op.drop_index(op.f('ix_bill_contractor_id'), table_name='bill')
-    op.drop_table('bill')
     # ### end Alembic commands ###
