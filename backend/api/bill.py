@@ -170,7 +170,7 @@ def generate_contractor_bill():
         # Find existing unpaid bill for this contractor
         unpaid_bills = Bill.query.filter_by(
             contractor_id=contractor_id,
-            status='Generated'
+            status='Unpaid'
         ).all()
         
         # Use the first existing bill if there is one
@@ -212,7 +212,7 @@ def generate_contractor_bill():
                 # Calculate amount for this job (job_cost - cash collected)
                 job_cost = Decimal(str(job.job_cost or 0.0))
                 cash_collected = Decimal(str(job.cash_to_collect or 0.0))
-                job_amount = abs(job_cost - cash_collected)  
+                job_amount = job_cost - cash_collected
                 total_amount += job_amount
             
             # Update bill total amount
@@ -245,7 +245,7 @@ def generate_contractor_bill():
                     'total_amount': float(bill.total_amount) if bill.total_amount else 0.0
                 })
             
-            message = f'Successfully created 1 bill for contractor {contractor_id} with {len(job_ids)} job(s). Bill is active (Generated).'
+            message = f'Successfully created 1 bill for contractor {contractor_id} with {len(job_ids)} job(s). Bill is active (Unpaid).'
             
             return jsonify({
                 'bills': bill_info,
@@ -268,8 +268,8 @@ def remove_job_from_bill(bill_id, job_id):
         if not bill:
             return jsonify({'error': 'Bill not found'}), 404
             
-        # Prevent modification of non-generated bills
-        if bill.status != 'Generated':
+        # Prevent modification of non-unpaid bills
+        if bill.status != 'Unpaid':
             return jsonify({'error': f'Cannot modify bill with status: {bill.status}'}), 400
             
         # Get the job for this bill
@@ -284,7 +284,7 @@ def remove_job_from_bill(bill_id, job_id):
         # Recalculate the bill total
         from backend.models.job import Job
         bill_jobs = Job.query.filter_by(bill_id=bill_id).all()
-        total_amount = sum(abs(float(job.job_cost or 0.0) - float(job.cash_to_collect or 0.0)) for job in bill_jobs)
+        total_amount = sum(float(job.job_cost or 0.0) - float(job.cash_to_collect or 0.0) for job in bill_jobs)
         bill.total_amount = total_amount if bill_jobs else 0
         
         # If the bill has no more jobs associated with it, delete the bill automatically
@@ -356,7 +356,7 @@ def generate_driver_bill():
         # Find existing unpaid bill for this driver
         unpaid_bills = Bill.query.filter_by(
             contractor_id=None,
-            status='Generated'
+            status='Unpaid'
         ).all()
         
         # Look for a bill that already has jobs for this driver
@@ -401,7 +401,7 @@ def generate_driver_bill():
                 # Calculate amount for this job (job_cost - cash collected)
                 job_cost = Decimal(str(job.job_cost or 0.0))
                 cash_collected = Decimal(str(job.cash_to_collect or 0.0))
-                job_amount = abs(job_cost - cash_collected)  # 
+                job_amount = job_cost - cash_collected
                 total_amount += job_amount
             
             # Update bill total amount - allow negative values
@@ -438,7 +438,7 @@ def generate_driver_bill():
                     'total_amount': float(bill.total_amount) if bill.total_amount else 0.0
                 })
             
-            message = f'Successfully created 1 bill for driver {driver_id} with {len(job_ids)} job(s). Bill is active (Generated).'
+            message = f'Successfully created 1 bill for driver {driver_id} with {len(job_ids)} job(s). Bill is active (Unpaid).'
             
             return jsonify({
                 'bills': bill_info,

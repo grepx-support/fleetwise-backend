@@ -61,10 +61,10 @@ class BillService:
             if not bill:
                 return False
             
-            # Allow deletion of bills with 'Generated' status
+            # Allow deletion of bills with 'Unpaid' status
             # Also allow deletion of contractor bills (which have contractor_id) regardless of status
             # And allow deletion of driver bills with 'Proceed' or 'Processed' status
-            if bill.status != 'Generated':
+            if bill.status != 'Unpaid':
                 # If it's a contractor bill (has contractor_id), allow deletion regardless of status
                 if bill.contractor_id is not None:
                     # Allow deletion for contractor bills regardless of status
@@ -75,6 +75,7 @@ class BillService:
                     pass
                 else:
                     raise ServiceError(f'Cannot delete bill with status: {bill.status}')
+            # If we reach here, the bill is either 'Unpaid' or meets one of the allowed conditions, so allow deletion
             
             # Delete the bill (cascade will delete bill items)
             db.session.delete(bill)
@@ -150,7 +151,7 @@ class BillService:
             bill = Bill()
             bill.contractor_id = contractor_id
             bill.total_amount = Decimal('0.00')
-            bill.status = 'Generated'  # All bills are 'Generated'
+            bill.status = 'Unpaid'  # All bills are 'Unpaid'
             db.session.add(bill)
             db.session.flush()  # Get bill ID
             
@@ -164,7 +165,7 @@ class BillService:
                 # Convert to Decimal to ensure proper arithmetic operations
                 job_cost = Decimal(str(job.job_cost or 0.0))
                 cash_collected = Decimal(str(job.cash_to_collect or 0.0))
-                job_amount = abs(job_cost - cash_collected)  
+                job_amount = job_cost - cash_collected
                 total_amount += job_amount
             
             # Update bill total amount - allow negative values
@@ -250,7 +251,7 @@ class BillService:
             bill.contractor_id = None  # Explicitly set to None for driver bills
             bill.driver_id = driver_id  # Set the driver_id for driver bills
             bill.total_amount = Decimal('0.00')
-            bill.status = 'Generated'
+            bill.status = 'Unpaid'
             db.session.add(bill)
             db.session.flush()  # Get bill ID
             
@@ -264,7 +265,7 @@ class BillService:
                 # Convert to Decimal to ensure proper arithmetic operations
                 job_cost = Decimal(str(job.job_cost or 0.0))
                 cash_collected = Decimal(str(job.cash_to_collect or 0.0))
-                job_amount = abs(job_cost - cash_collected)  
+                job_amount = job_cost - cash_collected
                 total_amount += job_amount
             
             # Update bill total amount - allow negative values
