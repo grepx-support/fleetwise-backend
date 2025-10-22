@@ -546,9 +546,11 @@ def get_driver_jobs():
             return jsonify({"error": "driver_id is required"}), 400
 
         # Base query with eager loading for customer
+        # CRITICAL: All queries MUST inherit the is_deleted.is_(False) filter to maintain soft delete contract
+        # This ensures deleted jobs are never exposed to mobile drivers
         query = Job.query.options(joinedload(Job.customer)).filter(
             Job.driver_id == driver_id,
-            Job.is_deleted == False
+            Job.is_deleted.is_(False)
         )
 
         today_date = date.today().strftime("%Y-%m-%d")
@@ -565,7 +567,11 @@ def get_driver_jobs():
         elif tab == "upcoming":
             query = query.filter(
                 db.or_(
-                    Job.pickup_date > today_date
+                    Job.pickup_date > today_date,
+                    db.and_(
+                        Job.pickup_date == today_date,
+                        Job.pickup_time > now_time
+                    )
                 )
             ).filter(Job.status.in_(["confirmed"]))
 

@@ -131,52 +131,61 @@ def handle_jobs_query(message):
     if re.search(r'\bactive\b', message):
         jobs = Job.query.filter(
             Job.status.in_([JobStatus.NEW.value, JobStatus.CONFIRMED.value, JobStatus.OTW.value, JobStatus.OTS.value, JobStatus.POB.value]),
-            Job.is_deleted == False
+            Job.is_deleted.is_(False)
         ).limit(10).all()
         return f"I found {len(jobs)} active jobs:", [format_job(job) for job in jobs]
     
     elif re.search(r'\bpending\b', message):
         jobs = Job.query.filter(
             Job.status == JobStatus.PENDING.value,
-            Job.is_deleted == False
+            Job.is_deleted.is_(False)
         ).limit(10).all()
         return f"I found {len(jobs)} pending jobs:", [format_job(job) for job in jobs]
     
     elif re.search(r'\b(completed|yet to be invoiced)\b', message, re.IGNORECASE):
         jobs = Job.query.filter(
             Job.status.in_([JobStatus.JC.value, JobStatus.SD.value]),
-            Job.is_deleted == False
+            Job.is_deleted.is_(False)
         ).limit(10).all()
         return f"I found {len(jobs)} completed jobs:", [format_job(job) for job in jobs]
     
     elif re.search(r'\bcancelled\b', message):
         jobs = Job.query.filter(
             Job.status == JobStatus.CANCELED.value,
-            Job.is_deleted == False
+            Job.is_deleted.is_(False)
         ).limit(10).all()
         return f"I found {len(jobs)} cancelled jobs:", [format_job(job) for job in jobs]
     
     elif re.search(r'\bunpaid\b', message):
         # Jobs without invoices or with unpaid invoices
+        from sqlalchemy import exists
+        # For unpaid jobs
+        unpaid_invoice_exists = exists().where(
+            (Invoice.id == Job.invoice_id) & (Invoice.status == 'Unpaid')
+        )
         jobs = Job.query.filter(
-            Job.is_deleted == False,
-            (Job.invoice_id.is_(None)) | 
-            (Job.invoice_id.isnot(None) & Invoice.query.filter(Invoice.id == Job.invoice_id, Invoice.status == 'Unpaid').exists())
+            Job.is_deleted.is_(False),
+            (Job.invoice_id.is_(None)) | unpaid_invoice_exists
         ).limit(10).all()
         return f"I found {len(jobs)} unpaid jobs:", [format_job(job) for job in jobs]
     
     elif re.search(r'\bpaid\b', message):
         # Jobs with paid invoices
+        from sqlalchemy import exists
+        # For paid jobs  
+        paid_invoice_exists = exists().where(
+            (Invoice.id == Job.invoice_id) & (Invoice.status == 'Paid')
+        )
         jobs = Job.query.filter(
-            Job.is_deleted == False,
-            Job.invoice_id.isnot(None) & 
-            Invoice.query.filter(Invoice.id == Job.invoice_id, Invoice.status == 'Paid').exists()
+            Job.is_deleted.is_(False),
+            Job.invoice_id.isnot(None),
+            paid_invoice_exists
         ).limit(10).all()
         return f"I found {len(jobs)} paid jobs:", [format_job(job) for job in jobs]
     
     else:
         # All jobs
-        jobs = Job.query.filter(Job.is_deleted == False).order_by(Job.id.desc()).limit(10).all()
+        jobs = Job.query.filter(Job.is_deleted.is_(False)).order_by(Job.id.desc()).limit(10).all()
         return f"I found {len(jobs)} recent jobs:", [format_job(job) for job in jobs]
 
 def handle_drivers_query(message):
@@ -193,14 +202,14 @@ def handle_drivers_query(message):
         # Get active jobs with drivers
         active_jobs = Job.query.filter(
             Job.status.in_([JobStatus.NEW.value, JobStatus.CONFIRMED.value, JobStatus.OTW.value, JobStatus.OTS.value, JobStatus.POB.value]),
-            Job.is_deleted == False
+            Job.is_deleted.is_(False)
         ).all()
         print(f"Active jobs found: {len(active_jobs)}")
         
         # Get driver IDs from active jobs
         active_driver_ids = db.session.query(Job.driver_id).filter(
             Job.status.in_([JobStatus.NEW.value, JobStatus.CONFIRMED.value, JobStatus.OTW.value, JobStatus.OTS.value, JobStatus.POB.value]),
-            Job.is_deleted == False
+            Job.is_deleted.is_(False)
         ).distinct().all()
         active_ids = [id[0] for id in active_driver_ids if id[0]]
         print(f"Active driver IDs: {active_ids}")
@@ -237,7 +246,7 @@ def handle_vehicles_query(message):
         # Get active jobs with vehicles
         active_jobs = Job.query.filter(
             Job.status.in_([JobStatus.NEW.value, JobStatus.CONFIRMED.value, JobStatus.OTW.value, JobStatus.OTS.value, JobStatus.POB.value]),
-            Job.is_deleted == False
+            Job.is_deleted.is_(False)
         ).all()
         print(f"Active jobs found: {len(active_jobs)}")
         
@@ -263,7 +272,7 @@ def handle_vehicles_query(message):
             available_vehicles = Vehicle.query.all()
         
         # Debug: Show total jobs vs active jobs
-        total_jobs = Job.query.filter(Job.is_deleted == False).count()
+        total_jobs = Job.query.filter(Job.is_deleted.is_(False)).count()
         print(f"Total jobs in database: {total_jobs}")
         print(f"Active jobs: {len(active_jobs)}")
         print(f"Completed jobs: {total_jobs - len(active_jobs)}")
@@ -297,11 +306,11 @@ def handle_status_query(message):
     """Handle status-related queries"""
     
     # Job status summary
-    new_jobs = Job.query.filter(Job.status == JobStatus.NEW.value, Job.is_deleted == False).count()
-    pending_jobs = Job.query.filter(Job.status == JobStatus.PENDING.value, Job.is_deleted == False).count()
-    confirmed_jobs = Job.query.filter(Job.status == JobStatus.CONFIRMED.value, Job.is_deleted == False).count()
-    completed_jobs = Job.query.filter(Job.status.in_([JobStatus.JC.value, JobStatus.SD.value]), Job.is_deleted == False).count()
-    cancelled_jobs = Job.query.filter(Job.status == JobStatus.CANCELED.value, Job.is_deleted == False).count()
+    new_jobs = Job.query.filter(Job.status == JobStatus.NEW.value, Job.is_deleted.is_(False)).count()
+    pending_jobs = Job.query.filter(Job.status == JobStatus.PENDING.value, Job.is_deleted.is_(False)).count()
+    confirmed_jobs = Job.query.filter(Job.status == JobStatus.CONFIRMED.value, Job.is_deleted.is_(False)).count()
+    completed_jobs = Job.query.filter(Job.status.in_([JobStatus.JC.value, JobStatus.SD.value]), Job.is_deleted.is_(False)).count()
+    cancelled_jobs = Job.query.filter(Job.status == JobStatus.CANCELED.value, Job.is_deleted.is_(False)).count()
     
     return f"Job Status Summary:\n- New: {new_jobs}\n- Pending: {pending_jobs}\n- Confirmed: {confirmed_jobs}\n- Completed: {completed_jobs}\n- Cancelled: {cancelled_jobs}", None
 
@@ -309,18 +318,18 @@ def handle_dashboard_query(message):
     """Handle dashboard/summary queries"""
     
     # Overall summary
-    total_jobs = Job.query.filter(Job.is_deleted == False).count()
+    total_jobs = Job.query.filter(Job.is_deleted.is_(False)).count()
     total_drivers = Driver.query.count()
     total_vehicles = Vehicle.query.count()
     total_customers = Customer.query.count()
     
     active_jobs = Job.query.filter(
         Job.status.in_([JobStatus.NEW.value, JobStatus.CONFIRMED.value, JobStatus.OTW.value, JobStatus.OTS.value, JobStatus.POB.value]),
-        Job.is_deleted == False
+        Job.is_deleted.is_(False)
     ).count()
     completed_jobs = Job.query.filter(
         Job.status.in_([JobStatus.JC.value, JobStatus.SD.value]),
-        Job.is_deleted == False
+        Job.is_deleted.is_(False)
     ).count()
     
     return f"Fleet Dashboard Summary:\n- Total Jobs: {total_jobs}\n- Active Jobs: {active_jobs}\n- Completed Jobs: {completed_jobs}\n- Total Drivers: {total_drivers}\n- Total Vehicles: {total_vehicles}\n- Total Customers: {total_customers}", None

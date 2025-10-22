@@ -155,7 +155,7 @@ class JobService:
             if query is None:
                 return []
             # Filter out deleted jobs
-            return query.filter(Job.is_deleted == False).all()
+            return query.filter(Job.is_deleted.is_(False)).all()
         except Exception as e:
             logging.error(f"Error fetching jobs: {e}", exc_info=True)
             raise ServiceError("Could not fetch jobs. Please try again later.")
@@ -177,7 +177,7 @@ class JobService:
             if query is None:
                 return []
             # Filter out deleted jobs
-            return query.filter(Job.driver_id == driver_id, Job.is_deleted == False).all()
+            return query.filter(Job.driver_id == driver_id, Job.is_deleted.is_(False)).all()
         except Exception as e:
             logging.error(f"Error fetching jobs for driver: {e}", exc_info=True)
             raise ServiceError("Could not fetch jobs. Please try again later.")
@@ -190,7 +190,7 @@ class JobService:
             if query is None:
                 return []
             # Filter out deleted jobs
-            return query.filter(Job.customer_id == customer_id, Job.is_deleted == False).all()
+            return query.filter(Job.customer_id == customer_id, Job.is_deleted.is_(False)).all()
         except Exception as e:
             logging.error(f"Error fetching jobs for customer: {e}", exc_info=True)
             raise ServiceError("Could not fetch jobs. Please try again later.")
@@ -424,7 +424,7 @@ class JobService:
                                 return obj
 
                         # Ensure changed_by and reason are always set
-                        from flask_security import current_user
+                        from flask_security.utils import current_user
                         user_id = data.get('user_id')
                         if not user_id and hasattr(current_user, 'id') and current_user.is_authenticated:
                             user_id = current_user.id
@@ -440,60 +440,6 @@ class JobService:
                         audit_record = JobAudit(
                             job_id=job_id,
                             changed_by=user_id,
-                            changed_at=datetime.now(),
-                            old_status=getattr(job_for_compare, 'status', None),
-                            new_status=data.get('status', getattr(job_for_compare, 'status', None)),
-                            additional_data=audit_data,
-                            reason=reason
-                        )
-                        db.session.add(audit_record)
-                        db.session.flush()  # Force flush to DB
-                        # Do not commit here; let main commit handle it
-                    except Exception as e:
-                        pass
-            # Log all changed fields (full job field comparison)
-            job_for_compare = Job.query.get(job_id)
-            if job_for_compare:
-                all_changes = compare_job_fields(job_for_compare, data)
-                if all_changes:
-                    changed_names = [field for field, _, _ in all_changes]
-                    old_values = {field: old for field, old, _ in all_changes}
-                    new_values = {field: new for field, _, new in all_changes}
-
-                    # Store audit record
-                    try:
-                        from backend.models.job_audit import JobAudit
-                        import json
-                        from datetime import datetime
-                        # Recursively convert all datetime objects to isoformat strings
-                        def convert_dt(obj):
-                            if isinstance(obj, dict):
-                                return {k: convert_dt(v) for k, v in obj.items()}
-                            elif isinstance(obj, list):
-                                return [convert_dt(i) for i in obj]
-                            elif isinstance(obj, datetime):
-                                return obj.isoformat()
-                            else:
-                                return obj
-
-                        # Ensure changed_by and reason are always set
-                        from flask_security import current_user
-                        user_id = data.get('user_id')
-                        if not user_id and hasattr(current_user, 'id') and current_user.is_authenticated:
-                            user_id = current_user.id
-                        reason = data.get('reason')
-                        if not reason:
-                            reason = "Job updated"
-                        audit_data = {
-                            "fields_changed": [
-                                {"field": field, "old": convert_dt(old), "new": convert_dt(new)}
-                                for field, old, new in all_changes
-                            ]
-                        }
-                        audit_record = JobAudit(
-                            job_id=job_id,
-                            changed_by=user_id,
-                            changed_at=datetime.now(),
                             old_status=getattr(job_for_compare, 'status', None),
                             new_status=data.get('status', getattr(job_for_compare, 'status', None)),
                             additional_data=audit_data,
@@ -755,13 +701,27 @@ class JobService:
     
     
     @staticmethod
-    def delete(job_id):
+    def delete(job_id, soft=True):
+        """
+        Delete or soft-delete a job.
+        
+        Args:
+            job_id: ID of job to delete
+            soft: If True, marks job as deleted. If False, permanently removes job.
+            
+        Returns:
+            bool: True if successful
+        """
         try:
             job = Job.query.get(job_id)
             if not job:
                 return False
-            # Implement soft delete instead of hard delete
-            job.is_deleted = True
+            if soft:
+                # Implement soft delete
+                job.is_deleted = True
+            else:
+                # Implement hard delete
+                db.session.delete(job)
             db.session.commit()
             return True
         except Exception as e:
@@ -870,7 +830,7 @@ class JobService:
 
             job.invoice_id = None
 
-            remaining_jobs = Job.query.filter(Job.invoice_id == job.invoice_id, Job.is_deleted == False).all()
+            remaining_jobs = Job.query.filter(Job.invoice_id == job.invoice_id, Job.is_deleted.is_(False)).all()
 
             if not remaining_jobs and (invoice.total_amount == 0 or invoice.total_amount is None):
                 db.session.delete(invoice)
