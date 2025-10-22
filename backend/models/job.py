@@ -6,7 +6,6 @@ from backend.models.driver import Driver
 from backend.models.vehicle import Vehicle
 from backend.models.service import Service
 from backend.models.invoice import Invoice
-from backend.models.sub_customer import SubCustomer
 from backend.models.driver_remark import DriverRemark
 from backend.models.contractor import Contractor
 from backend.models.vehicle_type import VehicleType
@@ -27,7 +26,7 @@ class Job(db.Model):
     __tablename__ = 'job'
     id = db.Column(db.Integer, primary_key=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False, index=True)
-    sub_customer_id = db.Column(db.Integer, db.ForeignKey('sub_customer.id', ondelete='CASCADE'), nullable=True, index=True)
+    sub_customer_name = db.Column(db.String(128), nullable=True, index=True)
     driver_id = db.Column(db.Integer, db.ForeignKey('driver.id', ondelete='SET NULL'), nullable=True, index=True)
     vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicle.id', ondelete='SET NULL'), nullable=True, index=True)
     service_id = db.Column(db.Integer, db.ForeignKey('service.id', ondelete='SET NULL'), nullable=True, index=True)
@@ -42,6 +41,7 @@ class Job(db.Model):
     passenger_name = db.Column(db.String(128), nullable=True)
     passenger_email = db.Column(db.String(128), nullable=True)
     passenger_mobile = db.Column(db.String(32), nullable=True)
+    booking_ref = db.Column(db.String(128), nullable=True)
     status = db.Column(db.String(32), nullable=False, default=JobStatus.NEW.value, index=True)
     extra_services = db.Column(db.Text, nullable=True)
     additional_discount = db.Column(db.Float, nullable=True)
@@ -53,6 +53,9 @@ class Job(db.Model):
     invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id', ondelete='SET NULL'), nullable=True, index=True)
     driver_commission = db.Column(db.Float, nullable=True)
     penalty = db.Column(db.Float, nullable=True)
+    # Contractor commission should be calculated dynamically based on ContractorServicePricing
+    # using contractor_id and service_id rather than stored directly in this field
+    # Note: contractor_commission field removed - use job_cost instead
     
     # Dropoff location columns
     dropoff_loc1 = db.Column(db.Text, nullable=True)
@@ -103,11 +106,12 @@ class Job(db.Model):
     vehicle_type = db.relationship('VehicleType', backref='job_vehicle_type', lazy='select')
     service = db.relationship('Service', backref='job_service', lazy='select')
     invoice = db.relationship('Invoice', backref='job_invoice', lazy='select')
-    sub_customer = db.relationship('SubCustomer', backref='jobs', lazy='select')
     driver_remarks = db.relationship("DriverRemark", back_populates="job", cascade="all, delete-orphan")
     contractor = db.relationship('Contractor', back_populates='jobs', lazy='select')
+    # Use string reference to avoid circular import issues
     midnight_surcharge = db.Column(db.Float, nullable=True, default=0.0)
     
+    bill_id = db.Column(db.Integer, db.ForeignKey('bill.id', ondelete='SET NULL'), nullable=True, index=True)
     # JSON serialization/deserialization for extra_services
     @property
     def extra_services_data(self):
@@ -123,6 +127,8 @@ class Job(db.Model):
     def extra_services_data(self, value):
         """Set extra_services as JSON string"""
         self.extra_services = json.dumps(value) if value else None
+    
+   
     
     @classmethod
     def get_with_relationships(cls, job_id=None, include_relationships=None):
@@ -233,3 +239,11 @@ class Job(db.Model):
             hours = int(duration_seconds // 3600)
             minutes = int((duration_seconds % 3600) // 60)
             return f"{hours}h {minutes}m"
+
+    @property
+    def bill_details(self):
+        """Get the associated bill if it exists"""
+        if self.bill_id:
+            from backend.models.bill import Bill
+            return Bill.query.get(self.bill_id)
+        return None

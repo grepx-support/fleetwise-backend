@@ -130,7 +130,18 @@ class ContractorService:
                 contractor_id=contractor_id,
                 service_id=service_id
             ).first()
-            return pricing.cost if pricing else 0.0
+            
+            # Raise an exception if no pricing is found
+            if not pricing:
+                raise ServiceError(
+                    f'No pricing configured for contractor {contractor_id} '
+                    f'and service {service_id}. Cannot fetch cost.'
+                )
+            
+            return pricing.cost
+        except ServiceError:
+            # Re-raise ServiceError as-is
+            raise
         except Exception as e:
             logging.error(f"Error fetching contractor cost for service: {e}", exc_info=True)
             raise ServiceError("Could not fetch contractor cost for service. Please try again later.")
@@ -165,3 +176,41 @@ class ContractorService:
             db.session.rollback()
             logging.error(f"Error bulk updating contractor pricing: {e}", exc_info=True)
             raise ServiceError("Could not bulk update contractor pricing. Please try again later.")
+
+    @staticmethod
+    def calculate_contractor_commission_for_job(job):
+        """
+        Calculate contractor commission for a job based on ContractorServicePricing.
+        
+        Args:
+            job: Job object with contractor_id and service_id
+            
+        Returns:
+            float: The contractor commission amount
+        """
+        try:
+            # Check if job has both contractor_id and service_id
+            if not job.contractor_id or not job.service_id:
+                return 0.0
+            
+            # Get the pricing for this contractor and service combination
+            pricing = ContractorServicePricing.query.filter_by(
+                contractor_id=job.contractor_id,
+                service_id=job.service_id
+            ).first()
+            
+            # Raise an exception if no pricing is found
+            if not pricing:
+                raise ServiceError(
+                    f'No pricing configured for contractor {job.contractor_id} '
+                    f'and service {job.service_id}. Cannot calculate commission.'
+                )
+            
+            # Return the cost from pricing
+            return pricing.cost
+        except ServiceError:
+            # Re-raise ServiceError as-is
+            raise
+        except Exception as e:
+            logging.error(f"Error calculating contractor commission for job {job.id}: {e}", exc_info=True)
+            return 0.0
