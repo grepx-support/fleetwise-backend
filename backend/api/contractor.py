@@ -249,3 +249,16 @@ def update_contractor_pricing(contractor_id):
     except Exception as e:
         logging.error(f"Unhandled error in update_contractor_pricing: {e}", exc_info=True)
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
+    
+@contractor_bp.route('/contractors/download/<int:contractor_id>', methods=['GET'])
+@roles_accepted('admin', 'manager')
+def download_contractor_invoice(contractor_id):
+    try:
+        response = ContractorService.contractor_invoice_download(contractor_id)
+        if not response:
+            return jsonify({'error': 'Contractor Invoice not found'}), 404
+        return response
+    except Exception as e:
+        logging.error(f"Unhandled error: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to generate invoice PDF'}), 500
+    
