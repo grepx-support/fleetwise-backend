@@ -290,11 +290,11 @@ def main():
         print("Creating company settings...")
         company_settings = {
                 "general_settings": {
-                    "company_name": "Avant-Garde Pte Ltd",
+                    "company_name": "GrepxX Pte Ltd",
                     "company_address": "1 Rochor Canal Road,\n#03-11, Sim Lim Square,\nSingapore 188504",
-                    "company_website": "https://avantgarde.sg",
-                    "email_id": "support@avantgarde.sg",
-                    "contact_number": "+65 6532 1234",
+                    "company_website": "https://grepx.sg",
+                    "email_id": "support@grepx.sg",
+                    "contact_number": "+65 6666 1234",
                     "dark_mode": True,
                     "language": "en",
                     "timezone": "SGT"
@@ -307,19 +307,59 @@ def main():
                 },
                 "billing_settings": {
                     "company_logo": "/static/uploads/comp_logo_compressed.jpg",
-                    "billing_payment_info": "Kindly arrange all cheques to be made payable to \"Avant-Garde Services Pte Ltd\" and crossed \"A/C Payee Only\".\nAlternatively, for Bank Transfer / Electronic Payment please find our bank details as follows:\nUOB Bank (7375) :  Current A/C : 3733169263 \nBank Swift Code : UOVBSGSG\nCorporate Paynow : 201017519Z",
-                    "billing_qr_code_image": "/static/uploads/grepx_qr_compressed.jpg"
+                    "billing_payment_info": "Kindly arrange all cheques to be made payable to \"GrepX Services Pte Ltd\" and crossed \"A/C Payee Only\".\nAlternatively, for Bank Transfer / Electronic Payment please find our bank details as follows:\nUOB Bank (7375) :  Current A/C : 37****263 \nBank Swift Code : UOVBSGSG\nCorporate Paynow : 2010****9Z",
+                    "billing_qr_code_image": "/static/uploads/grepx_qr_compressed.jpg",
+                    "gst_percent": 9
                 }
             }
         
         # Create company settings for admin user
         admin_settings = get_or_create(UserSettings, user_id=admin.id, defaults={'preferences': company_settings})
 
+        # --- Contractors ---
+        print("Creating contractors...")
+        # Create the default "AG (Internal)" contractor
+        ag_internal_contractor = get_or_create(Contractor, name='AG (Internal)',
+                                               defaults={'status': 'Active'})
+        
+        # Create an additional contractor
+        premium_transport_contractor = get_or_create(Contractor, name='Premium Transport Services',
+                                                    defaults={'status': 'Active'})
+        
+        # Define realistic cost pricing for AG (Internal) and Premium Transport Services contractors
+        # These costs represent what AG charges for each service
+        ag_service_costs = {
+            'Airport Transfer - Arrival': 17.0,
+            'Airport Transfer - Departure': 15.0,
+            'City / Short Transfer': 10.0,
+            'Outside City Transfer': 14.0,
+            'Student Trip': 20.0,
+            'Worker Trip': 25.0,
+            'Cross Border Transfer': 40.0,
+            'Tour Package - 4Hrs': 22.0,
+            'Tour Package - 8Hrs': 34.0,
+            'Tour Package - 10Hrs': 48.0
+        }
+
+        # Define pricing for Premium Transport Services (slightly higher costs)
+        premium_service_costs = {
+            'Airport Transfer - Arrival': 20.0,
+            'Airport Transfer - Departure': 18.0,
+            'City / Short Transfer': 12.0,
+            'Outside City Transfer': 16.0,
+            'Student Trip': 25.0,
+            'Worker Trip': 30.0,
+            'Cross Border Transfer': 45.0,
+            'Tour Package - 4Hrs': 25.0,
+            'Tour Package - 8Hrs': 38.0,
+            'Tour Package - 10Hrs': 52.0
+        }
+        
         # --- Customers & SubCustomers ---
         print("Creating customers and sub-customers...")
-        grepx_tech = get_or_create(Customer, name='GrepX Technologies',
+        grepx_tech = get_or_create(Customer, name='GrepX (Internal)',
                                    defaults={'email': 'info@grepx.sg', 'mobile': '91234567',
-                                             'company_name': 'GrepX Technologies', 'status': 'Active'})
+                                             'company_name': 'GrepX (Internal)', 'status': 'Active'})
         abc = get_or_create(Customer, name='ABC Technologies',
                             defaults={'email': 'contact@abc.sg', 'mobile': '92345678',
                                       'company_name': 'ABC Technologies', 'status': 'Active'})
@@ -375,20 +415,23 @@ def main():
         # --- Jobs ---
         print("Creating initial jobs...")
         today = datetime.now().date()
-        job1 = get_or_create(Job, customer_id=grepx_tech.id, sub_customer_id=grepx_ops.id, driver_id=driver1.id,
+        job1 = get_or_create(Job, customer_id=grepx_tech.id, sub_customer_name=grepx_ops.name, driver_id=driver1.id,
                              vehicle_id=vehicle1.id, service_type='Airport Transfer - Arrival ', pickup_location='Alpha Airport',
                              dropoff_location='Orchard Hotel', pickup_date=str(today), pickup_time='10:00', status='jc',
-                             base_price=60.0, final_price=80.0, driver_commission=15.0, penalty=0.0, passenger_name=random.choice(passenger_names))
-        job2 = get_or_create(Job, customer_id=abc.id, sub_customer_id=abc_it.id, driver_id=driver2.id,
+                             base_price=60.0, final_price=80.0, job_cost=ag_service_costs['Airport Transfer - Arrival'], penalty=0.0, passenger_name=random.choice(passenger_names),
+                             contractor_id=ag_internal_contractor.id)
+        job2 = get_or_create(Job, customer_id=abc.id, sub_customer_name=abc_it.name, driver_id=driver2.id,
                              vehicle_id=vehicle2.id, service_type='Airport Transfer - Departure', pickup_location='ABC Tower',
                              dropoff_location='Jurong East', pickup_date=str(today + timedelta(days=1)),
                              pickup_time='14:00', status='jc', base_price=120.0, final_price=150.0,
-                             driver_commission=30.0, penalty=0.0, passenger_name=random.choice(passenger_names))
-        job3 = get_or_create(Job, customer_id=beta_univ.id, sub_customer_id=beta_admin.id, driver_id=driver1.id,
+                             job_cost=premium_service_costs['Airport Transfer - Departure'], penalty=0.0, passenger_name=random.choice(passenger_names),
+                             contractor_id=premium_transport_contractor.id)
+        job3 = get_or_create(Job, customer_id=beta_univ.id, sub_customer_name=beta_admin.name, driver_id=driver1.id,
                              vehicle_id=vehicle3.id, service_type='City / Short Transfer', pickup_location='Beta University',
                              dropoff_location='Marina Bay Sands', pickup_date=str(today + timedelta(days=2)),
                              pickup_time='18:00', status='canceled', base_price=200.0, final_price=0.0,
-                             driver_commission=0.0, penalty=50.0, passenger_name=random.choice(passenger_names))
+                             job_cost=ag_service_costs['City / Short Transfer'], penalty=50.0, passenger_name=random.choice(passenger_names),
+                             contractor_id=ag_internal_contractor.id)
 
         # --- Invoices ---
         print("Creating invoices...")
@@ -438,9 +481,18 @@ def main():
             # Vary the date (spread over next 30 days)
             job_date = today + timedelta(days=(i % 30) + 1)
             
+            # Alternate between contractors for variety
+            contractor = premium_transport_contractor if i % 2 == 0 else ag_internal_contractor
+            
+            # Set job_cost based on contractor and service type using existing dictionaries
+            if contractor == ag_internal_contractor:
+                job_cost = ag_service_costs.get(service_type, 15.0)
+            else:  # premium_transport_contractor
+                job_cost = premium_service_costs.get(service_type, 15.0)
+            
             job = get_or_create(Job, 
                                customer_id=zenith.id, 
-                               sub_customer_id=zenith_hr.id, 
+                               sub_customer_name=zenith_hr.name, 
                                driver_id=driver.id,
                                vehicle_id=vehicle.id, 
                                service_type=service_type, 
@@ -451,9 +503,10 @@ def main():
                                status='jc', 
                                base_price=60.0, 
                                final_price=80.0,
-                               driver_commission=0.0, 
+                               job_cost=job_cost, 
                                penalty=0.0,
-                               passenger_name=passenger_name)
+                               passenger_name=passenger_name,
+                               contractor_id=contractor.id)
             # Link job to invoice
             job.invoice_id = invoice3.id
             
@@ -495,65 +548,50 @@ def main():
             (driver1, 'VIP Charter', 'Luxury', 38),
             (driver2, 'Airport Transfer', '13-Seater', 16),
         ]:
+            # --- Services ---
+            print("Creating services...")
+            airTrsArr = get_or_create(Service, name='Airport Transfer - Arrival',
+                        defaults={'description': 'Airport Transfer - Arrival ', 'status': 'Active'})
+            airTraDep = get_or_create(Service, name='Airport Transfer - Departure',
+                        defaults={'description': 'Airport Transfer - Departure', 'status': 'Active'})
+            cityShortTrs = get_or_create(Service, name='City / Short Transfer',
+                        defaults={'description': 'City / Short Transfer', 'status': 'Active'})
+            outCityTrs = get_or_create(Service, name='Outside City Transfer',
+                        defaults={'description': 'Outside City Transfer', 'status': 'Active'})
+            studentTrip = get_or_create(Service, name='Student Trip',
+                        defaults={'description': 'Student Trip', 'status': 'Active'})
+            workerTrip = get_or_create(Service, name='Worker Trip',
+                        defaults={'description': 'Worker Trip', 'status': 'Active'})
+            crossBorderTrs = get_or_create(Service, name='Cross Border Transfer',
+                        defaults={'description': 'Cross Border Transfer', 'status': 'Active'})
+            tour4Hrs = get_or_create(Service, name='Tour Package - 4Hrs',
+                        defaults={'description': 'Tour Package - 4Hrs', 'status': 'Active'})
+            tour8Hrs = get_or_create(Service, name='Tour Package - 8Hrs',
+                        defaults={'description': 'Tour Package - 8Hrs', 'status': 'Active'})
+            tour10Hrs = get_or_create(Service, name='Tour Package - 10Hrs',
+                        defaults={'description': 'Tour Package - 10Hrs', 'status': 'Active'})
 
-        # --- Services ---
-        print("Creating services...")
-        airTrsArr = get_or_create(Service, name='Airport Transfer - Arrival',
-                      defaults={'description': 'Airport Transfer - Arrival ', 'status': 'Active'})
-        airTraDep = get_or_create(Service, name='Airport Transfer - Departure',
-                      defaults={'description': 'Airport Transfer - Departure', 'status': 'Active'})
-        cityShortTrs = get_or_create(Service, name='City / Short Transfer',
-                      defaults={'description': 'City / Short Transfer', 'status': 'Active'})
-        outCityTrs = get_or_create(Service, name='Outside City Transfer',
-                      defaults={'description': 'Outside City Transfer', 'status': 'Active'})
-        studentTrip = get_or_create(Service, name='Student Trip',
-                      defaults={'description': 'Student Trip', 'status': 'Active'})
-        workerTrip = get_or_create(Service, name='Worker Trip',
-                      defaults={'description': 'Worker Trip', 'status': 'Active'})
-        crossBorderTrs = get_or_create(Service, name='Cross Border Transfer',
-                      defaults={'description': 'Cross Border Transfer', 'status': 'Active'})
-        tour4Hrs = get_or_create(Service, name='Tour Package - 4Hrs',
-                      defaults={'description': 'Tour Package - 4Hrs', 'status': 'Active'})
-        tour8Hrs = get_or_create(Service, name='Tour Package - 8Hrs',
-                      defaults={'description': 'Tour Package - 8Hrs', 'status': 'Active'})
-        tour10Hrs = get_or_create(Service, name='Tour Package - 10Hrs',
-                      defaults={'description': 'Tour Package - 10Hrs', 'status': 'Active'})
-
-        # --- Contractors ---
-        print("Creating contractors...")
-        # Create the default "AG (Internal)" contractor
-        ag_internal_contractor = get_or_create(Contractor, name='AG (Internal)',
-                                               defaults={'status': 'Active'})
-        
-        # Update all existing jobs to associate with the default contractor
-        print("Updating existing jobs to associate with default contractor...")
-        Job.query.update({Job.contractor_id: ag_internal_contractor.id})
-        db.session.commit()
-
-        # Create contractor service pricing entries for AG (Internal)
-        print("Creating contractor service pricing for AG (Internal)...")
         services = Service.query.all()
         
-        # Define realistic cost pricing for AG (Internal) contractor
-        # These costs represent what AG charges for each service
-        service_costs = {
-            'Airport Transfer - Arrival': 17.0,
-            'Airport Transfer - Departure': 15.0,
-            'City / Short Transfer': 10.0,
-            'Outside City Transfer': 14.0,
-            'Student Trip': 20.0,
-            'Worker Trip': 25.0,
-            'Cross Border Transfer': 40.0,
-            'Tour Package - 4Hrs': 22.0,
-            'Tour Package - 8Hrs': 34.0,
-            'Tour Package - 10Hrs': 48.0
-        }
+        # Create contractor service pricing entries for AG (Internal)
+        print("Creating contractor service pricing for AG (Internal)...")
         
         for service in services:
             # Use the defined cost or default to 0.0 if service not in mapping
-            cost = service_costs.get(service.name, 0.0)
+            cost = ag_service_costs.get(service.name, 0.0)
             get_or_create(ContractorServicePricing, 
                          contractor_id=ag_internal_contractor.id,
+                         service_id=service.id,
+                         defaults={'cost': cost})
+
+        # Create contractor service pricing entries for Premium Transport Services
+        print("Creating contractor service pricing for Premium Transport Services...")
+        
+        for service in services:
+            # Use the defined cost or default to 0.0 if service not in mapping
+            cost = premium_service_costs.get(service.name, 0.0)
+            get_or_create(ContractorServicePricing, 
+                         contractor_id=premium_transport_contractor.id,
                          service_id=service.id,
                          defaults={'cost': cost})
 
@@ -730,10 +768,20 @@ def main():
                 base = 60 + (job_counter % 5) * 10
                 final = base + 20 if status != 'canceled' else 0
                 penalty = 0 if status != 'canceled' else 30 + (job_counter % 3) * 10
-                get_or_create(Job, customer_id=cust.id, sub_customer_id=subcust.id, driver_id=drv.id, vehicle_id=veh.id,
+                # Alternate between contractors
+                contractor = premium_transport_contractor if job_counter % 2 == 0 else ag_internal_contractor
+                
+                # Set job_cost based on contractor and service type using existing dictionaries
+                if contractor == ag_internal_contractor:
+                    job_cost = ag_service_costs.get(svc, 15.0)
+                else:  # premium_transport_contractor
+                    job_cost = premium_service_costs.get(svc, 15.0)
+                
+                get_or_create(Job, customer_id=cust.id, sub_customer_name=subcust.name, driver_id=drv.id, vehicle_id=veh.id,
                               service_type=svc, pickup_location='Alpha Airport', dropoff_location='Orchard Hotel',
                               pickup_date=str(today - timedelta(days=days_ago)), pickup_time='09:00', status=status,
-                              base_price=base, final_price=final, driver_commission=15.0, penalty=penalty, passenger_name=passenger_name)
+                              base_price=base, final_price=final, job_cost=job_cost, penalty=penalty, passenger_name=passenger_name,
+                              contractor_id=contractor.id)
 
             # Future jobs (1 to 10 days ahead)
             for days_ahead in range(1, 11, 2):
@@ -746,10 +794,20 @@ def main():
                 base = 60 + (job_counter % 5) * 10
                 final = base + 20 if status != 'canceled' else 0
                 penalty = 0 if status != 'canceled' else 30 + (job_counter % 3) * 10
-                get_or_create(Job, customer_id=cust.id, sub_customer_id=subcust.id, driver_id=drv.id, vehicle_id=veh.id,
+                # Alternate between contractors
+                contractor = premium_transport_contractor if job_counter % 2 == 0 else ag_internal_contractor
+                
+                # Set job_cost based on contractor and service type using existing dictionaries
+                if contractor == ag_internal_contractor:
+                    job_cost = ag_service_costs.get(svc, 15.0)
+                else:  # premium_transport_contractor
+                    job_cost = premium_service_costs.get(svc, 15.0)
+                
+                get_or_create(Job, customer_id=cust.id, sub_customer_name=subcust.name, driver_id=drv.id, vehicle_id=veh.id,
                               service_type=svc, pickup_location='Raffles Place', dropoff_location='Jurong East',
                               pickup_date=str(today + timedelta(days=days_ahead)), pickup_time='15:00', status=status,
-                              base_price=base, final_price=final, driver_commission=15.0, penalty=penalty, passenger_name=passenger_name)
+                              base_price=base, final_price=final, job_cost=job_cost, penalty=penalty, passenger_name=passenger_name,
+                              contractor_id=contractor.id)
 
         db.session.commit()
 
@@ -760,7 +818,7 @@ def main():
         job_for_timeline = get_or_create(
             Job,
             customer_id=grepx_tech.id,
-            sub_customer_id=grepx_ops.id,
+            sub_customer_name=grepx_ops.name,
             driver_id=driver1.id,
             vehicle_id=vehicle1.id,
             service_type='Airport Transfer - Departure',
@@ -771,8 +829,9 @@ def main():
             status='pending',
             base_price=60.0,
             final_price=80.0,
-            driver_commission=15.0,
-            penalty=0.0
+            job_cost=ag_service_costs['Airport Transfer - Departure'],
+            penalty=0.0,
+            contractor_id=ag_internal_contractor.id
         )
         db.session.commit()
 

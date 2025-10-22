@@ -20,6 +20,9 @@ from PIL import Image as PILImage
 import yaml
 from sqlalchemy.orm import joinedload
 from xml.sax.saxutils import escape
+import shutil
+from datetime import datetime
+from tempfile import NamedTemporaryFile
 
 # backend/services/invoice_service.py  
 import sys
@@ -541,27 +544,102 @@ class InvoiceService:
                 raise FileNotFoundError("Invoice template 'modern_invoice' not found")
 
             generator = InvoiceGenerator(templates_dir=str(templates_dir))
-            output_dir = templates_dir / "output"   # sibling of the package dir
-            output_dir.mkdir(parents=True, exist_ok=True)
 
-            pdf_path = output_dir / f"{doc_invoice.number}.pdf"
-            pdf_result = generator.generate_invoice(
-            invoice=doc_invoice,
-            template_name="modern_invoice",
-            output_path=output_dir / f"{doc_invoice.number}.pdf",
-            format_type=OutputFormat.PDF,
-            )
-            output_path = output_dir / f"{doc_invoice.number}.pdf"
-            if not pdf_result.success or not pdf_path.exists():
-                current_app.logger.error("Invoice generation failed: %s", getattr(pdf_result, "error", "unknown"))
-                raise FileNotFoundError("Invoice template or resource missing.")
+            # === Save a copy in fleetwise-storage organized by invoice.date month ===
+            if hasattr(invoice.date, "strftime"):
+                invoice_date = invoice.date
+            else:
+                try:
+                    invoice_date = datetime.strptime(str(invoice.date), "%Y-%m-%d")
+                except ValueError:
+                    current_app.logger.error(f"Invalid invoice date format: {invoice.date}")
+                    raise ValueError(f"Invalid invoice date format: {invoice.date}")
+            month_str = invoice_date.strftime("%Y-%m")
+            if not re.match(r'^\d{4}-\d{2}$', month_str):
+                current_app.logger.error(f"Date produced invalid month string: {month_str}")
+                raise ValueError(f"Invalid month format: {month_str}")
+
+            # --- Determine storage root ---
+            storage_root_env = current_app.config.get("INVOICE_STORAGE_ROOT")
+            if storage_root_env and Path(storage_root_env).exists():
+                storage_root = Path(storage_root_env).resolve()
+                current_app.logger.info(f"Using configured invoice storage root: {storage_root}")
+            else:
+                # Fallback: derive automatically
+                repos_root = Path(current_app.root_path).resolve().parents[2]
+                storage_root = repos_root / "fleetwise-storage"
+                current_app.logger.warning(
+                    f"INVOICE_STORAGE_ROOT not set or invalid. Falling back to: {storage_root}"
+                )
+
+            storage_base = storage_root / "invoices"    
+            storage_month_dir = storage_base / month_str
+            
+  
+            try:
+                storage_month_dir.mkdir(parents=True, exist_ok=True)
+                if not storage_month_dir.is_dir():
+                    raise RuntimeError(f"Storage path exists but is not a directory: {storage_month_dir}")
+                if not os.access(storage_month_dir, os.W_OK):
+                     raise PermissionError(f"Storage directory is not writable: {storage_month_dir}")
+                
+            except OSError as e:
+                current_app.logger.error(
+                f"Cannot create storage directory {storage_month_dir}: {e}"
+                )
+                raise RuntimeError(f"Failed to create invoice storage: {e}") from e
+            # PDF generation with proper validation (separate concern)
+
+            pdf_final_path = storage_month_dir / f"{doc_invoice.number}.pdf"
+            temp_pdf = None
+
+            try:
+                # Step 1: Write to a temporary file in the same directory (same filesystem)
+                with NamedTemporaryFile(dir=storage_month_dir, suffix=".pdf", delete=False) as tmp_file:
+                    temp_pdf = Path(tmp_file.name)
+                    pdf_result = generator.generate_invoice(
+                        invoice=doc_invoice,
+                        template_name="modern_invoice",
+                        output_path=temp_pdf,
+                        format_type=OutputFormat.PDF,
+                     )
+
+                # Step 2: Validate that PDF generation succeeded
+                if not pdf_result.success or not temp_pdf.exists() or temp_pdf.stat().st_size == 0:
+                    current_app.logger.error(
+                        f"Invoice generation failed for invoice {invoice_id}: {getattr(pdf_result, 'error', 'unknown error')}"
+                    )
+                    raise RuntimeError(f"Invoice generation failed or produced empty file: {temp_pdf}")
+
+                # Step 3: Atomically move the file into place
+                os.replace(temp_pdf, pdf_final_path)
+                current_app.logger.info(f"✅ Invoice PDF saved atomically: {pdf_final_path}")
+
+            except Exception as e:
+                current_app.logger.error(
+                    f"Error during PDF generation or atomic save for invoice {invoice_id}: {e}", 
+                    exc_info=True
+                )
+            # Cleanup temp file if it exists
+            if temp_pdf and temp_pdf.exists():
+                try:
+                    temp_pdf.unlink()
+                    current_app.logger.debug(f"🧹 Cleaned up temp file: {temp_pdf}")
+                except Exception as cleanup_err:
+                    current_app.logger.warning(f"Failed to delete temp file {temp_pdf}: {cleanup_err}")
+                raise
+
+            if not pdf_final_path.exists():
+                raise RuntimeError(f"Invoice PDF missing after atomic save: {pdf_final_path}")
 
             return send_file(
-                pdf_path,
+                pdf_final_path,
                 mimetype="application/pdf",
                 as_attachment=False,            # inline in browser
-                download_name=pdf_path.name     # Flask 2.0+ (fallbacks automatically if older)
+                download_name=pdf_final_path.name     # Flask 2.0+ (fallbacks automatically if older)
             )
+           
+            
         except FileNotFoundError as e:
             logging.error(f"File not found while generating invoice PDF: {e}", exc_info=True)
             raise FileNotFoundError("Invoice template or resource missing.") from e
