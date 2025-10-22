@@ -17,11 +17,21 @@ source venv/bin/activate && pip install --upgrade pip
 mkdir -p libs
 git clone https://bitbucket.org/grepx/py-doc-generator.git libs/py-doc-generator
 
+# Clone supporting GrepX libraries
+git clone https://grepx-admin@bitbucket.org/grepx/py-web-libs.git libs/py-web-libs
+git clone https://grepx-admin@bitbucket.org/grepx/grepx-py-sql-database-libs.git libs/grepx-py-sql-database-libs
+git clone https://grepx-admin@bitbucket.org/grepx/py-utils.git libs/py-utils
+
 # Install py-doc-generator requirements first
 source venv/bin/activate && pip install -r libs/py-doc-generator/requirements.txt
 
 # Install py-doc-generator in editable mode
 source venv/bin/activate && pip install -e libs/py-doc-generator
+
+# Install GrepX library dependencies in editable mode
+source venv/bin/activate && pip install -e libs/py-web-libs
+source venv/bin/activate && pip install -e libs/grepx-py-sql-database-libs
+source venv/bin/activate && pip install -e libs/py-utils
 
 # Install main backend dependencies
 source venv/bin/activate && pip install --no-cache-dir -r requirements.txt
@@ -31,4 +41,3 @@ source venv/bin/activate && test -f requirements-firebase.txt && pip install -r 
 
 # Run database migrations (if Alembic is configured)
 source venv/bin/activate && test -d alembic && alembic upgrade head || echo "Alembic not configured, skipping migrations"
-
