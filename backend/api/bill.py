@@ -212,7 +212,7 @@ def generate_contractor_bill():
                 # Calculate amount for this job (job_cost - cash collected)
                 job_cost = Decimal(str(job.job_cost or 0.0))
                 cash_collected = Decimal(str(job.cash_to_collect or 0.0))
-                job_amount = job_cost - cash_collected
+                job_amount = abs(job_cost - cash_collected)  
                 total_amount += job_amount
             
             # Update bill total amount
@@ -284,7 +284,7 @@ def remove_job_from_bill(bill_id, job_id):
         # Recalculate the bill total
         from backend.models.job import Job
         bill_jobs = Job.query.filter_by(bill_id=bill_id).all()
-        total_amount = sum(float(job.driver_commission or 0.0) - float(job.cash_to_collect or 0.0) for job in bill_jobs)
+        total_amount = sum(abs(float(job.job_cost or 0.0) - float(job.cash_to_collect or 0.0)) for job in bill_jobs)
         bill.total_amount = total_amount if bill_jobs else 0
         
         # If the bill has no more jobs associated with it, delete the bill automatically
@@ -398,13 +398,13 @@ def generate_driver_bill():
                 # Associate the job with the bill
                 job.bill_id = existing_bill.id
                 
-                # Calculate amount for this job (commission - cash collected)
-                commission = Decimal(str(job.driver_commission or 0.0))
+                # Calculate amount for this job (job_cost - cash collected)
+                job_cost = Decimal(str(job.job_cost or 0.0))
                 cash_collected = Decimal(str(job.cash_to_collect or 0.0))
-                job_amount = commission - cash_collected
+                job_amount = abs(job_cost - cash_collected)  # 
                 total_amount += job_amount
             
-            # Update bill total amount
+            # Update bill total amount - allow negative values
             existing_bill.total_amount = total_amount
             
             # Ensure driver_id is set on the existing bill

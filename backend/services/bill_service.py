@@ -147,11 +147,10 @@ class BillService:
                 #     raise ServiceError(f"Job {job.id} is already billed.")
             
             # Create a single bill for all jobs
-            bill = Bill(
-                contractor_id=contractor_id,
-                total_amount=Decimal('0.00'),
-                status='Generated',  # All bills are 'Generated'
-            )
+            bill = Bill()
+            bill.contractor_id = contractor_id
+            bill.total_amount = Decimal('0.00')
+            bill.status = 'Generated'  # All bills are 'Generated'
             db.session.add(bill)
             db.session.flush()  # Get bill ID
             
@@ -165,10 +164,10 @@ class BillService:
                 # Convert to Decimal to ensure proper arithmetic operations
                 job_cost = Decimal(str(job.job_cost or 0.0))
                 cash_collected = Decimal(str(job.cash_to_collect or 0.0))
-                job_amount = job_cost - cash_collected
+                job_amount = abs(job_cost - cash_collected)  
                 total_amount += job_amount
             
-            # Update bill total amount
+            # Update bill total amount - allow negative values
             bill.total_amount = total_amount
             
             db.session.commit()
@@ -247,12 +246,11 @@ class BillService:
                 #     raise ServiceError(f"Job {job.id} is already billed.")
             
             # Create a single bill for all jobs
-            bill = Bill(
-                contractor_id=None,  # Explicitly set to None for driver bills
-                driver_id=driver_id,  # Set the driver_id for driver bills
-                total_amount=Decimal('0.00'),
-                status='Generated'
-            )
+            bill = Bill()
+            bill.contractor_id = None  # Explicitly set to None for driver bills
+            bill.driver_id = driver_id  # Set the driver_id for driver bills
+            bill.total_amount = Decimal('0.00')
+            bill.status = 'Generated'
             db.session.add(bill)
             db.session.flush()  # Get bill ID
             
@@ -262,14 +260,14 @@ class BillService:
                 # Associate the job with the bill
                 job.bill_id = bill.id
                 
-                # Calculate amount for this job (commission - cash collected)
+                # Calculate amount for this job (job_cost - cash collected)
                 # Convert to Decimal to ensure proper arithmetic operations
-                commission = Decimal(str(job.driver_commission or 0.0))
+                job_cost = Decimal(str(job.job_cost or 0.0))
                 cash_collected = Decimal(str(job.cash_to_collect or 0.0))
-                job_amount = commission - cash_collected
+                job_amount = abs(job_cost - cash_collected)  
                 total_amount += job_amount
             
-            # Update bill total amount
+            # Update bill total amount - allow negative values
             bill.total_amount = total_amount
             
             db.session.commit()
