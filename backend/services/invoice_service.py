@@ -133,7 +133,7 @@ class InvoiceService:
     def generate_invoice_for_jobs(job_ids, customer_id):
         try:
             # Use optimized loading for invoice generation - only need basic job data
-            jobs = Job.query.filter(Job.id.in_(job_ids)).all()
+            jobs = Job.query.filter(Job.id.in_(job_ids), Job.is_deleted == False).all()
             if not jobs:
                 return {'error': 'No jobs found for the provided job IDs.'}
 
@@ -206,7 +206,11 @@ class InvoiceService:
             total = pagination.total
             invoice_data = []
             for invoice in invoices:
-                jobs_query = Job.query.filter(Job.invoice_id == invoice.id,Job.status == JobStatus.JC.value)
+                jobs_query = Job.query.filter(
+                    Job.invoice_id == invoice.id,
+                    Job.status == JobStatus.JC.value,
+                    Job.is_deleted == False
+                )
                 if customer_name:
                     pattern = '%' + sanitize_filter_value(customer_name) + '%'
                     jobs_query = jobs_query.join(Job.customer).filter(Customer.name.ilike(pattern))
@@ -237,7 +241,7 @@ class InvoiceService:
             invoice = Invoice.query.get(invoice_id)
             if not invoice:
                 return {'error': 'Invoice not found'}
-            jobs = Job.query.filter_by(invoice_id=invoice_id).all()
+            jobs = Job.query.filter(Job.invoice_id == invoice_id, Job.is_deleted == False).all()
             for job in jobs:
                 job.invoice_id = None
             db.session.delete(invoice)
@@ -308,7 +312,7 @@ class InvoiceService:
             logging.error("PDF generation not available. Install PDF dependencies: pip install -r requirements-pdf.txt")
             raise ServiceError("PDF generation is not available. Please install PDF dependencies with: pip install -r requirements-pdf.txt.")
 
-        jobs = Job.query.filter_by(invoice_id=invoice.id).all()
+        jobs = Job.query.filter(Job.invoice_id == invoice.id, Job.is_deleted == False).all()
         total = 0
         
         output_folder = os.path.join(current_app.root_path, 'billing_invoices')

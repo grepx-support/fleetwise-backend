@@ -350,6 +350,25 @@ def delete_job(job_id):
         logging.error(f"Unhandled error in delete_job: {e}", exc_info=True)
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
+
+@job_bp.route('/jobs/<int:job_id>/soft-delete', methods=['PUT'])
+@roles_accepted('admin', 'manager')
+def soft_delete_job(job_id):
+    try:
+        job = Job.query.get(job_id)
+        if not job:
+            return jsonify({'error': 'Job not found'}), 404
+        
+        # Implement soft delete
+        job.is_deleted = True
+        db.session.commit()
+        
+        return jsonify({'message': 'Job marked as deleted'}), 200
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Unhandled error in soft_delete_job: {e}", exc_info=True)
+        return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
+
 # @job_bp.route('/jobs/calculate_price', methods=['POST'])
 # def calculate_job_price():
 #     try:
@@ -483,7 +502,7 @@ def jobs_table():
                 filters[key] = request.args.get(key)
         
         # Query with filters
-        query = Job.query
+        query = Job.query.filter(Job.is_deleted == False)
         
         # Handle computed field filters by joining with related tables
         for key, value in filters.items():
@@ -1349,7 +1368,7 @@ def bulk_cancel_jobs():
             return jsonify({'error': 'All job_ids must be valid integers'}), 400
             
         # Get all jobs to be canceled
-        jobs = Job.query.filter(Job.id.in_(job_ids)).all()
+        jobs = Job.query.filter(Job.id.in_(job_ids), Job.is_deleted == False).all()
         
         # Check if all requested jobs were found
         found_job_ids = [job.id for job in jobs]

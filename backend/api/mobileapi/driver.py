@@ -546,7 +546,10 @@ def get_driver_jobs():
             return jsonify({"error": "driver_id is required"}), 400
 
         # Base query with eager loading for customer
-        query = Job.query.options(joinedload(Job.customer)).filter(Job.driver_id == driver_id)
+        query = Job.query.options(joinedload(Job.customer)).filter(
+            Job.driver_id == driver_id,
+            Job.is_deleted == False
+        )
 
         today_date = date.today().strftime("%Y-%m-%d")
         now_time = datetime.now().strftime("%H:%M:%S")

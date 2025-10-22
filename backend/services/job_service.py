@@ -154,7 +154,8 @@ class JobService:
             query = Job.get_with_relationships(include_relationships=['customer', 'driver', 'vehicle', 'vehicle_type'])
             if query is None:
                 return []
-            return query.all()
+            # Filter out deleted jobs
+            return query.filter(Job.is_deleted == False).all()
         except Exception as e:
             logging.error(f"Error fetching jobs: {e}", exc_info=True)
             raise ServiceError("Could not fetch jobs. Please try again later.")
@@ -175,7 +176,8 @@ class JobService:
             query = Job.get_with_relationships(include_relationships=['customer', 'driver', 'vehicle'])
             if query is None:
                 return []
-            return query.filter(Job.driver_id == driver_id).all()
+            # Filter out deleted jobs
+            return query.filter(Job.driver_id == driver_id, Job.is_deleted == False).all()
         except Exception as e:
             logging.error(f"Error fetching jobs for driver: {e}", exc_info=True)
             raise ServiceError("Could not fetch jobs. Please try again later.")
@@ -187,7 +189,8 @@ class JobService:
             query = Job.get_with_relationships(include_relationships=['customer', 'driver', 'vehicle'])
             if query is None:
                 return []
-            return query.filter(Job.customer_id == customer_id).all()
+            # Filter out deleted jobs
+            return query.filter(Job.customer_id == customer_id, Job.is_deleted == False).all()
         except Exception as e:
             logging.error(f"Error fetching jobs for customer: {e}", exc_info=True)
             raise ServiceError("Could not fetch jobs. Please try again later.")
@@ -757,7 +760,8 @@ class JobService:
             job = Job.query.get(job_id)
             if not job:
                 return False
-            db.session.delete(job)
+            # Implement soft delete instead of hard delete
+            job.is_deleted = True
             db.session.commit()
             return True
         except Exception as e:
@@ -866,7 +870,7 @@ class JobService:
 
             job.invoice_id = None
 
-            remaining_jobs = Job.query.filter_by(invoice_id=invoice.id).all()
+            remaining_jobs = Job.query.filter(Job.invoice_id == job.invoice_id, Job.is_deleted == False).all()
 
             if not remaining_jobs and (invoice.total_amount == 0 or invoice.total_amount is None):
                 db.session.delete(invoice)
