@@ -32,6 +32,8 @@ from backend.models.vehicle import Vehicle
 from backend.models.invoice import Invoice
 from backend.models.job_audit import JobAudit
 from backend.models.user import User
+from backend.models.contractor import Contractor
+from backend.models.vehicle_type import VehicleType
 from backend.extensions import db
 
 limiter = Limiter(key_func=get_remote_address)
@@ -569,107 +571,138 @@ def download_job_template():
         services = Service.query.filter_by(status='Active').all()
         vehicles = Vehicle.query.filter_by(status='Active').all()
         drivers = Driver.query.filter_by(status='Active').all()
+        contractors = Contractor.query.filter_by(status='Active').all()
+        vehicle_types = VehicleType.query.filter_by(status=True, is_deleted=False).all()
         
-        # Create sample data with mixed valid/invalid data for testing
+        # Create sample data using actual database values
         sample_data = []
         today = datetime.now()
-        
-        # Valid data (should pass validation)
-        sample_data.append({
-            'Customer': 'GrepX Technologies',
-            'Service': 'Airport Transfer',
-            'Vehicle': 'SGA1234X',
-            'Driver': 'John Tan',
-            'Pickup Date': (today + timedelta(days=1)).strftime('%Y-%m-%d'),
-            'Pickup Time': '09:00',
-            'Pickup Location': 'Changi Airport Terminal 1',
-            'Drop-off Location': 'Orchard Hotel',
-            'Passenger Name': 'John Smith',
-            'Status': 'new',
-            'Remarks': 'Valid test data - should pass validation'
-        })
-        
-        # Valid data (should pass validation)
-        sample_data.append({
-            'Customer': 'ABC Technologies',
-            'Service': 'Corporate Charter',
-            'Vehicle': 'SGD5678Y',
-            'Driver': 'Susan Ong',
-            'Pickup Date': (today + timedelta(days=2)).strftime('%Y-%m-%d'),
-            'Pickup Time': '14:30',
-            'Pickup Location': 'ABC Tower',
-            'Drop-off Location': 'Jurong East',
-            'Passenger Name': 'Jane Doe',
-            'Status': 'pending',
-            'Remarks': 'Another valid test data'
-        })
-        
-        # Invalid data (should fail validation)
-        sample_data.append({
-            'Customer': 'Invalid Customer',
-            'Service': 'Airport Transfer',
-            'Vehicle': 'SGA1234X',
-            'Driver': 'John Tan',
-            'Pickup Date': (today + timedelta(days=3)).strftime('%Y-%m-%d'),
-            'Pickup Time': '10:00',
-            'Pickup Location': 'Test Location',
-            'Drop-off Location': 'Test Destination',
-            'Passenger Name': 'Test Passenger',
-            'Status': 'new',
-            'Remarks': 'Invalid customer - should fail validation'
-        })
-        
-        # Invalid data (should fail validation)
-        sample_data.append({
-            'Customer': 'GrepX Technologies',
-            'Service': 'Invalid Service',
-            'Vehicle': 'SGA1234X',
-            'Driver': 'John Tan',
-            'Pickup Date': (today + timedelta(days=4)).strftime('%Y-%m-%d'),
-            'Pickup Time': '11:00',
-            'Pickup Location': 'Test Location',
-            'Drop-off Location': 'Test Destination',
-            'Passenger Name': 'Test Passenger',
-            'Status': 'new',
-            'Remarks': 'Invalid service - should fail validation'
-        })
-        
-        # Invalid data (should fail validation)
-        sample_data.append({
-            'Customer': 'GrepX Technologies',
-            'Service': 'Airport Transfer',
-            'Vehicle': 'INVALID123',
-            'Driver': 'John Tan',
-            'Pickup Date': (today + timedelta(days=5)).strftime('%Y-%m-%d'),
-            'Pickup Time': '12:00',
-            'Pickup Location': 'Test Location',
-            'Drop-off Location': 'Test Destination',
-            'Passenger Name': 'Test Passenger',
-            'Status': 'new',
-            'Remarks': 'Invalid vehicle - should fail validation'
-        })
-        
-        # Invalid data (should fail validation)
-        sample_data.append({
-            'Customer': 'GrepX Technologies',
-            'Service': 'Airport Transfer',
-            'Vehicle': 'SGA1234X',
-            'Driver': 'Invalid Driver',
-            'Pickup Date': (today + timedelta(days=6)).strftime('%Y-%m-%d'),
-            'Pickup Time': '13:00',
-            'Pickup Location': 'Test Location',
-            'Drop-off Location': 'Test Destination',
-            'Passenger Name': 'Test Passenger',
-            'Status': 'new',
-            'Remarks': 'Invalid driver - should fail validation'
-        })
+
+        # Create valid sample data if we have database records
+        if customers and services and vehicles and drivers:
+            # First valid sample
+            sample_data.append({
+                'Customer': customers[0].name,
+                'Service': services[0].name,
+                'Vehicle': vehicles[0].number,
+                'Driver': drivers[0].name,
+                'Contractor': contractors[0].name if contractors else '',
+                'Vehicle Type': vehicle_types[0].name if vehicle_types else '',
+                'Pickup Date': (today + timedelta(days=1)).strftime('%Y-%m-%d'),
+                'Pickup Time': '09:00',
+                'Pickup Location': 'Sample Pickup Location 1',
+                'Drop-off Location': 'Sample Drop-off Location 1',
+                'Passenger Name': 'Sample Passenger 1',
+                'Status': 'new',
+                'Remarks': 'Sample job entry - Valid data'
+            })
+
+            # Second valid sample (if we have multiple records)
+            if len(customers) > 1 and len(services) > 1 and len(vehicles) > 1 and len(drivers) > 1:
+                sample_data.append({
+                    'Customer': customers[1].name,
+                    'Service': services[1].name if len(services) > 1 else services[0].name,
+                    'Vehicle': vehicles[1].number if len(vehicles) > 1 else vehicles[0].number,
+                    'Driver': drivers[1].name if len(drivers) > 1 else drivers[0].name,
+                    'Contractor': contractors[1].name if len(contractors) > 1 else (contractors[0].name if contractors else ''),
+                    'Vehicle Type': vehicle_types[1].name if len(vehicle_types) > 1 else (vehicle_types[0].name if vehicle_types else ''),
+                    'Pickup Date': (today + timedelta(days=2)).strftime('%Y-%m-%d'),
+                    'Pickup Time': '14:30',
+                    'Pickup Location': 'Sample Pickup Location 2',
+                    'Drop-off Location': 'Sample Drop-off Location 2',
+                    'Passenger Name': 'Sample Passenger 2',
+                    'Status': 'pending',
+                    'Remarks': 'Sample job entry - Valid data'
+                })
+
+            # Add invalid data samples for testing validation
+            sample_data.append({
+                'Customer': 'Invalid Customer',
+                'Service': services[0].name,
+                'Vehicle': vehicles[0].number,
+                'Driver': drivers[0].name,
+                'Contractor': contractors[0].name if contractors else '',
+                'Vehicle Type': vehicle_types[0].name if vehicle_types else '',
+                'Pickup Date': (today + timedelta(days=3)).strftime('%Y-%m-%d'),
+                'Pickup Time': '10:00',
+                'Pickup Location': 'Test Location',
+                'Drop-off Location': 'Test Destination',
+                'Passenger Name': 'Test Passenger',
+                'Status': 'new',
+                'Remarks': 'Invalid customer - should fail validation'
+            })
+
+            sample_data.append({
+                'Customer': customers[0].name,
+                'Service': 'Invalid Service',
+                'Vehicle': vehicles[0].number,
+                'Driver': drivers[0].name,
+                'Contractor': contractors[0].name if contractors else '',
+                'Vehicle Type': vehicle_types[0].name if vehicle_types else '',
+                'Pickup Date': (today + timedelta(days=4)).strftime('%Y-%m-%d'),
+                'Pickup Time': '11:00',
+                'Pickup Location': 'Test Location',
+                'Drop-off Location': 'Test Destination',
+                'Passenger Name': 'Test Passenger',
+                'Status': 'new',
+                'Remarks': 'Invalid service - should fail validation'
+            })
+
+            sample_data.append({
+                'Customer': customers[0].name,
+                'Service': services[0].name,
+                'Vehicle': 'INVALID123',
+                'Driver': drivers[0].name,
+                'Contractor': contractors[0].name if contractors else '',
+                'Vehicle Type': vehicle_types[0].name if vehicle_types else '',
+                'Pickup Date': (today + timedelta(days=5)).strftime('%Y-%m-%d'),
+                'Pickup Time': '12:00',
+                'Pickup Location': 'Test Location',
+                'Drop-off Location': 'Test Destination',
+                'Passenger Name': 'Test Passenger',
+                'Status': 'new',
+                'Remarks': 'Invalid vehicle - should fail validation'
+            })
+
+            sample_data.append({
+                'Customer': customers[0].name,
+                'Service': services[0].name,
+                'Vehicle': vehicles[0].number,
+                'Driver': 'Invalid Driver',
+                'Contractor': contractors[0].name if contractors else '',
+                'Vehicle Type': vehicle_types[0].name if vehicle_types else '',
+                'Pickup Date': (today + timedelta(days=6)).strftime('%Y-%m-%d'),
+                'Pickup Time': '13:00',
+                'Pickup Location': 'Test Location',
+                'Drop-off Location': 'Test Destination',
+                'Passenger Name': 'Test Passenger',
+                'Status': 'new',
+                'Remarks': 'Invalid driver - should fail validation'
+            })
+        else:
+            # Fallback: Create empty template if no database records exist
+            sample_data.append({
+                'Customer': '',
+                'Service': '',
+                'Vehicle': '',
+                'Driver': '',
+                'Contractor': '',
+                'Vehicle Type': '',
+                'Pickup Date': (today + timedelta(days=1)).strftime('%Y-%m-%d'),
+                'Pickup Time': '09:00',
+                'Pickup Location': '',
+                'Drop-off Location': '',
+                'Passenger Name': '',
+                'Status': 'new',
+                'Remarks': ''
+            })
         
         # Create DataFrame
         df = pd.DataFrame(sample_data)
         
-        # Create Excel file in memory using xlsxwriter engine
+        # Create Excel file in memory using openpyxl engine
         output = BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df.to_excel(writer, sheet_name='Jobs Template', index=False)
             
             # Get the workbook and worksheet
@@ -722,11 +755,25 @@ def download_job_template():
                 driver_validation = DataValidation(type="list", formula1=f'"{",".join(driver_names)}"', allow_blank=True)
                 driver_validation.add('D2:D1000')
                 worksheet.add_data_validation(driver_validation)
-            
-            # Status dropdown
+
+            # Contractor dropdown
+            if contractors:
+                contractor_names = [contractor.name for contractor in contractors]
+                contractor_validation = DataValidation(type="list", formula1=f'"{",".join(contractor_names)}"', allow_blank=True)
+                contractor_validation.add('E2:E1000')
+                worksheet.add_data_validation(contractor_validation)
+
+            # Vehicle Type dropdown
+            if vehicle_types:
+                vehicle_type_names = [vtype.name for vtype in vehicle_types]
+                vehicle_type_validation = DataValidation(type="list", formula1=f'"{",".join(vehicle_type_names)}"', allow_blank=True)
+                vehicle_type_validation.add('F2:F1000')
+                worksheet.add_data_validation(vehicle_type_validation)
+
+            # Status dropdown (now at column L instead of J)
             status_options = ['new', 'pending', 'confirmed', 'otw', 'ots', 'pob', 'jc', 'sd', 'canceled']
             status_validation = DataValidation(type="list", formula1=f'"{",".join(status_options)}"', allow_blank=True)
-            status_validation.add('J2:J1000')
+            status_validation.add('L2:L1000')
             worksheet.add_data_validation(status_validation)
             
             # Auto-adjust column widths
@@ -762,6 +809,8 @@ def download_job_template():
                 ['- Drop-off Location: Text'],
                 [''],
                 ['Optional Fields:'],
+                ['- Contractor: Select from dropdown'],
+                ['- Vehicle Type: Select from dropdown'],
                 ['- Passenger Name: Text'],
                 ['- Status: Select from dropdown'],
                 ['- Remarks: Text'],
@@ -769,7 +818,7 @@ def download_job_template():
                 ['Notes:'],
                 ['- Date format must be YYYY-MM-DD'],
                 ['- Time format must be HH:MM (24-hour)'],
-                ['- Use dropdowns for Customer, Service, Vehicle, Driver, and Status'],
+                ['- Use dropdowns for Customer, Service, Vehicle, Driver, Contractor, Vehicle Type, and Status'],
                 ['- Remove sample data before uploading'],
                 ['- Maximum 1000 jobs per file'],
                 ['- Status options: new, pending, confirmed, otw, ots, pob, jc, sd, canceled']
@@ -885,6 +934,8 @@ def process_excel_file_preview(file_path, column_mapping=None):
                     'service': 'N/A',
                     'vehicle': 'N/A',
                     'driver': 'N/A',
+                    'contractor': 'N/A',
+                    'vehicle_type': 'N/A',
                     'pickup_date': 'N/A',
                     'pickup_time': 'N/A',
                     'pickup_location': 'N/A',
@@ -906,6 +957,8 @@ def process_excel_file_preview(file_path, column_mapping=None):
             'service': ['Service', 'Type', 'Category'],
             'vehicle': ['Vehicle', 'Car', 'Vehicle Number'],
             'driver': ['Driver', 'Chauffeur', 'Driver Name'],
+            'contractor': ['Contractor', 'Contractor Name', 'Vendor'],
+            'vehicle_type': ['Vehicle Type', 'Type of Vehicle', 'Car Type'],
             'pickup_date': ['Pickup Date', 'Date', 'Pickup Date'],
             'pickup_time': ['Pickup Time', 'Time', 'Pickup Time'],
             'pickup_location': ['Pickup Location', 'From', 'Pickup Location'],
@@ -950,6 +1003,8 @@ def process_excel_file_preview(file_path, column_mapping=None):
                     'service': 'N/A',
                     'vehicle': 'N/A',
                     'driver': 'N/A',
+                    'contractor': 'N/A',
+                    'vehicle_type': 'N/A',
                     'pickup_date': 'N/A',
                     'pickup_time': 'N/A',
                     'pickup_location': 'N/A',
@@ -967,9 +1022,6 @@ def process_excel_file_preview(file_path, column_mapping=None):
         
         # Get lookup data using centralized validation
         lookups = get_validation_lookups()
-        
-
-        
         preview_rows = []
         valid_count = 0
         error_count = 0
@@ -991,6 +1043,8 @@ def process_excel_file_preview(file_path, column_mapping=None):
                 'service': clean_value(row.get(column_map.get('service', 'Service'), '')),
                 'vehicle': clean_value(row.get(column_map.get('vehicle', 'Vehicle'), '')),
                 'driver': clean_value(row.get(column_map.get('driver', 'Driver'), '')),
+                'contractor': clean_value(row.get(column_map.get('contractor', 'Contractor'), '')),
+                'vehicle_type': clean_value(row.get(column_map.get('vehicle_type', 'Vehicle Type'), '')),
                 'pickup_date': clean_value(row.get(column_map.get('pickup_date', 'Pickup Date'), '')),
                 'pickup_time': clean_value(row.get(column_map.get('pickup_time', 'Pickup Time'), '')),
                 'pickup_location': clean_value(row.get(column_map.get('pickup_location', 'Pickup Location'), '')),
@@ -1084,6 +1138,8 @@ def process_excel_file_preview(file_path, column_mapping=None):
                 'service': 'N/A',
                 'vehicle': 'N/A',
                 'driver': 'N/A',
+                'contractor': 'N/A',
+                'vehicle_type': 'N/A',
                 'pickup_date': 'N/A',
                 'pickup_time': 'N/A',
                 'pickup_location': 'N/A',
@@ -1115,94 +1171,120 @@ def confirm_upload():
         services = {service.name: service.name for service in Service.query.filter_by(status='Active').all()}
         vehicles = {vehicle.number: vehicle for vehicle in Vehicle.query.filter_by(status='Active').all()}
         drivers = {driver.name: driver for driver in Driver.query.filter_by(status='Active').all()}
+        contractors = {contractor.name: contractor for contractor in Contractor.query.filter_by(status='Active').all()}
+        vehicle_types = {vtype.name: vtype for vtype in VehicleType.query.filter_by(status=True, is_deleted=False).all()}
         
         # Debug logging
 
         
         processed_count = 0
         errors = []
-        
-        # Use transaction to ensure atomicity
-        try:
-            # Start a nested transaction
-            with db.session.begin_nested():
-                # Process only valid rows
-                for row_data in preview_data['rows']:
-                    if not row_data.get('is_valid', False):
-                        continue
-                    
-                    try:
-                        # Get related objects
-                        customer = customers.get(row_data['customer'])
-                        vehicle = vehicles.get(row_data['vehicle'])
-                        driver = drivers.get(row_data['driver'])
-                        
-                        # Get service by name to ensure proper ID lookup
-                        service_name = row_data['service']
-                        service = Service.query.filter_by(name=service_name, status='Active').first()
-                        if not service:
-                            raise Exception(f"Service '{service_name}' not found or not active")
-                            
-                        # Validate required fields exist and have proper values
-                        required_fields = ['customer_id', 'pickup_location', 'dropoff_location', 'pickup_date', 'pickup_time']
-                        for field in required_fields:
-                            if field not in row_data or not row_data.get(field):
-                                raise Exception(f"Missing required field: {field}")
-                        
-                        # Create job with all data
-                        job_data = {
-                            'customer_id': customer.id if customer else None,
-                            'service_type': service.name if service else row_data.get('service', ''),
-                            'vehicle_id': vehicle.id if vehicle else None,
-                            'driver_id': driver.id if driver else None,
-                            'pickup_location': row_data.get('pickup_location', ''),
-                            'dropoff_location': row_data.get('dropoff_location', ''),
-                            'pickup_date': row_data.get('pickup_date', ''),
-                            'pickup_time': row_data.get('pickup_time', ''),
-                            'passenger_name': row_data.get('passenger_name', ''),
-                            'status': row_data.get('status', 'new'),
-                            'remarks': row_data.get('remarks', '')
-                        }
-                        
-                        # Check for driver scheduling conflict for this job
-                        if job_data.get('driver_id') and job_data.get('pickup_date') and job_data.get('pickup_time'):
-                            conflict_job = JobService.check_driver_conflict(
-                                job_data['driver_id'], 
-                                job_data['pickup_date'], 
-                                job_data['pickup_time']
-                            )
-                            # For bulk uploads, we'll log conflicts but still create the job
-                            # (This behavior can be modified based on business requirements)
-                            if conflict_job:
-                                if not current_user.has_role('admin'):
-                                    raise Exception(f"Scheduling conflict for driver {job_data['driver_id']} at {job_data['pickup_date']} {job_data['pickup_time']}")
-                                else:
-                                    logging.warning(f"Bulk upload: Admin overriding conflict for driver {job_data['driver_id']} at {job_data['pickup_date']} {job_data['pickup_time']}. Conflict with job #{conflict_job.id}")
-                        
-                        job = JobService.create(job_data)
-                        processed_count += 1
-                        
-                    except Exception as row_error:
-                        error_msg = f"Error processing row {row_data.get('row_number', 'unknown')}: {str(row_error)}"
-                        logging.error(error_msg, exc_info=True)
-                        errors.append(error_msg)
-            
-            # Commit all changes
-            db.session.commit()
-            
-            return jsonify({
-                'processed_count': processed_count,
-                'errors': errors
-            }), 200
-            
-        except Exception as e:
-            db.session.rollback()
-            logging.error(f"Error during bulk upload: {str(e)}", exc_info=True)
-            return jsonify({'error': 'An error occurred during bulk upload. Please try again.'}), 500
-    
+        skipped_rows = []
+
+        # Process only valid rows - each job creation is atomic with its own transaction
+        # Process only valid rows
+        for row_data in preview_data['rows']:
+            if not row_data.get('is_valid', False):
+                # Track invalid rows that were skipped
+                skipped_rows.append({
+                    'row_number': row_data.get('row_number', 'unknown'),
+                    'reason': row_data.get('error_message', 'Row is invalid')
+                })
+                continue
+
+            # Process each row independently
+            try:
+                # Get related objects
+                customer = customers.get(row_data['customer'])
+                vehicle = vehicles.get(row_data['vehicle'])
+                driver = drivers.get(row_data['driver'])
+                contractor = contractors.get(row_data.get('contractor', '')) if row_data.get('contractor') else None
+                vehicle_type = vehicle_types.get(row_data.get('vehicle_type', '')) if row_data.get('vehicle_type') else None
+
+                # Get service by name to ensure proper ID lookup
+                service_name = row_data['service']
+                service = Service.query.filter_by(name=service_name, status='Active').first()
+                if not service:
+                    raise Exception(f"Service '{service_name}' not found or not active")
+
+                # Validate required fields exist and have proper values
+                required_fields = ['customer_id', 'pickup_location', 'dropoff_location', 'pickup_date', 'pickup_time']
+                for field in required_fields:
+                    if field not in row_data or not row_data.get(field):
+                        raise Exception(f"Missing required field: {field}")
+
+                # Create job with all data
+                job_data = {
+                    'customer_id': customer.id if customer else None,
+                    'service_type': service.name if service else row_data.get('service', ''),
+                    'vehicle_id': vehicle.id if vehicle else None,
+                    'driver_id': driver.id if driver else None,
+                    'contractor_id': contractor.id if contractor else None,
+                    'vehicle_type_id': vehicle_type.id if vehicle_type else None,
+                    'pickup_location': row_data.get('pickup_location', ''),
+                    'dropoff_location': row_data.get('dropoff_location', ''),
+                    'pickup_date': row_data.get('pickup_date', ''),
+                    'pickup_time': row_data.get('pickup_time', ''),
+                    'passenger_name': row_data.get('passenger_name', ''),
+                    'status': row_data.get('status', 'new'),
+                    'customer_remark': row_data.get('remarks', '')
+                }
+
+                # Check if job already exists (duplicate detection)
+                existing_job = Job.query.filter_by(
+                    customer_id=job_data['customer_id'],
+                    pickup_location=job_data['pickup_location'],
+                    dropoff_location=job_data['dropoff_location'],
+                    pickup_date=job_data['pickup_date'],
+                    pickup_time=job_data['pickup_time'],
+                    service_type=job_data['service_type'],
+                    is_deleted=False
+                ).first()
+
+                if existing_job:
+                    skipped_rows.append({
+                        'row_number': row_data.get('row_number', 'unknown'),
+                        'reason': f'Duplicate job - already exists as Job #{existing_job.id}'
+                    })
+                    logging.warning(f"Skipping duplicate job for row {row_data.get('row_number', 'unknown')}: Job #{existing_job.id}")
+                    continue
+
+                # Check for driver scheduling conflict for this job
+                if job_data.get('driver_id') and job_data.get('pickup_date') and job_data.get('pickup_time'):
+                    conflict_job = JobService.check_driver_conflict(
+                        job_data['driver_id'],
+                        job_data['pickup_date'],
+                        job_data['pickup_time']
+                    )
+                    # For bulk uploads, we'll log conflicts but still create the job
+                    # (This behavior can be modified based on business requirements)
+                    if conflict_job:
+                        if not current_user.has_role('admin'):
+                            raise Exception(f"Scheduling conflict for driver {job_data['driver_id']} at {job_data['pickup_date']} {job_data['pickup_time']}")
+                        else:
+                            logging.warning(f"Bulk upload: Admin overriding conflict for driver {job_data['driver_id']} at {job_data['pickup_date']} {job_data['pickup_time']}. Conflict with job #{conflict_job.id}")
+
+                # JobService.create handles its own commit/rollback
+                job = JobService.create(job_data)
+                processed_count += 1
+
+            except Exception as row_error:
+                # Job creation failed for this row, continue with next row
+                error_msg = f"Error processing row {row_data.get('row_number', 'unknown')}: {str(row_error)}"
+                logging.error(error_msg, exc_info=True)
+                errors.append(error_msg)
+
+        return jsonify({
+            'processed_count': processed_count,
+            'skipped_count': len(skipped_rows),
+            'skipped_rows': skipped_rows,
+            'errors': errors
+        }), 200
+
     except Exception as e:
         logging.error(f"Error handling bulk upload confirmation: {str(e)}", exc_info=True)
         return jsonify({'error': 'An error occurred while processing the bulk upload. Please try again.'}), 500
+
 @job_bp.route('/jobs/audit/<int:job_id>', methods=['POST'])
 @roles_accepted('admin', 'manager', 'driver')
 def create_job_audit(job_id):
@@ -1680,6 +1762,8 @@ def revalidate_data_with_mapping(row_data, column_mapping):
                 'service': row.get(column_mapping.get('service', 'service'), row.get('service', '')),
                 'vehicle': row.get(column_mapping.get('vehicle', 'vehicle'), row.get('vehicle', '')),
                 'driver': row.get(column_mapping.get('driver', 'driver'), row.get('driver', '')),
+                'contractor': row.get(column_mapping.get('contractor', 'contractor'), row.get('contractor', '')),
+                'vehicle_type': row.get(column_mapping.get('vehicle_type', 'vehicle_type'), row.get('vehicle_type', '')),
                 'pickup_date': row.get('pickup_date', ''),
                 'pickup_time': row.get('pickup_time', ''),
                 'pickup_location': row.get('pickup_location', ''),
@@ -1689,10 +1773,10 @@ def revalidate_data_with_mapping(row_data, column_mapping):
                 'remarks': row.get('remarks', ''),
                 'row_number': row.get('row_number', 1),
             }
-            
+
             # Use centralized validation
             is_valid, error_message, validated_data = validate_job_row(mapped_row, lookups)
-            
+
             # Update row with validation results
             validated_row = {
                 'row_number': mapped_row['row_number'],
@@ -1700,6 +1784,8 @@ def revalidate_data_with_mapping(row_data, column_mapping):
                 'service': mapped_row['service'],
                 'vehicle': mapped_row['vehicle'],
                 'driver': mapped_row['driver'],
+                'contractor': mapped_row['contractor'],
+                'vehicle_type': mapped_row['vehicle_type'],
                 'pickup_date': mapped_row['pickup_date'],
                 'pickup_time': mapped_row['pickup_time'],
                 'pickup_location': mapped_row['pickup_location'],
@@ -1710,7 +1796,7 @@ def revalidate_data_with_mapping(row_data, column_mapping):
                 'is_valid': is_valid,
                 'error_message': error_message
             }
-            
+
             # Add validated IDs if available
             if 'customer_id' in validated_data:
                 validated_row['customer_id'] = validated_data['customer_id']
@@ -1720,6 +1806,10 @@ def revalidate_data_with_mapping(row_data, column_mapping):
                 validated_row['driver_id'] = validated_data['driver_id']
             if 'vehicle_id' in validated_data:
                 validated_row['vehicle_id'] = validated_data['vehicle_id']
+            if 'contractor_id' in validated_data:
+                validated_row['contractor_id'] = validated_data['contractor_id']
+            if 'vehicle_type_id' in validated_data:
+                validated_row['vehicle_type_id'] = validated_data['vehicle_type_id']
             
             if is_valid:
                 valid_count += 1
