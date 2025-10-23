@@ -1,0 +1,76 @@
+body {
+  font-family: Arial, sans-serif;
+  font-size: 12px;
+  margin: 30px;
+  color: #333;
+}
+h1 {
+  text-align: center;
+  margin-bottom: 20px;
+}
+.invoice-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 5px;
+}
+
+.invoice-header p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.header-left {
+  text-align: left;
+}
+
+.header-right {
+  text-align: right;
+}
+
+.job-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+}
+.job-table th, .job-table td {
+  border: 1px solid #ccc;
+  padding: 6px;
+  text-align: left;
+}
+.job-table th {
+  background-color: #32557f;
+  color: #fff;
+}
+.total-section {
+  text-align: right;
+  margin-top: 15px;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.job-table .amt {
+  text-align: right;
+}
+
+.total-section {
+  /* border-top: 2px solid #1a1a1a; */
+  background-color: rgb(255, 255, 255);
+  font-weight: bold;
+}
+
+.job-table tfoot tr td {
+  border: none !important;           /* remove grid lines */
+  text-align: right;                 /* push text to right */
+  font-weight: bold;
+  font-size: 14px;
+  padding: 8px 10px;
+  background-color: #ccc;
+}
+
+.job-table tfoot td:last-child {
+  text-align: right;
+  width: 120px;                      /* optional for spacing */
+  font-weight: 700;
+  color: #000;
+}

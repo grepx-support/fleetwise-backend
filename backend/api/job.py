@@ -342,16 +342,44 @@ def update_job(job_id):
 @job_bp.route('/jobs/<int:job_id>', methods=['DELETE'])
 @roles_accepted('admin', 'manager')
 def delete_job(job_id):
+    """
+    Delete a job (soft delete implementation).
+    
+    This endpoint implements soft delete by directly setting the is_deleted flag 
+    to True with proper transaction boundaries and idempotency checks. This ensures 
+    data integrity and allows for audit trails and potential recovery.
+    
+    Args:
+        job_id (int): The ID of the job to delete
+        
+    Returns:
+        JSON response with success message or error
+    """
     try:
-        success = JobService.delete(job_id)
-        if not success:
+        # Use with_for_update for pessimistic locking to prevent race conditions
+        job = Job.query.filter_by(id=job_id).with_for_update().first()
+        if not job:
             return jsonify({'error': 'Job not found'}), 404
-        return jsonify({'message': 'Job deleted'}), 200
-    except ServiceError as se:
-        return jsonify({'error': se.message}), 400
+
+        # Idempotency check - if job is already deleted, return success
+        if job.is_deleted:
+            return jsonify({'message': 'Job already marked as deleted', 'already_deleted': True}), 200
+
+        # Check if job can be deleted (e.g., not in certain statuses)
+        # Note: This is an example - adjust business rules as needed
+        if job.status in [JobStatus.POB.value]:  # Example: can't delete in-progress jobs
+            return jsonify({'error': 'Cannot delete job in current status'}), 400
+
+        # Mark job as deleted
+        job.is_deleted = True
+        db.session.commit()
+        
+        return jsonify({'message': 'Job deleted', 'already_deleted': False}), 200
     except Exception as e:
+        db.session.rollback()
         logging.error(f"Unhandled error in delete_job: {e}", exc_info=True)
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
+
 
 # @job_bp.route('/jobs/calculate_price', methods=['POST'])
 # def calculate_job_price():
@@ -434,6 +462,49 @@ def set_job_penalty(job_id):
         logging.error(f"Unhandled error in set_job_penalty: {e}", exc_info=True)
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
+
+@job_bp.route('/jobs/<int:job_id>/soft-delete', methods=['PUT'])
+@roles_accepted('admin', 'manager')
+def soft_delete_job(job_id):
+    """
+    Soft delete a job with proper transaction boundaries and idempotency checks.
+    
+    This endpoint marks a job as deleted by setting the is_deleted flag to True.
+    It includes proper transaction handling, idempotency checks, and business
+    rule validation to prevent race conditions and ensure data integrity.
+    
+    Args:
+        job_id (int): The ID of the job to soft delete
+        
+    Returns:
+        JSON response with success message or error
+    """
+    try:
+        # Use with_for_update for pessimistic locking to prevent race conditions
+        job = Job.query.filter_by(id=job_id).with_for_update().first()
+        if not job:
+            return jsonify({'error': 'Job not found'}), 404
+
+        # Idempotency check - if job is already deleted, return success
+        if job.is_deleted:
+            return jsonify({'message': 'Job already marked as deleted', 'already_deleted': True}), 200
+
+        # Check if job can be deleted (e.g., not in certain statuses)
+        # Note: This is an example - adjust business rules as needed
+        if job.status in [JobStatus.POB.value]:  # Example: can't delete in-progress jobs
+            return jsonify({'error': 'Cannot delete job in current status'}), 400
+
+        # Mark job as deleted
+        job.is_deleted = True
+        db.session.commit()
+        
+        return jsonify({'message': 'Job marked as deleted', 'already_deleted': False}), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Error in soft_delete_job: {e}", exc_info=True)
+        return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
+
 @job_bp.route('/jobs/check-driver-conflict', methods=['POST'])
 @auth_required()
 def check_driver_conflict():
@@ -486,7 +557,7 @@ def jobs_table():
                 filters[key] = request.args.get(key)
         
         # Query with filters
-        query = Job.query
+        query = Job.query.filter(Job.is_deleted.is_(False))
         
         # Handle computed field filters by joining with related tables
         for key, value in filters.items():
@@ -1432,7 +1503,7 @@ def bulk_cancel_jobs():
             return jsonify({'error': 'All job_ids must be valid integers'}), 400
             
         # Get all jobs to be canceled
-        jobs = Job.query.filter(Job.id.in_(job_ids)).all()
+        jobs = Job.query.filter(Job.id.in_(job_ids), Job.is_deleted.is_(False)).all()
         
         # Check if all requested jobs were found
         found_job_ids = [job.id for job in jobs]

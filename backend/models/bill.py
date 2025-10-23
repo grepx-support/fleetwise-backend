@@ -10,8 +10,8 @@ class Bill(db.Model):
     contractor_id = db.Column(db.Integer, db.ForeignKey('contractor.id', ondelete='CASCADE'), nullable=True, index=True)
     driver_id = db.Column(db.Integer, db.ForeignKey('driver.id', ondelete='CASCADE'), nullable=True, index=True)
     date = db.Column(db.DateTime, default=datetime.utcnow)
-    # Status field: 'Generated' for new/unpaid bills, other values for paid/processed bills
-    status = db.Column(db.String(16), nullable=False, default='Generated', index=True)
+    # Status field: 'Unpaid' for new/unpaid bills, other values for paid/processed bills
+    status = db.Column(db.String(16), nullable=False, default='Unpaid', index=True)
     total_amount = db.Column(Numeric(precision=12, scale=2), nullable=True)
     file_path = db.Column(db.String(255), nullable=True)
     

@@ -44,6 +44,7 @@ def upgrade() -> None:
         batch_op.add_column(sa.Column('sub_customer_name', sa.String(length=128), nullable=True))
         batch_op.add_column(sa.Column('booking_ref', sa.String(length=32), nullable=True))
         batch_op.add_column(sa.Column('bill_id', sa.Integer(), nullable=True))
+        batch_op.create_index(batch_op.f('ix_job_booking_ref'), ['booking_ref'], unique=False)
         batch_op.create_index(batch_op.f('ix_job_bill_id'), ['bill_id'], unique=False)
         batch_op.create_foreign_key('fk_job_bill_id_bill', 'bill', ['bill_id'], ['id'], ondelete='SET NULL')
     # ### end Alembic commands ###
@@ -55,6 +56,7 @@ def downgrade() -> None:
     # Use batch mode for SQLite to modify job table
     with op.batch_alter_table('job', schema=None, copy_from=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_job_bill_id'))
+        batch_op.drop_index(batch_op.f('ix_job_booking_ref'))
         batch_op.drop_column('bill_id')
         batch_op.drop_column('booking_ref')
         batch_op.drop_column('sub_customer_name')
