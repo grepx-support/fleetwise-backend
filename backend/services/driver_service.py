@@ -18,7 +18,7 @@ from backend.models.settings import UserSettings
 from sqlalchemy.exc import SQLAlchemyError
 from backend.models.bill import Bill
 from backend.models.driver import Driver
-
+from io import BytesIO
 class ServiceError(Exception):
     def __init__(self, message):
         super().__init__(message)
@@ -299,6 +299,7 @@ class DriverService:
             temp_pdf = None
 
             try:
+                
                 # Step 1: Write to a temporary file in the same directory (same filesystem)
                 with NamedTemporaryFile(dir=storage_month_dir, suffix=".pdf", delete=False) as tmp_file:
                     temp_pdf = Path(tmp_file.name)
@@ -307,7 +308,7 @@ class DriverService:
                         template_name="simple_contractor_invoice",
                         output_path=temp_pdf,
                         format_type=OutputFormat.PDF,
-                     )
+                     )      
 
                 # Step 2: Validate that PDF generation succeeded
                 if not pdf_result.success or not temp_pdf.exists() or temp_pdf.stat().st_size == 0:
@@ -315,33 +316,30 @@ class DriverService:
                         f"Driver Invoice generation failed for invoice {bill_id}: {getattr(pdf_result, 'error', 'unknown error')}"
                     )
                     raise RuntimeError(f"Driver Invoice generation failed or produced empty file: {temp_pdf}")
-
-                # Step 3: Atomically move the file into place
-                os.replace(temp_pdf, pdf_final_path)
-                current_app.logger.info(f"Driver Invoice PDF saved atomically: {pdf_final_path}")
-
+                
+                with open(temp_pdf, "rb") as f:
+                        pdf_data = f.read()
+                # Cleanup temp file if it exists
+                if temp_pdf and temp_pdf.exists():
+                    try:
+                        temp_pdf.unlink()
+                        current_app.logger.debug(f"🧹 Cleaned up temp file: {temp_pdf}")
+                    except Exception as cleanup_err:
+                        current_app.logger.warning(f"Failed to delete temp file {temp_pdf}: {cleanup_err}")
+                    raise
             except Exception as e:
                 current_app.logger.error(
                     f"Error during PDF generation or atomic save for invoice {bill_id}: {e}", 
                     exc_info=True
                 )
-            # Cleanup temp file if it exists
-            if temp_pdf and temp_pdf.exists():
-                try:
-                    temp_pdf.unlink()
-                    current_app.logger.debug(f"🧹 Cleaned up temp file: {temp_pdf}")
-                except Exception as cleanup_err:
-                    current_app.logger.warning(f"Failed to delete temp file {temp_pdf}: {cleanup_err}")
-                raise
-
-            if not pdf_final_path.exists():
-                raise RuntimeError(f"Driver Invoice PDF missing after atomic save: {pdf_final_path}")
-
+            
+            pdf_buffer = BytesIO(pdf_data)
+            pdf_buffer.seek(0)
             return send_file(
-                pdf_final_path,
+                pdf_buffer,
                 mimetype="application/pdf",
                 as_attachment=False,            # inline in browser
-                download_name=pdf_final_path.name     # Flask 2.0+ (fallbacks automatically if older)
+                download_name=pdf_final_path.name    # Flask 2.0+ (fallbacks automatically if older)
             )
 
         except FileNotFoundError as e:

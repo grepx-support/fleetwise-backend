@@ -13,7 +13,14 @@
       <td>{{ item.job_date }}</td>
       <td>{{ item.job_id }}</td>
       <td>{{ item.driver_name }}</td>
-      <td class="amt">${{ "%.2f"|format(item.job_cost) }}</td>
+      <td class="amt">
+  ${{ "%.2f"|format(item.job_cost) }}
+  {% if item.cash_to_collect > 0 %}
+    <br>
+    <span style="color: #777;">-{{ "%.2f"|format(item.cash_to_collect) }}</span>
+  {% endif %}
+</td>
+
     </tr>
     {% endfor %}
   </tbody>

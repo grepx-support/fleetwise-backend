@@ -6,7 +6,7 @@ class ContractorInvoiceItem(BaseModel):
     job_id: str
     driver_name: str
     job_cost: float
-    cash_to_collect: float = 0.0
+    cash_to_collect: float = Field(default=0.0)
 
     @property
     def final_cost(self) -> float:

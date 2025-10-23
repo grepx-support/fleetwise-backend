@@ -229,11 +229,11 @@ def update_driver_job_status(driver_id, job_id):
 
     return jsonify({'error': 'Database busy. Try again later.'}), 503
 
-@driver_bp.route('/drivers/download/<int:driver_id>', methods=['GET'])
+@driver_bp.route('/drivers/download/<int:bill_id>', methods=['GET'])
 @roles_accepted('admin', 'manager')
-def download_driver_invoice(driver_id):
+def download_driver_invoice(bill_id):
     try:
-        response = DriverService.driver_invoice_download(driver_id)
+        response = DriverService.driver_invoice_download(bill_id)
         if not response:
             return jsonify({'error': 'Driver Invoice not found'}), 404
         return response

@@ -237,9 +237,7 @@ class ContractorService:
             print("Contractor:", bill.id, bill.contractor_id, bill.driver_id)
             if not bill:
                 raise ValueError("Contractor not found for bill")
-            # driver_name = Driver.query.filter_by(id=bill.driver_id).first()
-            # print("Driver Name:", driver_name)
-            # print(bill.jobs)
+
             contractor_date = bill.date.date() if hasattr(bill.date, "date") else bill.date
             jobs = bill.jobs
             if not jobs:
@@ -344,6 +342,7 @@ class ContractorService:
             temp_pdf = None
 
             try:
+                
                 # Step 1: Write to a temporary file in the same directory (same filesystem)
                 with NamedTemporaryFile(dir=storage_month_dir, suffix=".pdf", delete=False) as tmp_file:
                     temp_pdf = Path(tmp_file.name)
@@ -353,6 +352,7 @@ class ContractorService:
                         output_path=temp_pdf,
                         format_type=OutputFormat.PDF,
                      )
+                    
 
                 # Step 2: Validate that PDF generation succeeded
                 if not pdf_result.success or not temp_pdf.exists() or temp_pdf.stat().st_size == 0:
@@ -364,12 +364,13 @@ class ContractorService:
                 # Step 3: Atomically move the file into place
                 os.replace(temp_pdf, pdf_final_path)
                 current_app.logger.info(f"Contractor Invoice PDF saved atomically: {pdf_final_path}")
-
+            
             except Exception as e:
                 current_app.logger.error(
                     f"Error during PDF generation or atomic save for invoice {bill_id}: {e}", 
                     exc_info=True
                 )
+            
             # Cleanup temp file if it exists
             if temp_pdf and temp_pdf.exists():
                 try:
@@ -381,7 +382,7 @@ class ContractorService:
 
             if not pdf_final_path.exists():
                 raise RuntimeError(f"Contractor Invoice PDF missing after atomic save: {pdf_final_path}")
-
+            
             return send_file(
                 pdf_final_path,
                 mimetype="application/pdf",
