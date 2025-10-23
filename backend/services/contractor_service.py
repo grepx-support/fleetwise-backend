@@ -363,6 +363,7 @@ class ContractorService:
 
                 # Step 3: Atomically move the file into place
                 os.replace(temp_pdf, pdf_final_path)
+                temp_pdf = None  # Prevent cleanup in finally block
                 current_app.logger.info(f"Contractor Invoice PDF saved atomically: {pdf_final_path}")
             
             except Exception as e:
@@ -371,14 +372,23 @@ class ContractorService:
                     exc_info=True
                 )
             
-            # Cleanup temp file if it exists
-            if temp_pdf and temp_pdf.exists():
-                try:
-                    temp_pdf.unlink()
-                    current_app.logger.debug(f"🧹 Cleaned up temp file: {temp_pdf}")
-                except Exception as cleanup_err:
-                    current_app.logger.warning(f"Failed to delete temp file {temp_pdf}: {cleanup_err}")
+                # Cleanup temp file if it exists
+                if temp_pdf and temp_pdf.exists():
+                    try:
+                        temp_pdf.unlink()
+                        current_app.logger.debug(f"🧹 Cleaned up temp file: {temp_pdf}")
+                    except Exception as cleanup_err:
+                        current_app.logger.warning(f"Failed to delete temp file {temp_pdf}: {cleanup_err}")
                 raise
+            finally:
+                if temp_pdf and temp_pdf.exists():
+                    try:
+                        temp_pdf.unlink()
+                        current_app.logger.debug(f"🧹 Cleaned up temp file: {temp_pdf}")
+                    except Exception as cleanup_err:
+                        current_app.logger.warning(f"Failed to delete temp file {temp_pdf}: {cleanup_err}")  
+
+            
 
             if not pdf_final_path.exists():
                 raise RuntimeError(f"Contractor Invoice PDF missing after atomic save: {pdf_final_path}")
