@@ -193,13 +193,32 @@ def log_authentication_details(email, provided_password, user_obj=None):
 with app.app_context():
     # Try different import paths
     try:
-        from backend.models import user, role, customer, sub_customer, vehicle, driver, job, invoice, password_reset_token, contractor, contractor_service_pricing
+        # Import all model classes directly to ensure proper relationship setup
+        from backend.models.user import User
+        from backend.models.role import Role
+        from backend.models.customer import Customer
+        from backend.models.sub_customer import SubCustomer
+        from backend.models.vehicle import Vehicle
+        from backend.models.driver import Driver
+        from backend.models.job import Job
+        from backend.models.invoice import Invoice
+        from backend.models.password_reset_token import PasswordResetToken
+        from backend.models.contractor import Contractor
+        from backend.models.contractor_service_pricing import ContractorServicePricing
+        from backend.models.service import Service
+        from backend.models.customer_service_pricing import CustomerServicePricing
+        from backend.models.vehicle_type import VehicleType
+        from backend.models.ServicesVehicleTypePrice import ServicesVehicleTypePrice
+        from backend.models.driver_remark import DriverRemark
+        from backend.models.job_photo import JobPhoto
+        from backend.models.postal_code import PostalCode
+        from backend.models.job_audit import JobAudit
+        from backend.models.settings import UserSettings
         logger.info("Models imported successfully from backend.models")
+        
         try:
             from flask_security.core import Security
             from flask_security.datastore import SQLAlchemyUserDatastore
-            from backend.models.user import User
-            from backend.models.role import Role
             if db is not None:
                 user_datastore = SQLAlchemyUserDatastore(db, User, Role)
                 security = Security(app, user_datastore)
@@ -219,13 +238,23 @@ with app.app_context():
     except ImportError as e:
         logger.warning(f"Failed to import from backend.models: {e}")
         try:
-            from models import user, role, customer, sub_customer, vehicle, driver, job, invoice, password_reset_token
+            # Fallback: import from models package
+            from models.user import User
+            from models.role import Role
+            from models.customer import Customer
+            from models.sub_customer import SubCustomer
+            from models.vehicle import Vehicle
+            from models.driver import Driver
+            from models.job import Job
+            from models.invoice import Invoice
+            from models.password_reset_token import PasswordResetToken
+            from models.contractor import Contractor
+            from models.contractor_service_pricing import ContractorServicePricing
             logger.info("Models imported successfully from models")
+            
             try:
                 from flask_security.core import Security
                 from flask_security.datastore import SQLAlchemyUserDatastore
-                from models.user import User
-                from models.role import Role
                 if db is not None:
                     user_datastore = SQLAlchemyUserDatastore(db, User, Role)
                     security = Security(app, user_datastore)

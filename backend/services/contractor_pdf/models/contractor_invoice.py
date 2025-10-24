@@ -1,0 +1,17 @@
+from datetime import date as Date
+from typing import List, Optional
+from pydantic import BaseModel, Field
+from .contractor_invoice_item import ContractorInvoiceItem
+
+class ContractorInvoice(BaseModel):
+    company_name: str
+    entity_label: str
+    contractor_name: str
+    bill_no: str
+    bill_date: Date
+    total_amount: Optional[float] = Field(default=None)
+    items: List[ContractorInvoiceItem]
+    
+    @property
+    def total(self) -> float:
+        return round(sum(i.final_cost for i in self.items), 2)

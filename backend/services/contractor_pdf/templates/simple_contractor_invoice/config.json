@@ -1,0 +1,11 @@
+{
+  "name": "simple_contractor_invoice",
+  "description": "Minimal contractor billing layout",
+  "sections": {
+    "header": "header.html",
+    "items_table": "items_table.html",
+    "totals": "totals.html"
+  },
+  "layout": "simple_layout.html",
+  "styles": "styles.css"
+}
