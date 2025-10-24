@@ -228,3 +228,16 @@ def update_driver_job_status(driver_id, job_id):
             return jsonify({'error': 'Update failed'}), 500
 
     return jsonify({'error': 'Database busy. Try again later.'}), 503
+
+@driver_bp.route('/drivers/download/<int:bill_id>', methods=['GET'])
+@roles_accepted('admin', 'manager')
+def download_driver_invoice(bill_id):
+    try:
+        response = DriverService.driver_invoice_download(bill_id)
+        if not response:
+            return jsonify({'error': 'Driver Invoice not found'}), 404
+        return response
+    except Exception as e:
+        logging.error(f"Unhandled error: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to generate invoice PDF'}), 500
+    

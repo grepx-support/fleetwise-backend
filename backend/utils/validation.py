@@ -33,6 +33,8 @@ def validate_job_row(
     drivers = lookups.get('drivers', {})
     vehicles = lookups.get('vehicles', {})
     services = lookups.get('services', {})
+    contractors = lookups.get('contractors', {})
+    vehicle_types = lookups.get('vehicle_types', {})
     
     # Validate customer
     customer_value = row_data.get('customer', '').strip()
@@ -60,14 +62,30 @@ def validate_job_row(
     
     # Validate service
     service_value = row_data.get('service', '').strip()
-    
+
     if not service_value:
         error_messages.append("Service is required")
     elif service_value not in services:
         error_messages.append(f"Service '{service_value}' not found in database")
     else:
         validated_data['service_type'] = service_value  # Store service name
-    
+
+    # Validate contractor (optional)
+    contractor_value = row_data.get('contractor', '').strip()
+    if contractor_value:
+        if contractor_value not in contractors:
+            error_messages.append(f"Contractor '{contractor_value}' not found in database")
+        else:
+            validated_data['contractor_id'] = contractors[contractor_value]
+
+    # Validate vehicle_type (optional)
+    vehicle_type_value = row_data.get('vehicle_type', '').strip()
+    if vehicle_type_value:
+        if vehicle_type_value not in vehicle_types:
+            error_messages.append(f"Vehicle Type '{vehicle_type_value}' not found in database")
+        else:
+            validated_data['vehicle_type_id'] = vehicle_types[vehicle_type_value]
+
     # Validate required fields
     required_fields = [
         ('pickup_location', 'Pickup location'),
@@ -139,15 +157,17 @@ def validate_job_row(
 def get_validation_lookups() -> Dict[str, Any]:
     """
     Get all lookup data needed for validation.
-    
+
     Returns:
-        Dictionary containing customers, drivers, vehicles, and services
+        Dictionary containing customers, drivers, vehicles, services, contractors, and vehicle_types
     """
     try:
         from backend.models.customer import Customer
         from backend.models.driver import Driver
         from backend.models.vehicle import Vehicle
         from backend.models.service import Service
+        from backend.models.contractor import Contractor
+        from backend.models.vehicle_type import VehicleType
         from backend.extensions import db
         
         # Get customers (active only)
@@ -165,21 +185,31 @@ def get_validation_lookups() -> Dict[str, Any]:
         # Get services (active only)
         services = Service.query.filter_by(status='Active').all()
         service_lookup = {service.name: service.name for service in services}  # Keep name as key and value for compatibility
-        
+
+        # Get contractors (active only)
+        contractors = Contractor.query.filter_by(status='Active').all()
+        contractor_lookup = {contractor.name: contractor.id for contractor in contractors}
+
+        # Get vehicle types (active only)
+        vehicle_types = VehicleType.query.filter_by(status=True, is_deleted=False).all()
+        vehicle_type_lookup = {vtype.name: vtype.id for vtype in vehicle_types}
+
         # If no data found, try without status filter
         if not customer_lookup:
             customers = Customer.query.all()
             customer_lookup = {customer.name: customer.id for customer in customers}
-            
+
         if not service_lookup:
             services = Service.query.all()
             service_lookup = {service.name: service.name for service in services}
-        
+
         return {
             'customers': customer_lookup,
             'drivers': driver_lookup,
             'vehicles': vehicle_lookup,
             'services': service_lookup,
+            'contractors': contractor_lookup,
+            'vehicle_types': vehicle_type_lookup,
         }
     except Exception as e:
         # Return empty lookups if there's an error
@@ -188,6 +218,8 @@ def get_validation_lookups() -> Dict[str, Any]:
             'drivers': {},
             'vehicles': {},
             'services': {},
+            'contractors': {},
+            'vehicle_types': {},
         }
 
 
