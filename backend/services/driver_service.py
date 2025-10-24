@@ -314,14 +314,14 @@ class DriverService:
                 # Step 2: Validate that PDF generation succeeded
                 if not pdf_result.success or not temp_pdf.exists() or temp_pdf.stat().st_size == 0:
                     current_app.logger.error(
-                        f"Contractor Invoice generation failed for invoice {bill_id}: {getattr(pdf_result, 'error', 'unknown error')}"
+                        f"Driver Invoice generation failed for invoice {bill_id}: {getattr(pdf_result, 'error', 'unknown error')}"
                     )
-                    raise RuntimeError(f"Contractor Invoice generation failed or produced empty file: {temp_pdf}")
+                    raise RuntimeError(f"Driver Invoice generation failed or produced empty file: {temp_pdf}")
 
                 # Step 3: Atomically move the file into place
                 os.replace(temp_pdf, pdf_final_path)
                 temp_pdf = None  # Prevent cleanup in finally block
-                current_app.logger.info(f"Contractor Invoice PDF saved atomically: {pdf_final_path}")
+                current_app.logger.info(f"Driver Invoice PDF saved atomically: {pdf_final_path}")
             
             except Exception as e:
                 current_app.logger.error(
@@ -338,7 +338,7 @@ class DriverService:
                         current_app.logger.warning(f"Failed to delete temp file {temp_pdf}: {cleanup_err}")  
 
             if not pdf_final_path.exists():
-                raise RuntimeError(f"Contractor Invoice PDF missing after atomic save: {pdf_final_path}")
+                raise RuntimeError(f"Driver Invoice PDF missing after atomic save: {pdf_final_path}")
             
             return send_file(
                 pdf_final_path,
