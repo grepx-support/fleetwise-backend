@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, send_file, make_response, current_app
+from flask import Blueprint, request, jsonify, send_file, make_response, current_app, url_for
 from backend.models.driver_remark import DriverRemark
 from backend.services.job_service import JobService, ServiceError
 from backend.services.bill_service import BillService, ServiceError as BillServiceError
@@ -31,6 +31,7 @@ from backend.models.service import Service
 from backend.models.vehicle import Vehicle
 from backend.models.invoice import Invoice
 from backend.models.job_audit import JobAudit
+from backend.models.job_photo import JobPhoto
 from backend.models.user import User
 from backend.models.contractor import Contractor
 from backend.models.vehicle_type import VehicleType
@@ -1505,16 +1506,69 @@ def get_job_audit_records(job_id):
         # Convert to JSON-friendly format
         audit_data = []
         for record in audit_records:
+            # Get user name - use email if no name field exists, or driver name if user is linked to driver
+            changed_by_name = record.changed_by_user.email if record.changed_by_user else None
+            if record.changed_by_user and record.changed_by_user.driver:
+                changed_by_name = record.changed_by_user.driver.name
+            
+            # Get user role - get the first role name if user has roles
+            role = None
+            if record.changed_by_user and record.changed_by_user.roles:
+                role = record.changed_by_user.roles[0].name if record.changed_by_user.roles else None
+            
+            # Create status labels - for now just use the status values as labels
+            old_status_label = record.old_status
+            new_status_label = record.new_status
+            
+            # Get photos uploaded for the same stage as this audit record
+            attachments = []
+            if record.changed_at and record.new_status:
+                # Map job status to photo stage
+                # Photos are stored with the actual status as stage, not generic stages
+                status_to_photo_stage = {
+                    'OTW': 'OTW',
+                    'POB': 'POB',
+                    'JC': 'JC',
+                    'SD': 'SD'
+                }
+                
+                # Get the photo stage based on the new status
+                photo_stage = status_to_photo_stage.get(record.new_status.upper())
+                
+                if photo_stage:
+                    # Get all photos for the specific stage regardless of upload time
+                    photos = JobPhoto.query.filter(
+                        JobPhoto.job_id == record.job_id,
+                        JobPhoto.stage == photo_stage
+                    ).all()
+                    
+                    # Format photo data for attachments
+                    for photo in photos:
+                        filename = os.path.basename(photo.file_path)
+                        file_url = url_for('uploaded_file', filename=filename, _external=True) if filename else None
+                        attachments.append({
+                            'id': photo.id,
+                            'stage': photo.stage,
+                            'file_url': file_url,
+                            'uploaded_at': photo.uploaded_at.isoformat() if photo.uploaded_at else None
+                        })
+            
             audit_data.append({
                 'id': record.id,
                 'job_id': record.job_id,
                 'changed_at': record.changed_at.isoformat() if record.changed_at else None,
                 'changed_by': record.changed_by,
+                'changed_by_name': changed_by_name,
                 'changed_by_email': record.changed_by_user.email if record.changed_by_user else None,
+                'role': role,
                 'old_status': record.old_status,
                 'new_status': record.new_status,
+                'old_status_label': old_status_label,
+                'new_status_label': new_status_label,
+                'status_label': new_status_label,
                 'reason': record.reason,
                 'description': generate_change_description(record),
+                'attachments': attachments
             })
         
         # Prepare job driver information
