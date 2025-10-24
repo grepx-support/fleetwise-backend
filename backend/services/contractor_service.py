@@ -370,15 +370,7 @@ class ContractorService:
                 current_app.logger.error(
                     f"Error during PDF generation or atomic save for invoice {bill_id}: {e}", 
                     exc_info=True
-                )
-            
-                # Cleanup temp file if it exists
-                if temp_pdf and temp_pdf.exists():
-                    try:
-                        temp_pdf.unlink()
-                        current_app.logger.debug(f"🧹 Cleaned up temp file: {temp_pdf}")
-                    except Exception as cleanup_err:
-                        current_app.logger.warning(f"Failed to delete temp file {temp_pdf}: {cleanup_err}")
+                )     
                 raise
             finally:
                 if temp_pdf and temp_pdf.exists():
@@ -389,7 +381,6 @@ class ContractorService:
                         current_app.logger.warning(f"Failed to delete temp file {temp_pdf}: {cleanup_err}")  
 
             
-
             if not pdf_final_path.exists():
                 raise RuntimeError(f"Contractor Invoice PDF missing after atomic save: {pdf_final_path}")
             
