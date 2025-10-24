@@ -162,7 +162,7 @@ CORS(app, supports_credentials=True, resources={r"/api/*": {"origins": [
     "capacitor://localhost",
     "ionic://localhost",
     "http://ec2-18-143-75-251.ap-southeast-1.compute.amazonaws.com:3000",
-    "http://ec2-52-76-147-189.ap-southeast-1.compute.amazonaws.com:3001"  # Add this!
+    "http://ec2-52-76-147-189.ap-southeast-1.compute.amazonaws.com:3000"  # Add this!
 ]}})
 
 # Custom login logging function
