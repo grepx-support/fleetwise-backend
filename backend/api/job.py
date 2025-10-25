@@ -1160,7 +1160,36 @@ def process_excel_file_preview(file_path, column_mapping=None):
                 'is_valid': True,
                 'error_message': ''
             }
-            
+
+            # Validate mandatory fields first (before centralized validation)
+            mandatory_fields = ['customer', 'service', 'pickup_date', 'pickup_time',
+                              'pickup_location', 'dropoff_location', 'passenger_name']
+            missing_fields = [f for f in mandatory_fields if not row_data.get(f, '').strip()]
+
+            if missing_fields:
+                row_data['is_valid'] = False
+                row_data['error_message'] = f"Missing required fields: {', '.join(missing_fields)}"
+                error_count += 1
+                preview_rows.append(row_data)
+                continue
+
+            # Validate date/time formats
+            try:
+                from datetime import datetime
+                pickup_date_val = row_data.get('pickup_date', '').strip()
+                pickup_time_val = row_data.get('pickup_time', '').strip()
+
+                if pickup_date_val:
+                    datetime.strptime(pickup_date_val, '%Y-%m-%d')
+                if pickup_time_val:
+                    datetime.strptime(pickup_time_val, '%H:%M')
+            except ValueError as ve:
+                row_data['is_valid'] = False
+                row_data['error_message'] = f"Invalid date/time format: {str(ve)}"
+                error_count += 1
+                preview_rows.append(row_data)
+                continue
+
             # Use centralized validation
             try:
                 is_valid, error_message, validated_data = validate_job_row(row_data, lookups)
@@ -1322,20 +1351,39 @@ def confirm_upload():
                 if not service:
                     raise Exception(f"Service '{service_name}' not found or not active")
 
-                # Validate required fields exist and have proper values
-                required_fields = ['customer_id', 'pickup_location', 'dropoff_location', 'pickup_date', 'pickup_time']
-                for field in required_fields:
-                    if field not in row_data or not row_data.get(field):
-                        raise Exception(f"Missing required field: {field}")
+                # Validate all mandatory fields exist and have non-empty values
+                mandatory_fields = ['customer', 'service', 'pickup_date', 'pickup_time',
+                                  'pickup_location', 'dropoff_location', 'passenger_name']
+                for field in mandatory_fields:
+                    value = str(row_data.get(field, '')).strip()
+                    if not value:
+                        raise Exception(f"Missing or empty required field: {field}")
+
+                # Validate and parse date/time formats
+                pickup_date = str(row_data.get('pickup_date', '')).strip()
+                pickup_time = str(row_data.get('pickup_time', '')).strip()
+
+                try:
+                    from datetime import datetime
+                    datetime.strptime(pickup_date, '%Y-%m-%d')
+                except ValueError:
+                    raise Exception(f"Invalid pickup_date format: '{pickup_date}'. Expected YYYY-MM-DD")
+
+                try:
+                    datetime.strptime(pickup_time, '%H:%M')
+                except ValueError:
+                    raise Exception(f"Invalid pickup_time format: '{pickup_time}'. Expected HH:MM (24-hour)")
 
                 # Determine job status based on available fields
-                # If driver AND vehicle are assigned: status = 'confirmed'
-                # If only mandatory fields are filled: status = 'pending'
-                # Otherwise: status = 'new'
+                # CONFIRMED: When both Driver and Vehicle are assigned AND all mandatory fields filled
+                # PENDING: When ALL mandatory fields are filled but Driver/Vehicle missing
+                # NEW: Default/fallback
+                mandatory_filled = all(str(row_data.get(f, '')).strip() for f in mandatory_fields)
+
                 job_status = 'new'
-                if driver and vehicle:
+                if driver and vehicle and mandatory_filled:
                     job_status = 'confirmed'
-                elif customer and service:
+                elif mandatory_filled:
                     job_status = 'pending'
 
                 # Create job with all data
@@ -1348,12 +1396,12 @@ def confirm_upload():
                     'driver_id': driver.id if driver else None,
                     'contractor_id': contractor.id if contractor else None,
                     'vehicle_type_id': vehicle_type.id if vehicle_type else None,
-                    'pickup_location': row_data.get('pickup_location', ''),
-                    'dropoff_location': row_data.get('dropoff_location', ''),
-                    'pickup_date': row_data.get('pickup_date', ''),
-                    'pickup_time': row_data.get('pickup_time', ''),
-                    'passenger_name': row_data.get('passenger_name', ''),
-                    'passenger_mobile': row_data.get('passenger_mobile', ''),
+                    'pickup_location': str(row_data.get('pickup_location', '')).strip(),
+                    'dropoff_location': str(row_data.get('dropoff_location', '')).strip(),
+                    'pickup_date': pickup_date,
+                    'pickup_time': pickup_time,
+                    'passenger_name': str(row_data.get('passenger_name', '')).strip(),
+                    'passenger_mobile': str(row_data.get('passenger_mobile', '')).strip(),
                     'status': job_status,
                     'customer_remark': row_data.get('remarks', '')
                 }
