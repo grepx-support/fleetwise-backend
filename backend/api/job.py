@@ -1520,6 +1520,19 @@ def get_job_audit_records(job_id):
             old_status_label = record.old_status
             new_status_label = record.new_status
             
+            # Get remarks based on status transition
+            remark = None
+            if (record.new_status == 'confirmed' and record.old_status == 'new') or \
+               (record.new_status == 'confirmed' and record.old_status == 'pending'):
+                # Show customer remark when transitioning from new/pending to confirmed
+                remark = job.customer_remark
+            else:
+                # Show driver remark for other stages
+                # Get the most recent driver remark for this job
+                driver_remark = DriverRemark.query.filter_by(job_id=job_id).order_by(DriverRemark.created_at.desc()).first()
+                if driver_remark:
+                    remark = driver_remark.remark
+            
             # Get photos uploaded for the same stage as this audit record
             attachments = []
             if record.changed_at and record.new_status:
@@ -1536,11 +1549,33 @@ def get_job_audit_records(job_id):
                 photo_stage = status_to_photo_stage.get(record.new_status.upper())
                 
                 if photo_stage:
-                    # Get all photos for the specific stage regardless of upload time
-                    photos = JobPhoto.query.filter(
+                    # Get photos for the specific stage that were uploaded within a reasonable time window
+                    # around the audit event to increase likelihood of successful photo attachment
+                    # Using a 30-minute window (15 minutes before and 15 minutes after) to be more inclusive
+                    
+                    # Handle potential timezone differences between audit record and photo timestamps
+                    changed_at_utc = record.changed_at
+                    if changed_at_utc.tzinfo is not None:
+                        # If audit record has timezone info, convert to naive datetime for comparison
+                        changed_at_utc = changed_at_utc.replace(tzinfo=None)
+                    
+                    photo_query = JobPhoto.query.filter(
                         JobPhoto.job_id == record.job_id,
-                        JobPhoto.stage == photo_stage
-                    ).all()
+                        JobPhoto.stage == photo_stage,
+                        JobPhoto.uploaded_at >= changed_at_utc - timedelta(minutes=15),
+                        JobPhoto.uploaded_at <= changed_at_utc + timedelta(minutes=15)
+                    ).order_by(JobPhoto.uploaded_at)
+                    
+                    # Debug: Log the query parameters
+                    logging.debug(f"Photo query for job {record.job_id}, stage {photo_stage}")
+                    logging.debug(f"Changed at: {record.changed_at}")
+                    logging.debug(f"Changed at UTC: {changed_at_utc}")
+                    logging.debug(f"Time window: {changed_at_utc - timedelta(minutes=15)} to {changed_at_utc + timedelta(minutes=15)}")
+                    
+                    photos = photo_query.all()
+                    
+                    # Debug: Log the number of photos found
+                    logging.debug(f"Found {len(photos)} photos")
                     
                     # Format photo data for attachments
                     for photo in photos:
@@ -1567,6 +1602,7 @@ def get_job_audit_records(job_id):
                 'new_status_label': new_status_label,
                 'status_label': new_status_label,
                 'reason': record.reason,
+                'remark': remark,  # Add remark to the response
                 'description': generate_change_description(record),
                 'attachments': attachments
             })
