@@ -11,7 +11,7 @@ schema = BillSchema()
 schema_many = BillSchema(many=True)
 
 @bill_bp.route('/bills', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin')
 def list_bills():
     try:
         # Get filter parameters
@@ -50,7 +50,7 @@ def list_bills():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @bill_bp.route('/bills/<int:bill_id>', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin')
 def get_bill(bill_id):
     try:
         bill = BillService.get_by_id(bill_id)
@@ -66,7 +66,7 @@ def get_bill(bill_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @bill_bp.route('/bills', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin')
 def create_bill():
     try:
         data = request.get_json()
@@ -82,7 +82,7 @@ def create_bill():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @bill_bp.route('/bills/<int:bill_id>', methods=['PUT'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin')
 def update_bill(bill_id):
     try:
         data = request.get_json()
@@ -100,7 +100,7 @@ def update_bill(bill_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @bill_bp.route('/bills/<int:bill_id>', methods=['DELETE'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin')
 def delete_bill(bill_id):
     try:
         success = BillService.delete(bill_id)
@@ -116,7 +116,7 @@ def delete_bill(bill_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @bill_bp.route('/bills/contractor', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin')
 def generate_contractor_bill():
     try:
         data = request.get_json()
@@ -260,7 +260,7 @@ def generate_contractor_bill():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @bill_bp.route('/bills/<int:bill_id>/jobs/<int:job_id>', methods=['DELETE'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin')
 def remove_job_from_bill(bill_id, job_id):
     try:
         # Get the bill
@@ -302,7 +302,7 @@ def remove_job_from_bill(bill_id, job_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @bill_bp.route('/bills/driver', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin')
 def generate_driver_bill():
     try:
         data = request.get_json()

@@ -24,8 +24,8 @@ class Config:
     SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'False').lower() == 'true'
     SESSION_COOKIE_HTTPONLY = True
     SECURITY_UNAUTHORIZED_VIEW = None
-    # REMEMBER_COOKIE_SAMESITE = "Strict"
-    # REMEMBER_COOKIE_SECURE = True
+    REMEMBER_COOKIE_SAMESITE = None
+    REMEMBER_COOKIE_SECURE = True
     # REMEMBER_COOKIE_HTTPONLY = True
     
     # JSON API configurations
@@ -66,7 +66,12 @@ class Config:
 )
  
 class DevConfig(Config):
-    SESSION_COOKIE_SAMESITE = 'Lax'  # Use Lax for development
+    #SESSION_COOKIE_SAMESITE = 'Lax'  # Use Lax for development
+    SESSION_COOKIE_SAMESITE = "Lax"
+    SESSION_COOKIE_SECURE = False
+    REMEMBER_COOKIE_SAMESITE = "Lax"
+    REMEMBER_COOKIE_SECURE = False
+
     # Ensure consistent database path regardless of working directory
     BASEDIR = os.path.dirname(os.path.abspath(__file__))
     DB_PATH = os.path.join(BASEDIR, 'app.db')
