@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, send_file, make_response, current_app
+from flask import Blueprint, request, jsonify, send_file, make_response, current_app, url_for
 from backend.models.driver_remark import DriverRemark
 from backend.services.job_service import JobService, ServiceError
 from backend.services.bill_service import BillService, ServiceError as BillServiceError
@@ -31,6 +31,7 @@ from backend.models.service import Service
 from backend.models.vehicle import Vehicle
 from backend.models.invoice import Invoice
 from backend.models.job_audit import JobAudit
+from backend.models.job_photo import JobPhoto
 from backend.models.user import User
 from backend.models.contractor import Contractor
 from backend.models.vehicle_type import VehicleType
@@ -1560,16 +1561,105 @@ def get_job_audit_records(job_id):
         # Convert to JSON-friendly format
         audit_data = []
         for record in audit_records:
+            # Get user name - use email if no name field exists, or driver name if user is linked to driver
+            changed_by_name = record.changed_by_user.email if record.changed_by_user else None
+            if record.changed_by_user and record.changed_by_user.driver:
+                changed_by_name = record.changed_by_user.driver.name
+            
+            # Get user role - get the first role name if user has roles
+            role = None
+            if record.changed_by_user and record.changed_by_user.roles:
+                role = record.changed_by_user.roles[0].name if record.changed_by_user.roles else None
+            
+            # Create status labels - for now just use the status values as labels
+            old_status_label = record.old_status
+            new_status_label = record.new_status
+            
+            # Get remarks based on status transition
+            remark = None
+            if (record.new_status == 'confirmed' and record.old_status == 'new') or \
+               (record.new_status == 'confirmed' and record.old_status == 'pending'):
+                # Show customer remark when transitioning from new/pending to confirmed
+                remark = job.customer_remark
+            else:
+                # Show driver remark for other stages
+                # Get the most recent driver remark for this job
+                driver_remark = DriverRemark.query.filter_by(job_id=job_id).order_by(DriverRemark.created_at.desc()).first()
+                if driver_remark:
+                    remark = driver_remark.remark
+            
+            # Get photos uploaded for the same stage as this audit record
+            attachments = []
+            if record.changed_at and record.new_status:
+                # Map job status to photo stage
+                # Photos are stored with the actual status as stage, not generic stages
+                status_to_photo_stage = {
+                    'OTW': 'OTW',
+                    'POB': 'POB',
+                    'JC': 'JC',
+                    'SD': 'SD'
+                }
+                
+                # Get the photo stage based on the new status
+                photo_stage = status_to_photo_stage.get(record.new_status.upper())
+                
+                if photo_stage:
+                    # Get photos for the specific stage that were uploaded within a reasonable time window
+                    # around the audit event to increase likelihood of successful photo attachment
+                    # Using a 30-minute window (15 minutes before and 15 minutes after) to be more inclusive
+                    
+                    # Handle potential timezone differences between audit record and photo timestamps
+                    changed_at_utc = record.changed_at
+                    if changed_at_utc.tzinfo is not None:
+                        # If audit record has timezone info, convert to naive datetime for comparison
+                        changed_at_utc = changed_at_utc.replace(tzinfo=None)
+                    
+                    photo_query = JobPhoto.query.filter(
+                        JobPhoto.job_id == record.job_id,
+                        JobPhoto.stage == photo_stage,
+                        JobPhoto.uploaded_at >= changed_at_utc - timedelta(minutes=15),
+                        JobPhoto.uploaded_at <= changed_at_utc + timedelta(minutes=15)
+                    ).order_by(JobPhoto.uploaded_at)
+                    
+                    # Debug: Log the query parameters
+                    logging.debug(f"Photo query for job {record.job_id}, stage {photo_stage}")
+                    logging.debug(f"Changed at: {record.changed_at}")
+                    logging.debug(f"Changed at UTC: {changed_at_utc}")
+                    logging.debug(f"Time window: {changed_at_utc - timedelta(minutes=15)} to {changed_at_utc + timedelta(minutes=15)}")
+                    
+                    photos = photo_query.all()
+                    
+                    # Debug: Log the number of photos found
+                    logging.debug(f"Found {len(photos)} photos")
+                    
+                    # Format photo data for attachments
+                    for photo in photos:
+                        filename = os.path.basename(photo.file_path)
+                        file_url = url_for('uploaded_file', filename=filename, _external=True) if filename else None
+                        attachments.append({
+                            'id': photo.id,
+                            'stage': photo.stage,
+                            'file_url': file_url,
+                            'uploaded_at': photo.uploaded_at.isoformat() if photo.uploaded_at else None
+                        })
+            
             audit_data.append({
                 'id': record.id,
                 'job_id': record.job_id,
                 'changed_at': record.changed_at.isoformat() if record.changed_at else None,
                 'changed_by': record.changed_by,
+                'changed_by_name': changed_by_name,
                 'changed_by_email': record.changed_by_user.email if record.changed_by_user else None,
+                'role': role,
                 'old_status': record.old_status,
                 'new_status': record.new_status,
+                'old_status_label': old_status_label,
+                'new_status_label': new_status_label,
+                'status_label': new_status_label,
                 'reason': record.reason,
+                'remark': remark,  # Add remark to the response
                 'description': generate_change_description(record),
+                'attachments': attachments
             })
         
         # Prepare job driver information
