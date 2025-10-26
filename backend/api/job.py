@@ -1522,17 +1522,52 @@ def get_job_audit_records(job_id):
             
             # Get remarks based on status transition
             remark = None
+            extra_services = None  # Initialize extra_services variable
+            remarks_list = []  # Initialize remarks_list for all cases
             if (record.new_status == 'confirmed' and record.old_status == 'new') or \
                (record.new_status == 'confirmed' and record.old_status == 'pending'):
                 # Show customer remark when transitioning from new/pending to confirmed
                 remark = job.customer_remark
-            else:
-                # Show driver remark for other stages
-                # Get the most recent driver remark for this job
-                driver_remark = DriverRemark.query.filter_by(job_id=job_id).order_by(DriverRemark.created_at.desc()).first()
-                if driver_remark:
-                    remark = driver_remark.remark
-            
+                
+                # Also include extra services when status is confirmed
+                if job.extra_services_data:
+                    extra_services_list = []
+                    if isinstance(job.extra_services_data, list):
+                        for service in job.extra_services_data:
+                            if isinstance(service, dict) and 'description' in service:
+                                extra_services_list.append(service['description'])
+                            elif isinstance(service, dict) and 'name' in service:
+                                extra_services_list.append(service['name'])
+                            elif isinstance(service, str):
+                                extra_services_list.append(service)
+                        if extra_services_list:
+                            extra_services = extra_services_list
+                            
+            # Always attempt to get the driver remark closest to the audit time (±30 minutes)
+            if record.changed_at:
+                changed_time = record.changed_at.replace(tzinfo=None) if record.changed_at.tzinfo else record.changed_at
+                driver_remarks = (
+                    DriverRemark.query
+                    .filter(
+                        DriverRemark.job_id == job_id,
+                        DriverRemark.created_at >= changed_time - timedelta(minutes=30),
+                        DriverRemark.created_at <= changed_time + timedelta(minutes=30)
+                    )
+                    .order_by(DriverRemark.created_at.asc())
+                    .all()
+                )
+
+                for r in driver_remarks:
+                    remarks_list.append({
+                        'id': r.id,
+                        'remark': r.remark,
+                        'created_at': r.created_at.isoformat() if r.created_at else None
+                    })
+
+                # If there are remarks near this timestamp, pick the latest one for this audit entry
+                if remarks_list:
+                    remark = remarks_list[-1]['remark']
+
             # Get photos uploaded for the same stage as this audit record
             attachments = []
             if record.changed_at and record.new_status:
@@ -1588,7 +1623,7 @@ def get_job_audit_records(job_id):
                             'uploaded_at': photo.uploaded_at.isoformat() if photo.uploaded_at else None
                         })
             
-            audit_data.append({
+            audit_entry = {
                 'id': record.id,
                 'job_id': record.job_id,
                 'changed_at': record.changed_at.isoformat() if record.changed_at else None,
@@ -1602,10 +1637,20 @@ def get_job_audit_records(job_id):
                 'new_status_label': new_status_label,
                 'status_label': new_status_label,
                 'reason': record.reason,
-                'remark': remark,  # Add remark to the response
+                'remark': remark,
                 'description': generate_change_description(record),
                 'attachments': attachments
-            })
+            }
+            
+            # Add extra_services to the audit entry if it exists
+            if extra_services is not None:
+                audit_entry['extra_services'] = extra_services
+                
+            # Add driver remarks list if there are any remarks
+            if remarks_list:
+                audit_entry['driver_remarks'] = remarks_list
+                
+            audit_data.append(audit_entry)
         
         # Prepare job driver information
         driver_info = None
