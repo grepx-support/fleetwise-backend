@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, send_file, make_response, current_app
+from flask import Blueprint, request, jsonify, send_file, make_response, current_app, url_for
 from backend.models.driver_remark import DriverRemark
 from backend.services.job_service import JobService, ServiceError
 from backend.services.bill_service import BillService, ServiceError as BillServiceError
@@ -31,6 +31,7 @@ from backend.models.service import Service
 from backend.models.vehicle import Vehicle
 from backend.models.invoice import Invoice
 from backend.models.job_audit import JobAudit
+from backend.models.job_photo import JobPhoto
 from backend.models.user import User
 from backend.models.contractor import Contractor
 from backend.models.vehicle_type import VehicleType
@@ -673,7 +674,6 @@ def download_job_template():
                 'Drop-off Location': 'Sample Drop-off Location 1',
                 'Passenger Name': 'Sample Passenger 1',
                 'Passenger Mobile': '+6591234567',
-                'Status': 'new',
                 'Remarks': 'Sample job entry - Valid data'
             })
 
@@ -694,7 +694,6 @@ def download_job_template():
                     'Drop-off Location': 'Sample Drop-off Location 2',
                     'Passenger Name': 'Sample Passenger 2',
                     'Passenger Mobile': '+6598765432',
-                    'Status': 'pending',
                     'Remarks': 'Sample job entry - Valid data'
                 })
 
@@ -714,7 +713,6 @@ def download_job_template():
                 'Drop-off Location': 'Test Destination',
                 'Passenger Name': 'Test Passenger',
                 'Passenger Mobile': '+6512345678',
-                'Status': 'new',
                 'Remarks': 'Invalid customer - should fail validation'
             })
 
@@ -733,7 +731,6 @@ def download_job_template():
                 'Drop-off Location': 'Test Destination',
                 'Passenger Name': 'Test Passenger',
                 'Passenger Mobile': '+6587654321',
-                'Status': 'new',
                 'Remarks': 'Invalid service - should fail validation'
             })
 
@@ -752,7 +749,6 @@ def download_job_template():
                 'Drop-off Location': 'Test Destination',
                 'Passenger Name': 'Test Passenger',
                 'Passenger Mobile': '+6596543210',
-                'Status': 'new',
                 'Remarks': 'Invalid vehicle - should fail validation'
             })
 
@@ -771,7 +767,6 @@ def download_job_template():
                 'Drop-off Location': 'Test Destination',
                 'Passenger Name': 'Test Passenger',
                 'Passenger Mobile': '+6511223344',
-                'Status': 'new',
                 'Remarks': 'Invalid driver - should fail validation'
             })
         else:
@@ -791,7 +786,6 @@ def download_job_template():
                 'Drop-off Location': '',
                 'Passenger Name': '',
                 'Passenger Mobile': '',
-                'Status': 'new',
                 'Remarks': ''
             })
         
@@ -871,14 +865,8 @@ def download_job_template():
                 vehicle_type_validation.add('H2:H1000')
                 worksheet.add_data_validation(vehicle_type_validation)
 
-            # Columns I-N: Pickup Date, Pickup Time, Pickup Location, Drop-off Location, Passenger Name, Passenger Mobile (all text fields - NO dropdowns)
+            # Columns I-N: Pickup Date, Pickup Time, Pickup Location, Drop-off Location, Passenger Name, Passenger Mobile, Remarks (all text fields - NO dropdowns)
 
-            # Status dropdown (Column O)
-            status_options = ['new', 'pending', 'confirmed', 'otw', 'ots', 'pob', 'jc', 'sd', 'canceled']
-            status_validation = DataValidation(type="list", formula1=f'"{",".join(status_options)}"', allow_blank=True)
-            status_validation.add('O2:O1000')
-            worksheet.add_data_validation(status_validation)
-            
             # Auto-adjust column widths
             for column in worksheet.columns:
                 max_length = 0
@@ -918,16 +906,20 @@ def download_job_template():
                 ['- Vehicle Type: Select from dropdown'],
                 ['- Passenger Name: Text'],
                 ['- Passenger Mobile: Text (with country code, e.g., +6591234567)'],
-                ['- Status: Select from dropdown'],
                 ['- Remarks: Text'],
                 [''],
                 ['Notes:'],
                 ['- Date format must be YYYY-MM-DD'],
                 ['- Time format must be HH:MM (24-hour)'],
-                ['- Use dropdowns for Customer, Service, Vehicle, Driver, Contractor, Vehicle Type, and Status'],
+                ['- Use dropdowns for Customer, Service, Vehicle, Driver, Contractor, and Vehicle Type'],
                 ['- Remove sample data before uploading'],
                 ['- Maximum 1000 jobs per file'],
-                ['- Status options: new, pending, confirmed, otw, ots, pob, jc, sd, canceled']
+                [''],
+                ['Job Status Rules:'],
+                ['- Status will be automatically set based on provided fields:'],
+                ['  * CONFIRMED: When both Driver and Vehicle are assigned'],
+                ['  * PENDING: When only mandatory fields are filled (without Driver/Vehicle)'],
+                ['  * NEW: When mandatory fields are missing']
             ]
             
             instructions_df = pd.DataFrame(instructions_data)
@@ -1050,7 +1042,6 @@ def process_excel_file_preview(file_path, column_mapping=None):
                     'dropoff_location': 'N/A',
                     'passenger_name': 'N/A',
                     'passenger_mobile': 'N/A',
-                    'status': 'N/A',
                     'remarks': 'N/A',
                     'is_valid': False,
                     'error_message': f"File contains too many rows ({len(df)}). Maximum allowed is {max_rows} rows."
@@ -1076,7 +1067,6 @@ def process_excel_file_preview(file_path, column_mapping=None):
             'dropoff_location': ['Drop-off Location', 'To', 'Drop-off Location'],
             'passenger_name': ['Passenger Name', 'Passenger', 'Name'],
             'passenger_mobile': ['Passenger Mobile', 'Mobile', 'Phone', 'Contact Number'],
-            'status': ['Status', 'Job Status', 'Status'],
             'remarks': ['Remarks', 'Notes', 'Comments']
         }
         
@@ -1125,7 +1115,6 @@ def process_excel_file_preview(file_path, column_mapping=None):
                     'dropoff_location': 'N/A',
                     'passenger_name': 'N/A',
                     'passenger_mobile': 'N/A',
-                    'status': 'N/A',
                     'remarks': 'N/A',
                     'is_valid': False,
                     'error_message': f"Missing required columns: {', '.join(missing_columns)}"
@@ -1168,12 +1157,40 @@ def process_excel_file_preview(file_path, column_mapping=None):
                 'dropoff_location': clean_value(row.get(column_map.get('dropoff_location', 'Drop-off Location'), '')),
                 'passenger_name': clean_value(row.get(column_map.get('passenger_name', 'Passenger Name'), '')),
                 'passenger_mobile': clean_value(row.get(column_map.get('passenger_mobile', 'Passenger Mobile'), '')),
-                'status': clean_value(row.get(column_map.get('status', 'Status'), 'new')),
                 'remarks': clean_value(row.get(column_map.get('remarks', 'Remarks'), '')),
                 'is_valid': True,
                 'error_message': ''
             }
-            
+
+            # Validate mandatory fields first (before centralized validation)
+            mandatory_fields = ['customer', 'service', 'pickup_date', 'pickup_time',
+                              'pickup_location', 'dropoff_location', 'passenger_name']
+            missing_fields = [f for f in mandatory_fields if not row_data.get(f, '').strip()]
+
+            if missing_fields:
+                row_data['is_valid'] = False
+                row_data['error_message'] = f"Missing required fields: {', '.join(missing_fields)}"
+                error_count += 1
+                preview_rows.append(row_data)
+                continue
+
+            # Validate date/time formats
+            try:
+                from datetime import datetime
+                pickup_date_val = row_data.get('pickup_date', '').strip()
+                pickup_time_val = row_data.get('pickup_time', '').strip()
+
+                if pickup_date_val:
+                    datetime.strptime(pickup_date_val, '%Y-%m-%d')
+                if pickup_time_val:
+                    datetime.strptime(pickup_time_val, '%H:%M')
+            except ValueError as ve:
+                row_data['is_valid'] = False
+                row_data['error_message'] = f"Invalid date/time format: {str(ve)}"
+                error_count += 1
+                preview_rows.append(row_data)
+                continue
+
             # Use centralized validation
             try:
                 is_valid, error_message, validated_data = validate_job_row(row_data, lookups)
@@ -1303,10 +1320,11 @@ def confirm_upload():
         
         # Debug logging
 
-        
+
         processed_count = 0
         errors = []
         skipped_rows = []
+        created_jobs = []
 
         # Process only valid rows - each job creation is atomic with its own transaction
         # Process only valid rows
@@ -1334,11 +1352,40 @@ def confirm_upload():
                 if not service:
                     raise Exception(f"Service '{service_name}' not found or not active")
 
-                # Validate required fields exist and have proper values
-                required_fields = ['customer_id', 'pickup_location', 'dropoff_location', 'pickup_date', 'pickup_time']
-                for field in required_fields:
-                    if field not in row_data or not row_data.get(field):
-                        raise Exception(f"Missing required field: {field}")
+                # Validate all mandatory fields exist and have non-empty values
+                mandatory_fields = ['customer', 'service', 'pickup_date', 'pickup_time',
+                                  'pickup_location', 'dropoff_location', 'passenger_name']
+                for field in mandatory_fields:
+                    value = str(row_data.get(field, '')).strip()
+                    if not value:
+                        raise Exception(f"Missing or empty required field: {field}")
+
+                # Validate and parse date/time formats
+                pickup_date = str(row_data.get('pickup_date', '')).strip()
+                pickup_time = str(row_data.get('pickup_time', '')).strip()
+
+                try:
+                    from datetime import datetime
+                    datetime.strptime(pickup_date, '%Y-%m-%d')
+                except ValueError:
+                    raise Exception(f"Invalid pickup_date format: '{pickup_date}'. Expected YYYY-MM-DD")
+
+                try:
+                    datetime.strptime(pickup_time, '%H:%M')
+                except ValueError:
+                    raise Exception(f"Invalid pickup_time format: '{pickup_time}'. Expected HH:MM (24-hour)")
+
+                # Determine job status based on available fields
+                # CONFIRMED: When both Driver and Vehicle are assigned AND all mandatory fields filled
+                # PENDING: When ALL mandatory fields are filled but Driver/Vehicle missing
+                # NEW: Default/fallback
+                mandatory_filled = all(str(row_data.get(f, '')).strip() for f in mandatory_fields)
+
+                job_status = 'new'
+                if driver and vehicle and mandatory_filled:
+                    job_status = 'confirmed'
+                elif mandatory_filled:
+                    job_status = 'pending'
 
                 # Create job with all data
                 job_data = {
@@ -1350,13 +1397,13 @@ def confirm_upload():
                     'driver_id': driver.id if driver else None,
                     'contractor_id': contractor.id if contractor else None,
                     'vehicle_type_id': vehicle_type.id if vehicle_type else None,
-                    'pickup_location': row_data.get('pickup_location', ''),
-                    'dropoff_location': row_data.get('dropoff_location', ''),
-                    'pickup_date': row_data.get('pickup_date', ''),
-                    'pickup_time': row_data.get('pickup_time', ''),
-                    'passenger_name': row_data.get('passenger_name', ''),
-                    'passenger_mobile': row_data.get('passenger_mobile', ''),
-                    'status': row_data.get('status', 'new'),
+                    'pickup_location': str(row_data.get('pickup_location', '')).strip(),
+                    'dropoff_location': str(row_data.get('dropoff_location', '')).strip(),
+                    'pickup_date': pickup_date,
+                    'pickup_time': pickup_time,
+                    'passenger_name': str(row_data.get('passenger_name', '')).strip(),
+                    'passenger_mobile': str(row_data.get('passenger_mobile', '')).strip(),
+                    'status': job_status,
                     'customer_remark': row_data.get('remarks', '')
                 }
 
@@ -1400,6 +1447,14 @@ def confirm_upload():
                 job = JobService.create(job_data)
                 processed_count += 1
 
+                # Track created job details
+                created_jobs.append({
+                    'job_id': f"JOB-{job.id}",
+                    'row_number': row_data.get('row_number', 'unknown'),
+                    'customer': row_data.get('customer', ''),
+                    'pickup_date': row_data.get('pickup_date', '')
+                })
+
             except Exception as row_error:
                 # Job creation failed for this row, continue with next row
                 error_msg = f"Error processing row {row_data.get('row_number', 'unknown')}: {str(row_error)}"
@@ -1410,7 +1465,8 @@ def confirm_upload():
             'processed_count': processed_count,
             'skipped_count': len(skipped_rows),
             'skipped_rows': skipped_rows,
-            'errors': errors
+            'errors': errors,
+            'created_jobs': created_jobs
         }), 200
 
     except Exception as e:
@@ -1505,16 +1561,105 @@ def get_job_audit_records(job_id):
         # Convert to JSON-friendly format
         audit_data = []
         for record in audit_records:
+            # Get user name - use email if no name field exists, or driver name if user is linked to driver
+            changed_by_name = record.changed_by_user.email if record.changed_by_user else None
+            if record.changed_by_user and record.changed_by_user.driver:
+                changed_by_name = record.changed_by_user.driver.name
+            
+            # Get user role - get the first role name if user has roles
+            role = None
+            if record.changed_by_user and record.changed_by_user.roles:
+                role = record.changed_by_user.roles[0].name if record.changed_by_user.roles else None
+            
+            # Create status labels - for now just use the status values as labels
+            old_status_label = record.old_status
+            new_status_label = record.new_status
+            
+            # Get remarks based on status transition
+            remark = None
+            if (record.new_status == 'confirmed' and record.old_status == 'new') or \
+               (record.new_status == 'confirmed' and record.old_status == 'pending'):
+                # Show customer remark when transitioning from new/pending to confirmed
+                remark = job.customer_remark
+            else:
+                # Show driver remark for other stages
+                # Get the most recent driver remark for this job
+                driver_remark = DriverRemark.query.filter_by(job_id=job_id).order_by(DriverRemark.created_at.desc()).first()
+                if driver_remark:
+                    remark = driver_remark.remark
+            
+            # Get photos uploaded for the same stage as this audit record
+            attachments = []
+            if record.changed_at and record.new_status:
+                # Map job status to photo stage
+                # Photos are stored with the actual status as stage, not generic stages
+                status_to_photo_stage = {
+                    'OTW': 'OTW',
+                    'POB': 'POB',
+                    'JC': 'JC',
+                    'SD': 'SD'
+                }
+                
+                # Get the photo stage based on the new status
+                photo_stage = status_to_photo_stage.get(record.new_status.upper())
+                
+                if photo_stage:
+                    # Get photos for the specific stage that were uploaded within a reasonable time window
+                    # around the audit event to increase likelihood of successful photo attachment
+                    # Using a 30-minute window (15 minutes before and 15 minutes after) to be more inclusive
+                    
+                    # Handle potential timezone differences between audit record and photo timestamps
+                    changed_at_utc = record.changed_at
+                    if changed_at_utc.tzinfo is not None:
+                        # If audit record has timezone info, convert to naive datetime for comparison
+                        changed_at_utc = changed_at_utc.replace(tzinfo=None)
+                    
+                    photo_query = JobPhoto.query.filter(
+                        JobPhoto.job_id == record.job_id,
+                        JobPhoto.stage == photo_stage,
+                        JobPhoto.uploaded_at >= changed_at_utc - timedelta(minutes=15),
+                        JobPhoto.uploaded_at <= changed_at_utc + timedelta(minutes=15)
+                    ).order_by(JobPhoto.uploaded_at)
+                    
+                    # Debug: Log the query parameters
+                    logging.debug(f"Photo query for job {record.job_id}, stage {photo_stage}")
+                    logging.debug(f"Changed at: {record.changed_at}")
+                    logging.debug(f"Changed at UTC: {changed_at_utc}")
+                    logging.debug(f"Time window: {changed_at_utc - timedelta(minutes=15)} to {changed_at_utc + timedelta(minutes=15)}")
+                    
+                    photos = photo_query.all()
+                    
+                    # Debug: Log the number of photos found
+                    logging.debug(f"Found {len(photos)} photos")
+                    
+                    # Format photo data for attachments
+                    for photo in photos:
+                        filename = os.path.basename(photo.file_path)
+                        file_url = url_for('uploaded_file', filename=filename, _external=True) if filename else None
+                        attachments.append({
+                            'id': photo.id,
+                            'stage': photo.stage,
+                            'file_url': file_url,
+                            'uploaded_at': photo.uploaded_at.isoformat() if photo.uploaded_at else None
+                        })
+            
             audit_data.append({
                 'id': record.id,
                 'job_id': record.job_id,
                 'changed_at': record.changed_at.isoformat() if record.changed_at else None,
                 'changed_by': record.changed_by,
+                'changed_by_name': changed_by_name,
                 'changed_by_email': record.changed_by_user.email if record.changed_by_user else None,
+                'role': role,
                 'old_status': record.old_status,
                 'new_status': record.new_status,
+                'old_status_label': old_status_label,
+                'new_status_label': new_status_label,
+                'status_label': new_status_label,
                 'reason': record.reason,
+                'remark': remark,  # Add remark to the response
                 'description': generate_change_description(record),
+                'attachments': attachments
             })
         
         # Prepare job driver information
