@@ -7,7 +7,8 @@ from flask_limiter.errors import RateLimitExceeded
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-
+from flask import jsonify
+from flask_security import auth_required, current_user
 # Load environment variables from .env file
 load_dotenv()
 
@@ -431,29 +432,41 @@ def root():
 def health_check():
     return {'status': 'ok', 'message': 'Backend for Next.js is running.'}
 
-from flask import jsonify
-from flask_security import auth_required, current_user
+
+VALID_ROLES = {'admin', 'manager', 'accountant', 'customer', 'driver', 'guest'}
 
 @app.route("/api/auth/me", methods=["GET"])
 @auth_required()
 def auth_me():
     try:
-        roles = [{"id": r.id, "name": r.name.lower()} for r in current_user.roles or []]
+        roles = [
+            {"id": r.id, "name": r.name.lower()}
+            for r in (current_user.roles or [])
+        ]
+        
         primary_role = roles[0]["name"] if roles else "guest"
-
+        
+        # Validate role name
+        if primary_role not in VALID_ROLES:
+            logger.warning(
+                f"Invalid role '{primary_role}' for user {current_user.id}, defaulting to guest"
+            )
+            primary_role = "guest"
+        
         return jsonify({
-    "user": {
-        "id": current_user.id,
-        "email": current_user.email,
-        "role": primary_role,
-        "roles": roles
-    }
-}), 200
+            "response": {
+                "user": {
+                    "id": current_user.id,
+                    "email": current_user.email,
+                    "role": primary_role,  
+                    "roles": roles        
+                }
+            }
+        }), 200
 
     except Exception as e:
         logger.error(f"/api/auth/me error: {e}", exc_info=True)
         return jsonify({"error": "unexpected"}), 500
-
 
 @app.route('/favicon.ico')
 def favicon():

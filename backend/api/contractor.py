@@ -4,17 +4,33 @@ from backend.schemas.contractor_schema import ContractorSchema
 import logging
 from flask_security.decorators import roles_required, roles_accepted, auth_required
 from backend.extensions import db
+from flask_security import current_user
 
 contractor_bp = Blueprint('contractor', __name__)
 schema = ContractorSchema(session=db.session)
 schema_many = ContractorSchema(many=True, session=db.session)
 
 @contractor_bp.route('/contractors', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@auth_required()
 def list_contractors():
     try:
-        contractors = ContractorService.get_all()
+        # Admin / Manager / Accountant → view ALL
+        if current_user.has_role('admin') or current_user.has_role('manager') or current_user.has_role('accountant'):
+            contractors = ContractorService.get_all()
+
+        # Customer → view ONLY internal contractor (ID = 1)
+        elif current_user.has_role('customer'):
+            contractors = ContractorService.get_by_id(1)
+            if not contractors:
+                return jsonify([]), 200
+            contractors = [contractors]  # Convert to list for schema dump
+
+        # All other roles → forbidden
+        else:
+            return jsonify({'error': 'Forbidden'}), 403
+
         return jsonify(schema_many.dump(contractors)), 200
+
     except ServiceError as se:
         return jsonify({'error': se.message}), 400
     except Exception as e:
