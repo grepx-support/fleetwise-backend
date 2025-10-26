@@ -132,6 +132,7 @@ def update_driver_job_status():
     - Allows driver/admin/manager to update job status
     - Enforces valid status transitions
     - Adds optional driver remark for each stage
+    - Allows updating cash_to_collect value (tracks changes in audit)
     - Returns all remarks in response
     - Retries in case of DB lock issues
     """
@@ -141,6 +142,7 @@ def update_driver_job_status():
     job_id = data.get('job_id')
     new_status = data.get('status')
     remark_text = data.get('remark')   # NEW: optional remark
+    cash_to_collect = data.get('cash_to_collect')  # NEW: optional cash to collect for JC status
 
 
 
@@ -170,10 +172,21 @@ def update_driver_job_status():
         JobStatus.POB.value,   # Person On Board
         JobStatus.JC.value,    # Job Completed
         JobStatus.SD.value     # Stand Down
-        
+
     ]
     if new_status not in ALLOWED_STATUS:
         return jsonify({'error': 'Invalid status'}), 400
+
+    # Validate cash_to_collect if provided
+    if cash_to_collect is not None:
+        try:
+            cash_to_collect = float(cash_to_collect)
+            if cash_to_collect < 0:
+                return jsonify({'error': 'cash_to_collect cannot be negative'}), 400
+            if cash_to_collect > 100000:
+                return jsonify({'error': 'cash_to_collect exceeds maximum allowed'}), 400
+        except (TypeError, ValueError):
+            return jsonify({'error': 'cash_to_collect must be a valid number'}), 400
 
     # ---- Retry loop for DB lock handling ----
     for attempt in range(MAX_RETRIES):
@@ -195,26 +208,54 @@ def update_driver_job_status():
             if not job.can_transition_to(new_status):
                 return jsonify({'error': 'Invalid status transition'}), 400
 
-            # Case 1: Status already set → still allow new remark
+            # Case 1: Status already set → still allow new remark or cash_to_collect update
             if job.status == new_status:
-                # Only create audit record if a remark is being added
-                if remark_text:
+                cash_updated = False
+                audit_reason_parts = []
+
+                # Handle cash_to_collect update
+                if cash_to_collect is not None:
+                    old_cash = job.cash_to_collect
+                    if old_cash != cash_to_collect:
+                        job.cash_to_collect = cash_to_collect
+                        cash_updated = True
+                        audit_reason_parts.append(f'Cash to collect updated from {old_cash} to {cash_to_collect}')
+
+                # Only create audit record if a remark is being added or cash is updated
+                if remark_text or cash_updated:
+                    reason = 'Status update with ' + ' and '.join(
+                        filter(None, [
+                            'remark' if remark_text else None,
+                            audit_reason_parts[0] if cash_updated else None
+                        ])
+                    )
+
+                    # Prepare additional_data for audit
+                    additional_data = {}
+                    if cash_updated:
+                        additional_data['cash_to_collect'] = {
+                            'old_value': float(old_cash) if old_cash is not None else None,
+                            'new_value': float(cash_to_collect)
+                        }
+
                     audit_record = JobAudit(
                         job_id=job.id,
                         changed_by=current_user.id,  # Always valid due to @auth_required()
                         old_status=job.status,
                         new_status=new_status,
-                        reason='Status update with remark'
+                        reason=reason,
+                        additional_data=additional_data if additional_data else None
                     )
                     db.session.add(audit_record)
-                    
-                    remark = DriverRemark(
-                        driver_id=driver_id,
-                        job_id=job.id,
-                        remark=remark_text
-                    )
-                    db.session.add(remark)
-                
+
+                    if remark_text:
+                        remark = DriverRemark(
+                            driver_id=driver_id,
+                            job_id=job.id,
+                            remark=remark_text
+                        )
+                        db.session.add(remark)
+
                 db.session.commit()
 
                 remarks = [
@@ -222,10 +263,19 @@ def update_driver_job_status():
                     for r in DriverRemark.query.filter_by(job_id=job.id).all()
                 ]
 
+                message = 'Status already set'
+                if remark_text and cash_updated:
+                    message = 'Remark added and cash to collect updated'
+                elif remark_text:
+                    message = 'Remark added'
+                elif cash_updated:
+                    message = 'Cash to collect updated'
+
                 return jsonify({
-                    'message': 'Status already set' if not remark_text else 'Remark added',
+                    'message': message,
                     'job_id': job.id,
                     'status': job.status,
+                    'cash_to_collect': float(job.cash_to_collect) if job.cash_to_collect is not None else None,
                     'remarks': remarks
                 }), 200
 
@@ -241,17 +291,37 @@ def update_driver_job_status():
             if new_status in [JobStatus.JC.value, JobStatus.SD.value]:
                 if job.end_time is None:
                     job.end_time = datetime.now(timezone.utc)
-            
+
+            # Handle cash_to_collect update
+            cash_updated = False
+            old_cash = job.cash_to_collect
+            if cash_to_collect is not None and old_cash != cash_to_collect:
+                job.cash_to_collect = cash_to_collect
+                cash_updated = True
+
             # Create audit record for status change
+            audit_reason = 'Status updated via Driver API'
+            if cash_updated:
+                audit_reason += f' (Cash to collect updated from {old_cash} to {cash_to_collect})'
+
+            # Prepare additional_data for audit
+            additional_data = {}
+            if cash_updated:
+                additional_data['cash_to_collect'] = {
+                    'old_value': float(old_cash) if old_cash is not None else None,
+                    'new_value': float(cash_to_collect)
+                }
+
             audit_record = JobAudit(
                 job_id=job.id,
                 changed_by=current_user.id,  # Always valid due to @auth_required()
                 old_status=old_status,
                 new_status=new_status,
-                reason='Status updated via Driver API'
+                reason=audit_reason,
+                additional_data=additional_data if additional_data else None
             )
             db.session.add(audit_record)
-            
+
             if remark_text:
                 remark = DriverRemark(
                     driver_id=driver_id,
@@ -271,6 +341,7 @@ def update_driver_job_status():
                 'message': 'Status updated',
                 'job_id': job.id,
                 'new_status': new_status,
+                'cash_to_collect': float(job.cash_to_collect) if job.cash_to_collect is not None else None,
                 'remarks': remarks
             }), 200
         
