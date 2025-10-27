@@ -100,19 +100,47 @@ def apply_safe_filter(query, column, value):
     pattern = '%' + sanitized_value + '%'
     return query.filter(column.ilike(pattern))
 
+# --- add this helper near the top of the file (below imports) ---
+def scoped_jobs_query(q):
+    """
+    Restrict the Job query based on the current_user role.
+    Admin/Manager: see all (no extra filter)
+    Driver: only jobs for current_user.driver_id
+    Customer: only jobs for current_user.customer_id
+    Others: raise 403 by aborting
+    """
+    from flask import abort
+
+    # Allow admins/managers to see all
+    if current_user.has_role('admin') or current_user.has_role('manager') or current_user.has_role('accountant'):
+        return q
+
+    # Driver scope
+    if current_user.has_role('driver'):
+        driver_id = getattr(current_user, 'driver_id', None)
+        if not driver_id:
+            abort(403, description='Driver profile missing')
+        return q.filter(Job.driver_id == driver_id)
+
+    # Customer scope
+    if current_user.has_role('customer'):
+        customer_id = getattr(current_user, 'customer_id', None)
+        if not customer_id:
+            abort(403, description='Customer profile missing')
+        return q.filter(Job.customer_id == customer_id)
+
+    abort(403)
+# --- end helper ---
+
 @job_bp.route('/jobs', methods=['GET'])
 @auth_required()
 def list_jobs():
     try:
-        if current_user.has_role('admin') or current_user.has_role('manager'):
-            jobs = JobService.get_all()
-        elif current_user.has_role('driver'):
-            jobs = JobService.get_by_driver(current_user.id)
-        elif current_user.has_role('customer'):
-            jobs = JobService.get_by_customer(current_user.id)
-        else:
-            return jsonify({'error': 'Forbidden'}), 403
+        # use the same scope helper to ensure the same RBAC rules
+        query = scoped_jobs_query(Job.query.filter(Job.is_deleted.is_(False)))
+        jobs = query.all()
         return jsonify(schema_many.dump(jobs)), 200
+
     except ServiceError as se:
         return jsonify({'error': se.message}), 400
     except Exception as e:
@@ -123,15 +151,13 @@ def list_jobs():
 @auth_required()
 def get_job(job_id):
     try:
-        job = JobService.get_by_id(job_id)
+        # enforce scope even for single job fetch
+        query = scoped_jobs_query(Job.query.filter(Job.is_deleted.is_(False)))
+        job = query.filter(Job.id == job_id).first()
         if not job:
             return jsonify({'error': 'Job not found'}), 404
-        # Only allow access if admin/manager, or driver/customer owns the job
-        if current_user.has_role('admin') or current_user.has_role('manager') or \
-           (current_user.has_role('driver') and hasattr(job, 'driver_id') and job.driver_id == current_user.driver_id) or \
-           (current_user.has_role('customer') and hasattr(job, 'customer_id') and job.customer_id == current_user.id):
-            return jsonify(schema.dump(job)), 200
-        return jsonify({'error': 'Forbidden'}), 403
+        return jsonify(schema.dump(job)), 200
+
     except ServiceError as se:
         return jsonify({'error': se.message}), 400
     except Exception as e:
@@ -141,7 +167,7 @@ def get_job(job_id):
 
 
 @job_bp.route('/jobs', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def create_job():
     try:
         data = request.get_json()
@@ -237,7 +263,7 @@ def create_job():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @job_bp.route('/jobs/<int:job_id>', methods=['PUT'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def update_job(job_id):
     try:
         data = request.get_json()
@@ -341,7 +367,7 @@ def update_job(job_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @job_bp.route('/jobs/<int:job_id>', methods=['DELETE'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def delete_job(job_id):
     """
     Delete a job (soft delete implementation).
@@ -465,7 +491,7 @@ def set_job_penalty(job_id):
 
 
 @job_bp.route('/jobs/<int:job_id>/soft-delete', methods=['PUT'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def soft_delete_job(job_id):
     """
     Soft delete a job with proper transaction boundaries and idempotency checks.
@@ -559,16 +585,22 @@ def jobs_table():
         
         # Query with filters
         query = Job.query.filter(Job.is_deleted.is_(False))
+        query = scoped_jobs_query(query)
+
+        joined_customer = False
         
         # Handle computed field filters by joining with related tables
         for key, value in filters.items():
             if value:
                 if key == 'customer_name':
                     # Filter by customer name - use parameterized query with join
+                    if not joined_customer:
+                        query = query.join(Customer)
+                        joined_customer = True
                     sanitized_value = sanitize_filter_value(value)
                     if sanitized_value:
                         pattern = '%' + sanitized_value + '%'
-                        query = query.join(Customer).filter(Customer.name.ilike(pattern))
+                        query = query.filter(Customer.name.ilike(pattern))
                 elif key == 'service_type':
                     # Filter by service type - use parameterized query
                     query = apply_safe_filter(query, Job.service_type, value)
@@ -674,7 +706,6 @@ def download_job_template():
                 'Drop-off Location': 'Sample Drop-off Location 1',
                 'Passenger Name': 'Sample Passenger 1',
                 'Passenger Mobile': '+6591234567',
-                'Status': 'new',
                 'Remarks': 'Sample job entry - Valid data'
             })
 
@@ -695,7 +726,6 @@ def download_job_template():
                     'Drop-off Location': 'Sample Drop-off Location 2',
                     'Passenger Name': 'Sample Passenger 2',
                     'Passenger Mobile': '+6598765432',
-                    'Status': 'pending',
                     'Remarks': 'Sample job entry - Valid data'
                 })
 
@@ -715,7 +745,6 @@ def download_job_template():
                 'Drop-off Location': 'Test Destination',
                 'Passenger Name': 'Test Passenger',
                 'Passenger Mobile': '+6512345678',
-                'Status': 'new',
                 'Remarks': 'Invalid customer - should fail validation'
             })
 
@@ -734,7 +763,6 @@ def download_job_template():
                 'Drop-off Location': 'Test Destination',
                 'Passenger Name': 'Test Passenger',
                 'Passenger Mobile': '+6587654321',
-                'Status': 'new',
                 'Remarks': 'Invalid service - should fail validation'
             })
 
@@ -753,7 +781,6 @@ def download_job_template():
                 'Drop-off Location': 'Test Destination',
                 'Passenger Name': 'Test Passenger',
                 'Passenger Mobile': '+6596543210',
-                'Status': 'new',
                 'Remarks': 'Invalid vehicle - should fail validation'
             })
 
@@ -772,7 +799,6 @@ def download_job_template():
                 'Drop-off Location': 'Test Destination',
                 'Passenger Name': 'Test Passenger',
                 'Passenger Mobile': '+6511223344',
-                'Status': 'new',
                 'Remarks': 'Invalid driver - should fail validation'
             })
         else:
@@ -792,7 +818,6 @@ def download_job_template():
                 'Drop-off Location': '',
                 'Passenger Name': '',
                 'Passenger Mobile': '',
-                'Status': 'new',
                 'Remarks': ''
             })
         
@@ -872,14 +897,8 @@ def download_job_template():
                 vehicle_type_validation.add('H2:H1000')
                 worksheet.add_data_validation(vehicle_type_validation)
 
-            # Columns I-N: Pickup Date, Pickup Time, Pickup Location, Drop-off Location, Passenger Name, Passenger Mobile (all text fields - NO dropdowns)
+            # Columns I-N: Pickup Date, Pickup Time, Pickup Location, Drop-off Location, Passenger Name, Passenger Mobile, Remarks (all text fields - NO dropdowns)
 
-            # Status dropdown (Column O)
-            status_options = ['new', 'pending', 'confirmed', 'otw', 'ots', 'pob', 'jc', 'sd', 'canceled']
-            status_validation = DataValidation(type="list", formula1=f'"{",".join(status_options)}"', allow_blank=True)
-            status_validation.add('O2:O1000')
-            worksheet.add_data_validation(status_validation)
-            
             # Auto-adjust column widths
             for column in worksheet.columns:
                 max_length = 0
@@ -919,16 +938,20 @@ def download_job_template():
                 ['- Vehicle Type: Select from dropdown'],
                 ['- Passenger Name: Text'],
                 ['- Passenger Mobile: Text (with country code, e.g., +6591234567)'],
-                ['- Status: Select from dropdown'],
                 ['- Remarks: Text'],
                 [''],
                 ['Notes:'],
                 ['- Date format must be YYYY-MM-DD'],
                 ['- Time format must be HH:MM (24-hour)'],
-                ['- Use dropdowns for Customer, Service, Vehicle, Driver, Contractor, Vehicle Type, and Status'],
+                ['- Use dropdowns for Customer, Service, Vehicle, Driver, Contractor, and Vehicle Type'],
                 ['- Remove sample data before uploading'],
                 ['- Maximum 1000 jobs per file'],
-                ['- Status options: new, pending, confirmed, otw, ots, pob, jc, sd, canceled']
+                [''],
+                ['Job Status Rules:'],
+                ['- Status will be automatically set based on provided fields:'],
+                ['  * CONFIRMED: When both Driver and Vehicle are assigned'],
+                ['  * PENDING: When only mandatory fields are filled (without Driver/Vehicle)'],
+                ['  * NEW: When mandatory fields are missing']
             ]
             
             instructions_df = pd.DataFrame(instructions_data)
@@ -1051,7 +1074,6 @@ def process_excel_file_preview(file_path, column_mapping=None):
                     'dropoff_location': 'N/A',
                     'passenger_name': 'N/A',
                     'passenger_mobile': 'N/A',
-                    'status': 'N/A',
                     'remarks': 'N/A',
                     'is_valid': False,
                     'error_message': f"File contains too many rows ({len(df)}). Maximum allowed is {max_rows} rows."
@@ -1077,7 +1099,6 @@ def process_excel_file_preview(file_path, column_mapping=None):
             'dropoff_location': ['Drop-off Location', 'To', 'Drop-off Location'],
             'passenger_name': ['Passenger Name', 'Passenger', 'Name'],
             'passenger_mobile': ['Passenger Mobile', 'Mobile', 'Phone', 'Contact Number'],
-            'status': ['Status', 'Job Status', 'Status'],
             'remarks': ['Remarks', 'Notes', 'Comments']
         }
         
@@ -1126,7 +1147,6 @@ def process_excel_file_preview(file_path, column_mapping=None):
                     'dropoff_location': 'N/A',
                     'passenger_name': 'N/A',
                     'passenger_mobile': 'N/A',
-                    'status': 'N/A',
                     'remarks': 'N/A',
                     'is_valid': False,
                     'error_message': f"Missing required columns: {', '.join(missing_columns)}"
@@ -1169,12 +1189,40 @@ def process_excel_file_preview(file_path, column_mapping=None):
                 'dropoff_location': clean_value(row.get(column_map.get('dropoff_location', 'Drop-off Location'), '')),
                 'passenger_name': clean_value(row.get(column_map.get('passenger_name', 'Passenger Name'), '')),
                 'passenger_mobile': clean_value(row.get(column_map.get('passenger_mobile', 'Passenger Mobile'), '')),
-                'status': clean_value(row.get(column_map.get('status', 'Status'), 'new')),
                 'remarks': clean_value(row.get(column_map.get('remarks', 'Remarks'), '')),
                 'is_valid': True,
                 'error_message': ''
             }
-            
+
+            # Validate mandatory fields first (before centralized validation)
+            mandatory_fields = ['customer', 'service', 'pickup_date', 'pickup_time',
+                              'pickup_location', 'dropoff_location', 'passenger_name']
+            missing_fields = [f for f in mandatory_fields if not row_data.get(f, '').strip()]
+
+            if missing_fields:
+                row_data['is_valid'] = False
+                row_data['error_message'] = f"Missing required fields: {', '.join(missing_fields)}"
+                error_count += 1
+                preview_rows.append(row_data)
+                continue
+
+            # Validate date/time formats
+            try:
+                from datetime import datetime
+                pickup_date_val = row_data.get('pickup_date', '').strip()
+                pickup_time_val = row_data.get('pickup_time', '').strip()
+
+                if pickup_date_val:
+                    datetime.strptime(pickup_date_val, '%Y-%m-%d')
+                if pickup_time_val:
+                    datetime.strptime(pickup_time_val, '%H:%M')
+            except ValueError as ve:
+                row_data['is_valid'] = False
+                row_data['error_message'] = f"Invalid date/time format: {str(ve)}"
+                error_count += 1
+                preview_rows.append(row_data)
+                continue
+
             # Use centralized validation
             try:
                 is_valid, error_message, validated_data = validate_job_row(row_data, lookups)
@@ -1279,7 +1327,7 @@ def process_excel_file_preview(file_path, column_mapping=None):
 
 
 @job_bp.route('/jobs/confirm-upload', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def confirm_upload():
     """Handle confirmation of preview data and create jobs"""
     try:
@@ -1304,10 +1352,11 @@ def confirm_upload():
         
         # Debug logging
 
-        
+
         processed_count = 0
         errors = []
         skipped_rows = []
+        created_jobs = []
 
         # Process only valid rows - each job creation is atomic with its own transaction
         # Process only valid rows
@@ -1335,11 +1384,40 @@ def confirm_upload():
                 if not service:
                     raise Exception(f"Service '{service_name}' not found or not active")
 
-                # Validate required fields exist and have proper values
-                required_fields = ['customer_id', 'pickup_location', 'dropoff_location', 'pickup_date', 'pickup_time']
-                for field in required_fields:
-                    if field not in row_data or not row_data.get(field):
-                        raise Exception(f"Missing required field: {field}")
+                # Validate all mandatory fields exist and have non-empty values
+                mandatory_fields = ['customer', 'service', 'pickup_date', 'pickup_time',
+                                  'pickup_location', 'dropoff_location', 'passenger_name']
+                for field in mandatory_fields:
+                    value = str(row_data.get(field, '')).strip()
+                    if not value:
+                        raise Exception(f"Missing or empty required field: {field}")
+
+                # Validate and parse date/time formats
+                pickup_date = str(row_data.get('pickup_date', '')).strip()
+                pickup_time = str(row_data.get('pickup_time', '')).strip()
+
+                try:
+                    from datetime import datetime
+                    datetime.strptime(pickup_date, '%Y-%m-%d')
+                except ValueError:
+                    raise Exception(f"Invalid pickup_date format: '{pickup_date}'. Expected YYYY-MM-DD")
+
+                try:
+                    datetime.strptime(pickup_time, '%H:%M')
+                except ValueError:
+                    raise Exception(f"Invalid pickup_time format: '{pickup_time}'. Expected HH:MM (24-hour)")
+
+                # Determine job status based on available fields
+                # CONFIRMED: When both Driver and Vehicle are assigned AND all mandatory fields filled
+                # PENDING: When ALL mandatory fields are filled but Driver/Vehicle missing
+                # NEW: Default/fallback
+                mandatory_filled = all(str(row_data.get(f, '')).strip() for f in mandatory_fields)
+
+                job_status = 'new'
+                if driver and vehicle and mandatory_filled:
+                    job_status = 'confirmed'
+                elif mandatory_filled:
+                    job_status = 'pending'
 
                 # Create job with all data
                 job_data = {
@@ -1351,13 +1429,13 @@ def confirm_upload():
                     'driver_id': driver.id if driver else None,
                     'contractor_id': contractor.id if contractor else None,
                     'vehicle_type_id': vehicle_type.id if vehicle_type else None,
-                    'pickup_location': row_data.get('pickup_location', ''),
-                    'dropoff_location': row_data.get('dropoff_location', ''),
-                    'pickup_date': row_data.get('pickup_date', ''),
-                    'pickup_time': row_data.get('pickup_time', ''),
-                    'passenger_name': row_data.get('passenger_name', ''),
-                    'passenger_mobile': row_data.get('passenger_mobile', ''),
-                    'status': row_data.get('status', 'new'),
+                    'pickup_location': str(row_data.get('pickup_location', '')).strip(),
+                    'dropoff_location': str(row_data.get('dropoff_location', '')).strip(),
+                    'pickup_date': pickup_date,
+                    'pickup_time': pickup_time,
+                    'passenger_name': str(row_data.get('passenger_name', '')).strip(),
+                    'passenger_mobile': str(row_data.get('passenger_mobile', '')).strip(),
+                    'status': job_status,
                     'customer_remark': row_data.get('remarks', '')
                 }
 
@@ -1401,6 +1479,14 @@ def confirm_upload():
                 job = JobService.create(job_data)
                 processed_count += 1
 
+                # Track created job details
+                created_jobs.append({
+                    'job_id': f"JOB-{job.id}",
+                    'row_number': row_data.get('row_number', 'unknown'),
+                    'customer': row_data.get('customer', ''),
+                    'pickup_date': row_data.get('pickup_date', '')
+                })
+
             except Exception as row_error:
                 # Job creation failed for this row, continue with next row
                 error_msg = f"Error processing row {row_data.get('row_number', 'unknown')}: {str(row_error)}"
@@ -1411,7 +1497,8 @@ def confirm_upload():
             'processed_count': processed_count,
             'skipped_count': len(skipped_rows),
             'skipped_rows': skipped_rows,
-            'errors': errors
+            'errors': errors,
+            'created_jobs': created_jobs
         }), 200
 
     except Exception as e:
@@ -1419,7 +1506,7 @@ def confirm_upload():
         return jsonify({'error': 'An error occurred while processing the bulk upload. Please try again.'}), 500
 
 @job_bp.route('/jobs/audit/<int:job_id>', methods=['POST'])
-@roles_accepted('admin', 'manager', 'driver')
+@roles_accepted('admin', 'manager', 'driver', 'customer', 'accountant')
 def create_job_audit(job_id):
     """Create a job audit record for status changes or other job modifications."""
     try:
@@ -1483,7 +1570,7 @@ def create_job_audit(job_id):
 
 
 @job_bp.route('/jobs/audit_trail/<int:job_id>', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'customer', 'driver', 'accountant')
 def get_job_audit_records(job_id):
     """Get all audit records for a specific job."""
     try:
@@ -1672,7 +1759,7 @@ def get_job_audit_records(job_id):
 
 
 @job_bp.route('/jobs/bulk-cancel', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def bulk_cancel_jobs():
     """Cancel multiple jobs in bulk with a single reason."""
     try:
@@ -1774,7 +1861,7 @@ def bulk_cancel_jobs():
 
 
 @job_bp.route('/jobs/reinstate/<int:job_id>', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def reinstate_job(job_id):
     """Reinstate a canceled job to its previous status."""
     try:
@@ -2170,7 +2257,7 @@ def download_selected_rows():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500 
 
 @job_bp.route('/jobs/unbilled', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def jobs_table_unbilled():
     try:
         page = int(request.args.get('page', 1))
@@ -2208,7 +2295,7 @@ def jobs_table_unbilled():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @job_bp.route('/jobs/contractor-billable', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def jobs_contractor_billable():
     try:
         contractor_id = request.args.get('contractor_id', type=int)
@@ -2230,7 +2317,7 @@ def jobs_contractor_billable():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @job_bp.route('/jobs/driver-billable', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def jobs_driver_billable():
     try:
         driver_id = request.args.get('driver_id', type=int)
@@ -2252,7 +2339,7 @@ def jobs_driver_billable():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @job_bp.route('/jobs/remove/<int:id>', methods=['DELETE'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def remove_job_from_invoice(id):
     try:
         report = JobService.remove_job_from_invoice(id)
@@ -2264,7 +2351,7 @@ def remove_job_from_invoice(id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500 
 
 @job_bp.route('/jobs/update/<int:job_id>', methods=['PUT'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def update_job_and_invoice(job_id):
     try:
         data = request.get_json()
@@ -2450,7 +2537,7 @@ def lookup_pincode():
 
 
 @job_bp.route('/jobs/audit-trail', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'driver', 'customer', 'accountant')
 def get_jobs_audit_trail():
     """Get a summary list of jobs with audit changes, with filtering capabilities."""
     try:

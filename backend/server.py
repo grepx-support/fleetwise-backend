@@ -7,7 +7,8 @@ from flask_limiter.errors import RateLimitExceeded
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-
+from flask import jsonify
+from flask_security import auth_required, current_user
 # Load environment variables from .env file
 load_dotenv()
 
@@ -165,6 +166,11 @@ CORS(app, supports_credentials=True, resources={r"/api/*": {"origins": [
     "http://ec2-52-76-147-189.ap-southeast-1.compute.amazonaws.com:3000"  # Add this!
 ]}})
 
+@app.after_request
+def add_cors_headers(response):
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    return response
+
 # Custom login logging function
 def log_authentication_details(email, provided_password, user_obj=None):
     logger.info("="*80)
@@ -188,9 +194,10 @@ def log_authentication_details(email, provided_password, user_obj=None):
         logger.info("User found in DB: NO")
     logger.info("="*80)
 
-    
+
 # Import models and Flask-Security-Too setup after app/db are ready
 with app.app_context():
+    
     # Try different import paths
     try:
         # Import models module to ensure proper relationship setup
@@ -424,6 +431,42 @@ def root():
 @app.route('/api/health-check')
 def health_check():
     return {'status': 'ok', 'message': 'Backend for Next.js is running.'}
+
+
+VALID_ROLES = {'admin', 'manager', 'accountant', 'customer', 'driver', 'guest'}
+
+@app.route("/api/auth/me", methods=["GET"])
+@auth_required()
+def auth_me():
+    try:
+        roles = [
+            {"id": r.id, "name": r.name.lower()}
+            for r in (current_user.roles or [])
+        ]
+        
+        primary_role = roles[0]["name"] if roles else "guest"
+        
+        # Validate role name
+        if primary_role not in VALID_ROLES:
+            logger.warning(
+                f"Invalid role '{primary_role}' for user {current_user.id}, defaulting to guest"
+            )
+            primary_role = "guest"
+        
+        return jsonify({
+            "response": {
+                "user": {
+                    "id": current_user.id,
+                    "email": current_user.email,
+                    "role": primary_role,  
+                    "roles": roles        
+                }
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f"/api/auth/me error: {e}", exc_info=True)
+        return jsonify({"error": "unexpected"}), 500
 
 @app.route('/favicon.ico')
 def favicon():
