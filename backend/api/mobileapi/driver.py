@@ -312,13 +312,17 @@ def update_driver_job_status():
                     'new_value': float(cash_to_collect)
                 }
 
+            # Generate a unique identifier for this audit record to prevent duplicates on retry
+            audit_key = f"{job.id}_{old_status}_{new_status}_{int(datetime.now(timezone.utc).timestamp())}"
+            
             audit_record = JobAudit(
                 job_id=job.id,
                 changed_by=current_user.id,  # Always valid due to @auth_required()
-                old_status=old_status,
+                old_status=job.status,
                 new_status=new_status,
                 reason=audit_reason,
-                additional_data=additional_data if additional_data else None
+                additional_data=additional_data if additional_data else None,
+                unique_key=audit_key  # Add unique key to prevent duplicates on retry
             )
             db.session.add(audit_record)
 
