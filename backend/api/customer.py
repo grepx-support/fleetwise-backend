@@ -11,11 +11,27 @@ schema = CustomerSchema(session=db.session)
 schema_many = CustomerSchema(many=True, session=db.session)
 
 @customer_bp.route('/customers', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@auth_required()
 def list_customers():
     try:
-        customers = CustomerService.get_all()
+        if current_user.has_role('admin') or current_user.has_role('manager') or current_user.has_role('accountant'):
+            customers = CustomerService.get_all()
+        elif current_user.has_role('customer'):
+            # Only return the customer associated with logged in user
+            if not current_user.customer_id:
+                return jsonify({'error': 'Customer profile missing'}), 403
+            
+            single_customer = CustomerService.get_by_id(current_user.customer_id)
+            
+            if not single_customer:
+                return jsonify({'error': 'Customer not found'}), 404
+            
+            customers = [single_customer]  # Return as a list for frontend compatibility
+        else:
+            return jsonify({'error': 'Forbidden'}), 403
+
         return jsonify(schema_many.dump(customers)), 200
+        
     except ServiceError as se:
         return jsonify({'error': se.message}), 400
     except Exception as e:
