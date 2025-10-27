@@ -29,6 +29,40 @@ mobile_driver_bp = Blueprint('mobile_driver', __name__)
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
+# Configurable business rule constants
+MAX_CASH_TO_COLLECT = lambda: current_app.config.get('MAX_CASH_TO_COLLECT', 100000)
+
+def validate_cash_collection(cash_to_collect, new_status):
+    """Validate cash collection amount and status requirements.
+    
+    Args:
+        cash_to_collect: The cash amount to validate (float or None)
+        new_status: The target job status
+        
+    Returns:
+        tuple: (error_response, None) if validation fails, (None, float_value) if validation passes
+    """
+    if cash_to_collect is None:
+        return None, None
+        
+    if new_status != JobStatus.JC.value:
+        return jsonify({
+            'error': 'cash_to_collect can only be updated when status is JC (Job Completed)'
+        }), 400
+        
+    try:
+        float_value = float(cash_to_collect)
+        if float_value < 0:
+            return jsonify({'error': 'cash_to_collect cannot be negative'}), 400
+        max_allowed = MAX_CASH_TO_COLLECT()
+        if float_value > max_allowed:
+            return jsonify({
+                'error': f'cash_to_collect exceeds maximum allowed value of {max_allowed}'
+            }), 400
+        return None, float_value
+    except (TypeError, ValueError):
+        return jsonify({'error': 'cash_to_collect must be a valid number'}), 400
+
 limiter = Limiter(key_func=get_remote_address)
 
 def init_app(app):
@@ -177,16 +211,11 @@ def update_driver_job_status():
     if new_status not in ALLOWED_STATUS:
         return jsonify({'error': 'Invalid status'}), 400
 
-    # Validate cash_to_collect if provided
-    if cash_to_collect is not None:
-        try:
-            cash_to_collect = float(cash_to_collect)
-            if cash_to_collect < 0:
-                return jsonify({'error': 'cash_to_collect cannot be negative'}), 400
-            if cash_to_collect > 100000:
-                return jsonify({'error': 'cash_to_collect exceeds maximum allowed'}), 400
-        except (TypeError, ValueError):
-            return jsonify({'error': 'cash_to_collect must be a valid number'}), 400
+    # Validate cash_to_collect using the centralized validation function
+    error_response, validated_cash = validate_cash_collection(cash_to_collect, new_status)
+    if error_response:
+        return error_response
+    cash_to_collect = validated_cash  # Now safely converted to float or None
 
     # ---- Retry loop for DB lock handling ----
     for attempt in range(MAX_RETRIES):
@@ -208,20 +237,18 @@ def update_driver_job_status():
             if not job.can_transition_to(new_status):
                 return jsonify({'error': 'Invalid status transition'}), 400
 
-            # Case 1: Status already set → still allow new remark or cash_to_collect update
-            if job.status == new_status:
-                cash_updated = False
-                audit_reason_parts = []
+# Case 1: Status already set → only allow remarks, prevent cash updates
+                if job.status == new_status:
+                    # Prevent cash updates when status isn't changing
+                    if cash_to_collect is not None:
+                        return jsonify({
+                            'error': 'cash_to_collect can only be set during initial transition to JC status'
+                        }), 400
 
-                # Handle cash_to_collect update
-                if cash_to_collect is not None:
-                    old_cash = job.cash_to_collect
-                    if old_cash != cash_to_collect:
-                        job.cash_to_collect = cash_to_collect
-                        cash_updated = True
-                        audit_reason_parts.append(f'Cash to collect updated from {old_cash} to {cash_to_collect}')
-
-                # Only create audit record if a remark is being added or cash is updated
+                    # Only process remark if provided
+                    if remark_text:
+                        message = 'Remark added'
+                        reason = 'Status update with remark'                # Only create audit record if a remark is being added or cash is updated
                 if remark_text or cash_updated:
                     reason = 'Status update with ' + ' and '.join(
                         filter(None, [
