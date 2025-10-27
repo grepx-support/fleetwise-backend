@@ -12,7 +12,7 @@ schema = ServiceSchema(session=db.session)
 schema_many = ServiceSchema(many=True, session=db.session)
 
 @service_bp.route('/services', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant', 'customer')
 def list_services():
     try:
         services = ServiceService.get_all()
