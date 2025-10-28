@@ -23,6 +23,7 @@ import re
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from sqlalchemy import func, or_, and_
+from flask import abort
 
 from backend.models.job import Job, JobStatus
 from backend.models.customer import Customer
@@ -167,7 +168,7 @@ def get_job(job_id):
 
 
 @job_bp.route('/jobs', methods=['POST'])
-@roles_accepted('admin', 'manager', 'accountant')
+@roles_accepted('admin', 'manager', 'accountant', 'customer')
 def create_job():
     try:
         data = request.get_json()
@@ -2490,100 +2491,103 @@ def lookup_pincode():
             'error': 'Internal server error during address lookup. Please try again later.'
         }), 500
 
-
 @job_bp.route('/jobs/audit-trail', methods=['GET'])
 @roles_accepted('admin', 'manager', 'driver', 'customer', 'accountant')
 def get_jobs_audit_trail():
     """Get a summary list of jobs with audit changes, with filtering capabilities."""
     try:
-        # Permissions are already checked by @roles_accepted('admin', 'manager') decorator
-            
-        # Parse query parameters
-        # Date range filters
+        # ---------------------------------------------------------------------
+        # Query Parameters
+        # ---------------------------------------------------------------------
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
-        
-        # Search filter
         search = request.args.get('search', '').strip()
-        
-        # Pagination with validation
+
         try:
             page = int(request.args.get('page', 1))
             page_size = int(request.args.get('page_size', 50))
         except ValueError:
-            return jsonify({'error': 'Invalid pagination parameters: page and page_size must be integers'}), 400
-        
-        # Enforce positive bounds
+            return jsonify({'error': 'Invalid pagination parameters'}), 400
+
         page = max(1, page)
         page_size = max(1, min(page_size, 100))
-        
-        # Prevent excessive offsets
         if page > 10000:
             return jsonify({'error': 'Page number exceeds maximum allowed value (10000)'}), 400
-        
-        # Build the query for jobs with audit records
-        # We need to join Job with JobAudit to find jobs that have audit records
-        query = db.session.query(Job, JobAudit).join(JobAudit, Job.id == JobAudit.job_id)
-        
-        # Apply date range filter if provided
+
+        # ---------------------------------------------------------------------
+        # Step 1: Base Query — join Jobs with JobAudit
+        # ---------------------------------------------------------------------
+        query = (
+            db.session.query(Job, JobAudit)
+            .join(JobAudit, Job.id == JobAudit.job_id)
+            .filter(Job.is_deleted.is_(False))
+        )
+
+        # ---------------------------------------------------------------------
+        # Step 2: Role-Based Filtering (enforce RBAC directly here)
+        # ---------------------------------------------------------------------
+        if current_user.has_role('driver'):
+            driver_id = getattr(current_user, 'driver_id', None)
+            if not driver_id:
+                abort(403, description='Driver profile missing')
+            query = query.filter(Job.driver_id == driver_id)
+
+        elif current_user.has_role('customer'):
+            customer_id = getattr(current_user, 'customer_id', None)
+            if not customer_id:
+                abort(403, description='Customer profile missing')
+            query = query.filter(Job.customer_id == customer_id)
+
+        # ---------------------------------------------------------------------
+        # Step 3: Date Range Filters
+        # ---------------------------------------------------------------------
         if start_date:
             try:
                 start_date_obj = datetime.strptime(start_date, '%Y-%m-%d')
                 query = query.filter(JobAudit.changed_at >= start_date_obj)
             except ValueError:
                 return jsonify({'error': 'Invalid start_date format. Use YYYY-MM-DD'}), 400
-                
+
         if end_date:
             try:
                 end_date_obj = datetime.strptime(end_date, '%Y-%m-%d')
-                # Include the entire end date by setting time to end of day
-                end_date_obj = end_date_obj.replace(hour=23, minute=59, second=59, microsecond=999999)
+                end_date_obj = end_date_obj.replace(
+                    hour=23, minute=59, second=59, microsecond=999999
+                )
                 query = query.filter(JobAudit.changed_at <= end_date_obj)
             except ValueError:
                 return jsonify({'error': 'Invalid end_date format. Use YYYY-MM-DD'}), 400
-        
-        # Apply search filter across multiple fields
+
+        # ---------------------------------------------------------------------
+        # Step 4: Search Filtering (job_id / customer / user)
+        # ---------------------------------------------------------------------
+        job_id_search = None
         if search:
-            # Search by Job ID
-            job_id_search = None
             if search.startswith('JB-'):
-                # Try to extract job ID from format JB-YYMMDD-XXXX
                 try:
-                    # Extract the numeric part after JB-
-                    job_id_str = search.split('-')[-1]
-                    job_id_search = int(job_id_str)
+                    job_id_search = int(search.split('-')[-1])
                 except (ValueError, IndexError):
                     pass
             elif search.isdigit():
                 job_id_search = int(search)
-            
-            # Create search conditions
+
             search_conditions = []
-            
-            # Search by job ID
             if job_id_search:
                 search_conditions.append(Job.id == job_id_search)
-            
-            # Search by customer name
             search_conditions.append(Customer.name.ilike(f'%{search}%'))
-            
-            # Search by user who made the change (email/name)
             search_conditions.append(User.email.ilike(f'%{search}%'))
-            
-            # Join with Customer and User tables for search
+
             query = query.join(Customer, Job.customer_id == Customer.id)
             query = query.join(User, JobAudit.changed_by == User.id)
-            
-            # Apply search filter
             query = query.filter(or_(*search_conditions))
         else:
-            # Always join Customer for customer name in response
+            # Always include joins for output mapping
             query = query.join(Customer, Job.customer_id == Customer.id)
-            # Join User for changed by information
             query = query.join(User, JobAudit.changed_by == User.id)
-        
-        # Get the most recent audit record for each job
-        # We need to use a subquery to get the latest audit record per job
+
+        # ---------------------------------------------------------------------
+        # Step 5: Latest Audit Record Subquery
+        # ---------------------------------------------------------------------
         latest_audit_subquery = (
             db.session.query(
                 JobAudit.job_id,
@@ -2592,24 +2596,21 @@ def get_jobs_audit_trail():
             .group_by(JobAudit.job_id)
             .subquery()
         )
-        
-        # Join with the latest audit subquery
+
         query = query.join(
             latest_audit_subquery,
             and_(
                 Job.id == latest_audit_subquery.c.job_id,
                 JobAudit.changed_at == latest_audit_subquery.c.latest_change
             )
-        )
-        
-        # Order by most recent change first
-        query = query.order_by(JobAudit.changed_at.desc())
-        
-        # Get total count for pagination
+        ).order_by(JobAudit.changed_at.desc())
+
+        # ---------------------------------------------------------------------
+        # Step 6: Count & Pagination
+        # ---------------------------------------------------------------------
         total_query = query.with_entities(func.count(Job.id.distinct()))
-        total = total_query.scalar()
-        
-        # Apply pagination
+        total = total_query.scalar() or 0
+
         jobs_with_audit = (
             query
             .with_entities(Job, JobAudit, Customer, User)
@@ -2617,37 +2618,41 @@ def get_jobs_audit_trail():
             .limit(page_size)
             .all()
         )
-        
-        # Format the response
+
+        # ---------------------------------------------------------------------
+        # Step 7: Format Output
+        # ---------------------------------------------------------------------
         audit_summary = []
         for job, audit_record, customer, user in jobs_with_audit:
-            # Generate a human-readable description of the change
-            change_description = generate_change_description(audit_record)
-            
             audit_summary.append({
-                'id': job.id,  # Added id field for EntityTable compatibility
+                'id': job.id,
                 'job_id': job.id,
                 'customer_name': customer.name if customer else None,
-                'last_modified_date': audit_record.changed_at.isoformat() if audit_record.changed_at else None,
-                'last_change_made': change_description,
+                'last_modified_date': (
+                    audit_record.changed_at.isoformat()
+                    if audit_record and audit_record.changed_at else None
+                ),
+                'last_change_made': generate_change_description(audit_record),
                 'changed_by': {
-                    'id': user.id if user else None,
-                    'name': getattr(user, 'name', None) or user.email if user else None,
-                    'email': user.email if user else None
+                    'id': getattr(user, 'id', None),
+                    'name': getattr(user, 'name', None) or getattr(user, 'email', None),
+                    'email': getattr(user, 'email', None)
                 }
             })
-        
+
+        # ---------------------------------------------------------------------
+        # Step 8: Return JSON Response
+        # ---------------------------------------------------------------------
         return jsonify({
             'items': audit_summary,
             'total': total,
             'page': page,
             'page_size': page_size
         }), 200
-        
+
     except Exception as e:
         logging.error(f"Error retrieving jobs audit trail: {e}", exc_info=True)
         return jsonify({'error': 'An error occurred while retrieving audit trail'}), 500
-
 
 def generate_change_description(audit_record):
     """Generate a human-readable description of the change from an audit record."""
