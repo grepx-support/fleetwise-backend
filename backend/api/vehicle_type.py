@@ -10,7 +10,7 @@ schema = VehicleTypeSchema(session=db.session)
 schema_many = VehicleTypeSchema(many=True, session=db.session)
 
 @vehicle_type_bp.route('/vehicle-types', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager','accountant','customer')
 def list_vehicle_types():
     try:
         vehicle_types = VehicleTypeService.get_all()
