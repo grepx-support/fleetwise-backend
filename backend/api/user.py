@@ -2,6 +2,8 @@ from flask import Blueprint, request, jsonify
 from backend.services.user_service import UserService, ServiceError
 from backend.services.password_reset_service import PasswordResetService, PasswordResetError
 from backend.schemas.user_schema import UserSchema
+from backend.schemas.customer_schema import CustomerSchema
+from backend.schemas.driver_schema import DriverSchema
 import logging
 from flask_security import roles_required, auth_required, current_user, roles_accepted
 from flask_limiter import Limiter
@@ -10,6 +12,8 @@ from flask_limiter.util import get_remote_address
 user_bp = Blueprint('user', __name__)
 schema = UserSchema()
 schema_many = UserSchema(many=True)
+customer_schema = CustomerSchema(many=True)
+driver_schema = DriverSchema(many=True)
 
 # Initialize limiter for rate limiting
 limiter = Limiter(key_func=get_remote_address)
@@ -273,3 +277,69 @@ def change_password():
         logging.error(f"Unhandled error in change_password: {e}", exc_info=True)
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
+@user_bp.route('/users/unassigned-customers', methods=['GET'])
+@roles_required('admin')
+def get_unassigned_customers():
+    """
+    Returns list of unassigned customers
+    """
+    try:
+        customers = UserService.get_unassigned_customers()
+        return jsonify(customer_schema.dump(customers)), 200
+    except ServiceError as se:
+        return jsonify({'error': se.message}), 400
+    except Exception as e:
+        logging.error(f"Unhandled error in get_unassigned_customers: {e}", exc_info=True)
+        return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
+
+@user_bp.route('/users/unassigned-drivers', methods=['GET'])
+@roles_required('admin')
+def get_unassigned_drivers():
+    """
+    Returns list of unassigned drivers
+    """
+    try:
+        drivers = UserService.get_unassigned_drivers()
+        return jsonify(driver_schema.dump(drivers)), 200
+    except ServiceError as se:
+        return jsonify({'error': se.message}), 400
+    except Exception as e:
+        logging.error(f"Unhandled error in get_unassigned_drivers: {e}", exc_info=True)
+        return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
+
+@user_bp.route('/users/<int:user_id>/assign', methods=['PUT'])
+@roles_required('admin')
+def assign_customer_or_driver(user_id):
+    """
+    Assigns a customer or driver to a user
+    
+    Expected JSON:
+    {
+        "user_type": "customer" or "driver",
+        "entity_id": int
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Request body must be JSON'}), 400
+            
+        user_type = data.get('user_type')
+        entity_id = data.get('entity_id')
+        
+        if not user_type:
+            return jsonify({'error': 'user_type is required'}), 400
+            
+        if not entity_id:
+            return jsonify({'error': 'entity_id is required'}), 400
+            
+        if user_type not in ['customer', 'driver']:
+            return jsonify({'error': 'user_type must be either "customer" or "driver"'}), 400
+            
+        user = UserService.assign_customer_or_driver(user_id, user_type, entity_id)
+        return jsonify(schema.dump(user)), 200
+    except ServiceError as se:
+        return jsonify({'error': se.message}), 400
+    except Exception as e:
+        logging.error(f"Unhandled error in assign_customer_or_driver: {e}", exc_info=True)
+        return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
