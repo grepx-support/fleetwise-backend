@@ -199,6 +199,8 @@ class JobService:
     @staticmethod
     def create(data):
         try:
+            logging.info(f"Creating job with data: {data}")
+            
             # Validate driver-vehicle relationship if both are provided
             driver_id = data.get('driver_id')
             vehicle_id = data.get('vehicle_id')
@@ -359,11 +361,13 @@ class JobService:
                 raise ServiceError(f"Failed to populate job_cost: {str(e)}")
 
             # Create job
+            logging.info(f"Creating job with processed data: {data}")
             job = Job(**data)
             job.extra_services_data = extra_services_data
 
             db.session.add(job)
             db.session.commit()
+            logging.info(f"Job created successfully with ID: {job.id}")
 
             # Push notification if driver assigned
             if driver_id:
@@ -402,7 +406,7 @@ class JobService:
                     try:
                         from backend.models.job_audit import JobAudit
                         from datetime import datetime
-                        from flask_security.utils import current_user
+                        from flask_security import current_user
                         
                         def convert_dt(obj):
                             if isinstance(obj, dict):
