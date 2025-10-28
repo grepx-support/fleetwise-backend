@@ -102,18 +102,7 @@ def get_customer_service_pricing_lookup():
             # Find the vehicle type
             vehicle_type = VehicleType.query.filter_by(name=vehicle_type_name).first()
             if not vehicle_type:
-                # If vehicle type not found, try to find pricing without vehicle type
-                # This maintains backward compatibility
-                pricing = CustomerServicePricing.query.filter_by(
-                    cust_id=cust_id, 
-                    service_id=service.id
-                ).first()
-                
-                if not pricing:
-                    return jsonify({'price': 0}), 200
-                    
-                return jsonify({'price': pricing.price}), 200
-            
+                return jsonify({'error': f'Vehicle type "{vehicle_type_name}" not found'}), 404
             # Get pricing for specific customer, service, and vehicle type
             pricing = CustomerServicePricingService.get_by_customer_service_and_vehicle(
                 cust_id, service.id, vehicle_type.id
