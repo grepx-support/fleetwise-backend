@@ -11,7 +11,7 @@ schema = BillSchema()
 schema_many = BillSchema(many=True)
 
 @bill_bp.route('/bills', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'accountant')
 def list_bills():
     try:
         # Get filter parameters
@@ -50,7 +50,7 @@ def list_bills():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @bill_bp.route('/bills/<int:bill_id>', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin','accountant')
 def get_bill(bill_id):
     try:
         bill = BillService.get_by_id(bill_id)
@@ -66,7 +66,7 @@ def get_bill(bill_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @bill_bp.route('/bills', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'accountant')
 def create_bill():
     try:
         data = request.get_json()
@@ -82,7 +82,7 @@ def create_bill():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @bill_bp.route('/bills/<int:bill_id>', methods=['PUT'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'accountant')
 def update_bill(bill_id):
     try:
         data = request.get_json()
@@ -100,7 +100,7 @@ def update_bill(bill_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @bill_bp.route('/bills/<int:bill_id>', methods=['DELETE'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin','accountant')
 def delete_bill(bill_id):
     try:
         success = BillService.delete(bill_id)
@@ -116,7 +116,7 @@ def delete_bill(bill_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @bill_bp.route('/bills/contractor', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'accountant')
 def generate_contractor_bill():
     try:
         data = request.get_json()
@@ -162,95 +162,25 @@ def generate_contractor_bill():
         if not contractor:
             return jsonify({'error': f'Contractor with id {contractor_id} does not exist.'}), 400
         
-        # Check if there's an existing unpaid bill for this contractor
-        from backend.models.bill import Bill
-        from backend.models.job import Job
-        existing_bill = None
+        # ALWAYS generate a new bill - removed the existing unpaid bill check
+        # Generate a new single bill for all jobs
+        bills = BillService.generate_contractor_bill(contractor_id, job_ids)
         
-        # Find existing unpaid bill for this contractor
-        unpaid_bills = Bill.query.filter_by(
-            contractor_id=contractor_id,
-            status='Unpaid'
-        ).all()
+        # Return information about all created bills
+        bill_info = []
+        for bill in bills:
+            bill_info.append({
+                'id': bill.id,
+                'status': bill.status,
+                'total_amount': float(bill.total_amount) if bill.total_amount else 0.0
+            })
         
-        # Use the first existing bill if there is one
-        if unpaid_bills:
-            existing_bill = unpaid_bills[0]
+        message = f'Successfully created 1 bill for contractor {contractor_id} with {len(job_ids)} job(s). Bill is active (Unpaid).'
         
-        # If there's an existing bill, add jobs to it; otherwise create a new bill
-        if existing_bill:
-            # Add jobs to existing bill
-            from decimal import Decimal
-            
-            jobs = Job.query.filter(Job.id.in_(job_ids)).all()
-            
-            # Validate jobs
-            if len(jobs) != len(job_ids):
-                found_ids = [job.id for job in jobs]
-                missing_ids = list(set(job_ids) - set(found_ids))
-                return jsonify({'error': f'Jobs with ids {missing_ids} do not exist.'}), 400
-            
-            # Check that all jobs belong to the specified contractor
-            for job in jobs:
-                if job.contractor_id != contractor_id:
-                    return jsonify({'error': f'Job {job.id} does not belong to contractor {contractor_id}.'}), 400
-                
-                # Check that job is completed (only 'jc' or 'sd' status jobs can be billed)
-                if job.status not in ['jc', 'sd']:
-                    return jsonify({'error': f'Job {job.id} is not completed or stand down (status: {job.status}). Jobs must be completed (jc) or stand down (sd) to be billed.'}), 400
-                
-                # Check that job is not already billed
-                if job.bill_id is not None:
-                    return jsonify({'error': f'Job {job.id} is already billed.'}), 400
-            
-            # Associate all jobs with the existing bill and update total amount
-            total_amount = Decimal(str(existing_bill.total_amount or 0.0))
-            for job in jobs:
-                # Associate the job with the bill
-                job.bill_id = existing_bill.id
-                
-                # Calculate amount for this job (job_cost - cash collected)
-                job_cost = Decimal(str(job.job_cost or 0.0))
-                cash_collected = Decimal(str(job.cash_to_collect or 0.0))
-                job_amount = job_cost - cash_collected
-                total_amount += job_amount
-            
-            # Update bill total amount
-            existing_bill.total_amount = total_amount
-            
-            db.session.commit()
-            
-            bill_info = [{
-                'id': existing_bill.id,
-                'status': existing_bill.status,
-                'total_amount': float(existing_bill.total_amount) if existing_bill.total_amount else 0.0
-            }]
-            
-            message = f'Successfully added {len(jobs)} job(s) to existing bill #{existing_bill.id} for contractor {contractor_id}'
-            
-            return jsonify({
-                'bills': bill_info,
-                'message': message
-            }), 201
-        else:
-            # Generate a new single bill for all jobs
-            bills = BillService.generate_contractor_bill(contractor_id, job_ids)
-            
-            # Return information about all created bills
-            bill_info = []
-            for bill in bills:
-                bill_info.append({
-                    'id': bill.id,
-                    'status': bill.status,
-                    'total_amount': float(bill.total_amount) if bill.total_amount else 0.0
-                })
-            
-            message = f'Successfully created 1 bill for contractor {contractor_id} with {len(job_ids)} job(s). Bill is active (Unpaid).'
-            
-            return jsonify({
-                'bills': bill_info,
-                'message': message
-            }), 201
+        return jsonify({
+            'bills': bill_info,
+            'message': message
+        }), 201
     except ServiceError as se:
         db.session.rollback()
         return jsonify({'error': se.message}), 400
@@ -260,7 +190,7 @@ def generate_contractor_bill():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @bill_bp.route('/bills/<int:bill_id>/jobs/<int:job_id>', methods=['DELETE'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'accountant')
 def remove_job_from_bill(bill_id, job_id):
     try:
         # Get the bill
@@ -302,7 +232,7 @@ def remove_job_from_bill(bill_id, job_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @bill_bp.route('/bills/driver', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'accountant')
 def generate_driver_bill():
     try:
         data = request.get_json()
@@ -348,102 +278,25 @@ def generate_driver_bill():
         if not driver:
             return jsonify({'error': f'Driver with id {driver_id} does not exist.'}), 400
         
-        # Check if there's an existing unpaid bill for this driver
-        from backend.models.bill import Bill
-        from backend.models.job import Job
-        existing_bill = None
+        # ALWAYS generate a new bill - removed the existing unpaid bill check
+        # Generate a new single bill for all jobs
+        bills = BillService.generate_driver_bill(driver_id, job_ids)
         
-        # Find existing unpaid bill for this driver
-        unpaid_bills = Bill.query.filter_by(
-            contractor_id=None,
-            status='Unpaid'
-        ).all()
+        # Return information about the created bill
+        bill_info = []
+        for bill in bills:
+            bill_info.append({
+                'id': bill.id,
+                'status': bill.status,
+                'total_amount': float(bill.total_amount) if bill.total_amount else 0.0
+            })
         
-        # Look for a bill that already has jobs for this driver
-        for bill in unpaid_bills:
-            bill_jobs = Job.query.filter_by(bill_id=bill.id).all()
-            if bill_jobs and any(job.driver_id == driver_id for job in bill_jobs):
-                existing_bill = bill
-                break
+        message = f'Successfully created 1 bill for driver {driver_id} with {len(job_ids)} job(s). Bill is active (Unpaid).'
         
-        # If there's an existing bill, add jobs to it; otherwise create a new bill
-        if existing_bill:
-            # Add jobs to existing bill
-            from decimal import Decimal
-            
-            jobs = Job.query.filter(Job.id.in_(job_ids)).all()
-            
-            # Validate jobs
-            if len(jobs) != len(job_ids):
-                found_ids = [job.id for job in jobs]
-                missing_ids = list(set(job_ids) - set(found_ids))
-                return jsonify({'error': f'Jobs with ids {missing_ids} do not exist.'}), 400
-            
-            # Check that all jobs belong to the specified driver
-            for job in jobs:
-                if job.driver_id != driver_id:
-                    return jsonify({'error': f'Job {job.id} does not belong to driver {driver_id}.'}), 400
-                
-                # Check that job is completed (only 'jc' or 'sd' status jobs can be billed)
-                if job.status not in ['jc', 'sd']:
-                    return jsonify({'error': f'Job {job.id} is not completed or stand down (status: {job.status}). Jobs must be completed (jc) or stand down (sd) to be billed.'}), 400
-                
-                # Check that job is not already billed
-                if job.bill_id is not None:
-                    return jsonify({'error': f'Job {job.id} is already billed.'}), 400
-            
-            # Associate all jobs with the existing bill and update total amount
-            total_amount = Decimal(str(existing_bill.total_amount or 0.0))
-            for job in jobs:
-                # Associate the job with the bill
-                job.bill_id = existing_bill.id
-                
-                # Calculate amount for this job (job_cost - cash collected)
-                job_cost = Decimal(str(job.job_cost or 0.0))
-                cash_collected = Decimal(str(job.cash_to_collect or 0.0))
-                job_amount = job_cost - cash_collected
-                total_amount += job_amount
-            
-            # Update bill total amount - allow negative values
-            existing_bill.total_amount = total_amount
-            
-            # Ensure driver_id is set on the existing bill
-            if existing_bill.driver_id is None:
-                existing_bill.driver_id = driver_id
-            
-            db.session.commit()
-            
-            bill_info = [{
-                'id': existing_bill.id,
-                'status': existing_bill.status,
-                'total_amount': float(existing_bill.total_amount) if existing_bill.total_amount else 0.0
-            }]
-            
-            message = f'Successfully added {len(jobs)} job(s) to existing bill #{existing_bill.id} for driver {driver_id}'
-            
-            return jsonify({
-                'bills': bill_info,
-                'message': message
-            }), 201
-        else:
-            # Generate a new single bill for all jobs
-            bills = BillService.generate_driver_bill(driver_id, job_ids)
-            
-            # Return information about the created bill
-            bill_info = []
-            for bill in bills:
-                bill_info.append({
-                    'id': bill.id,
-                    'status': bill.status,
-                    'total_amount': float(bill.total_amount) if bill.total_amount else 0.0
-                })
-            
-            message = f'Successfully created 1 bill for driver {driver_id} with {len(job_ids)} job(s). Bill is active (Unpaid).'
-            
-            return jsonify({
-                'bills': bill_info,
-                'message': message
-            }), 201
+        return jsonify({
+            'bills': bill_info,
+            'message': message
+        }), 201
     except ServiceError as se:
         db.session.rollback()
         return jsonify({'error': se.message}), 400

@@ -7,7 +7,8 @@ from flask_limiter.errors import RateLimitExceeded
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-
+from flask import jsonify
+from flask_security import auth_required, current_user
 # Load environment variables from .env file
 load_dotenv()
 
@@ -162,8 +163,13 @@ CORS(app, supports_credentials=True, resources={r"/api/*": {"origins": [
     "capacitor://localhost",
     "ionic://localhost",
     "http://ec2-18-143-75-251.ap-southeast-1.compute.amazonaws.com:3000",
-    "http://ec2-52-76-147-189.ap-southeast-1.compute.amazonaws.com:3001"  # Add this!
+    "http://ec2-52-76-147-189.ap-southeast-1.compute.amazonaws.com:3000"  # Add this!
 ]}})
+
+@app.after_request
+def add_cors_headers(response):
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    return response
 
 # Custom login logging function
 def log_authentication_details(email, provided_password, user_obj=None):
@@ -188,37 +194,22 @@ def log_authentication_details(email, provided_password, user_obj=None):
         logger.info("User found in DB: NO")
     logger.info("="*80)
 
-    
+
 # Import models and Flask-Security-Too setup after app/db are ready
 with app.app_context():
+    
     # Try different import paths
     try:
-        # Import all model classes directly to ensure proper relationship setup
-        from backend.models.user import User
-        from backend.models.role import Role
-        from backend.models.customer import Customer
-        from backend.models.sub_customer import SubCustomer
-        from backend.models.vehicle import Vehicle
-        from backend.models.driver import Driver
-        from backend.models.job import Job
-        from backend.models.invoice import Invoice
-        from backend.models.password_reset_token import PasswordResetToken
-        from backend.models.contractor import Contractor
-        from backend.models.contractor_service_pricing import ContractorServicePricing
-        from backend.models.service import Service
-        from backend.models.customer_service_pricing import CustomerServicePricing
-        from backend.models.vehicle_type import VehicleType
-        from backend.models.ServicesVehicleTypePrice import ServicesVehicleTypePrice
-        from backend.models.driver_remark import DriverRemark
-        from backend.models.job_photo import JobPhoto
-        from backend.models.postal_code import PostalCode
-        from backend.models.job_audit import JobAudit
-        from backend.models.settings import UserSettings
+        # Import models module to ensure proper relationship setup
+        # Only import modules that exist and are needed for the application
+        from backend.models import user, role, customer, sub_customer, vehicle, driver, job, invoice, password_reset_token, contractor, contractor_service_pricing
         logger.info("Models imported successfully from backend.models")
         
         try:
             from flask_security.core import Security
             from flask_security.datastore import SQLAlchemyUserDatastore
+            from backend.models.user import User
+            from backend.models.role import Role
             if db is not None:
                 user_datastore = SQLAlchemyUserDatastore(db, User, Role)
                 security = Security(app, user_datastore)
@@ -440,6 +431,42 @@ def root():
 @app.route('/api/health-check')
 def health_check():
     return {'status': 'ok', 'message': 'Backend for Next.js is running.'}
+
+
+VALID_ROLES = {'admin', 'manager', 'accountant', 'customer', 'driver', 'guest'}
+
+@app.route("/api/auth/me", methods=["GET"])
+@auth_required()
+def auth_me():
+    try:
+        roles = [
+            {"id": r.id, "name": r.name.lower()}
+            for r in (current_user.roles or [])
+        ]
+        
+        primary_role = roles[0]["name"] if roles else "guest"
+        
+        # Validate role name
+        if primary_role not in VALID_ROLES:
+            logger.warning(
+                f"Invalid role '{primary_role}' for user {current_user.id}, defaulting to guest"
+            )
+            primary_role = "guest"
+        
+        return jsonify({
+            "response": {
+                "user": {
+                    "id": current_user.id,
+                    "email": current_user.email,
+                    "role": primary_role,  
+                    "roles": roles        
+                }
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f"/api/auth/me error: {e}", exc_info=True)
+        return jsonify({"error": "unexpected"}), 500
 
 @app.route('/favicon.ico')
 def favicon():
