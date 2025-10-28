@@ -23,6 +23,7 @@ import re
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from sqlalchemy import func, or_, and_
+from flask import abort
 
 from backend.models.job import Job, JobStatus
 from backend.models.customer import Customer
@@ -2490,15 +2491,18 @@ def lookup_pincode():
             'error': 'Internal server error during address lookup. Please try again later.'
         }), 500
 
-
 @job_bp.route('/jobs/audit-trail', methods=['GET'])
 @roles_accepted('admin', 'manager', 'driver', 'customer', 'accountant')
 def get_jobs_audit_trail():
     """Get a summary list of jobs with audit changes, with filtering capabilities."""
     try:
+        # ---------------------------------------------------------------------
+        # Query Parameters
+        # ---------------------------------------------------------------------
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         search = request.args.get('search', '').strip()
+
         try:
             page = int(request.args.get('page', 1))
             page_size = int(request.args.get('page_size', 50))
@@ -2510,12 +2514,33 @@ def get_jobs_audit_trail():
         if page > 10000:
             return jsonify({'error': 'Page number exceeds maximum allowed value (10000)'}), 400
 
-        # Base query: Jobs joined with JobAudit
-        query = db.session.query(Job, JobAudit).join(JobAudit, Job.id == JobAudit.job_id)
+        # ---------------------------------------------------------------------
+        # Step 1: Base Query — join Jobs with JobAudit
+        # ---------------------------------------------------------------------
+        query = (
+            db.session.query(Job, JobAudit)
+            .join(JobAudit, Job.id == JobAudit.job_id)
+            .filter(Job.is_deleted.is_(False))
+        )
 
-        query = scoped_jobs_query(query)
+        # ---------------------------------------------------------------------
+        # Step 2: Role-Based Filtering (enforce RBAC directly here)
+        # ---------------------------------------------------------------------
+        if current_user.has_role('driver'):
+            driver_id = getattr(current_user, 'driver_id', None)
+            if not driver_id:
+                abort(403, description='Driver profile missing')
+            query = query.filter(Job.driver_id == driver_id)
 
-        # Apply date range filters
+        elif current_user.has_role('customer'):
+            customer_id = getattr(current_user, 'customer_id', None)
+            if not customer_id:
+                abort(403, description='Customer profile missing')
+            query = query.filter(Job.customer_id == customer_id)
+
+        # ---------------------------------------------------------------------
+        # Step 3: Date Range Filters
+        # ---------------------------------------------------------------------
         if start_date:
             try:
                 start_date_obj = datetime.strptime(start_date, '%Y-%m-%d')
@@ -2526,14 +2551,18 @@ def get_jobs_audit_trail():
         if end_date:
             try:
                 end_date_obj = datetime.strptime(end_date, '%Y-%m-%d')
-                end_date_obj = end_date_obj.replace(hour=23, minute=59, second=59, microsecond=999999)
+                end_date_obj = end_date_obj.replace(
+                    hour=23, minute=59, second=59, microsecond=999999
+                )
                 query = query.filter(JobAudit.changed_at <= end_date_obj)
             except ValueError:
                 return jsonify({'error': 'Invalid end_date format. Use YYYY-MM-DD'}), 400
 
-        # Search filter
+        # ---------------------------------------------------------------------
+        # Step 4: Search Filtering (job_id / customer / user)
+        # ---------------------------------------------------------------------
+        job_id_search = None
         if search:
-            job_id_search = None
             if search.startswith('JB-'):
                 try:
                     job_id_search = int(search.split('-')[-1])
@@ -2552,10 +2581,13 @@ def get_jobs_audit_trail():
             query = query.join(User, JobAudit.changed_by == User.id)
             query = query.filter(or_(*search_conditions))
         else:
+            # Always include joins for output mapping
             query = query.join(Customer, Job.customer_id == Customer.id)
             query = query.join(User, JobAudit.changed_by == User.id)
 
-        # Subquery for latest audit record per job
+        # ---------------------------------------------------------------------
+        # Step 5: Latest Audit Record Subquery
+        # ---------------------------------------------------------------------
         latest_audit_subquery = (
             db.session.query(
                 JobAudit.job_id,
@@ -2573,9 +2605,11 @@ def get_jobs_audit_trail():
             )
         ).order_by(JobAudit.changed_at.desc())
 
-        # Count + pagination
+        # ---------------------------------------------------------------------
+        # Step 6: Count & Pagination
+        # ---------------------------------------------------------------------
         total_query = query.with_entities(func.count(Job.id.distinct()))
-        total = total_query.scalar()
+        total = total_query.scalar() or 0
 
         jobs_with_audit = (
             query
@@ -2585,22 +2619,30 @@ def get_jobs_audit_trail():
             .all()
         )
 
-        # Format output
+        # ---------------------------------------------------------------------
+        # Step 7: Format Output
+        # ---------------------------------------------------------------------
         audit_summary = []
         for job, audit_record, customer, user in jobs_with_audit:
             audit_summary.append({
                 'id': job.id,
                 'job_id': job.id,
                 'customer_name': customer.name if customer else None,
-                'last_modified_date': audit_record.changed_at.isoformat() if audit_record.changed_at else None,
+                'last_modified_date': (
+                    audit_record.changed_at.isoformat()
+                    if audit_record and audit_record.changed_at else None
+                ),
                 'last_change_made': generate_change_description(audit_record),
                 'changed_by': {
-                    'id': user.id if user else None,
-                    'name': getattr(user, 'name', None) or (user.email if user else None),
-                    'email': user.email if user else None
+                    'id': getattr(user, 'id', None),
+                    'name': getattr(user, 'name', None) or getattr(user, 'email', None),
+                    'email': getattr(user, 'email', None)
                 }
             })
 
+        # ---------------------------------------------------------------------
+        # Step 8: Return JSON Response
+        # ---------------------------------------------------------------------
         return jsonify({
             'items': audit_summary,
             'total': total,
@@ -2611,7 +2653,6 @@ def get_jobs_audit_trail():
     except Exception as e:
         logging.error(f"Error retrieving jobs audit trail: {e}", exc_info=True)
         return jsonify({'error': 'An error occurred while retrieving audit trail'}), 500
-
 
 def generate_change_description(audit_record):
     """Generate a human-readable description of the change from an audit record."""
