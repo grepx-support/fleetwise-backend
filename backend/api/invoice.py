@@ -19,7 +19,7 @@ from backend.models.invoice import Payment
  
 from werkzeug.utils import secure_filename
 @invoice_bp.route('/invoices', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin','accountant')
 def list_invoices():
     try:
         invoices = InvoiceService.get_all()
@@ -48,7 +48,7 @@ def get_invoice(invoice_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @invoice_bp.route('/invoices', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'accountant')
 def create_invoice():
     try:
         data = request.get_json()
@@ -64,7 +64,7 @@ def create_invoice():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @invoice_bp.route('/invoices/<int:invoice_id>', methods=['PUT'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'accountant')
 def update_invoice(invoice_id):
     try:
         data = request.get_json()
@@ -82,7 +82,7 @@ def update_invoice(invoice_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @invoice_bp.route('/invoices/<int:invoice_id>', methods=['DELETE'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'accountant')
 def delete_invoice(invoice_id):
     try:
         success = InvoiceService.delete(invoice_id)
@@ -96,7 +96,7 @@ def delete_invoice(invoice_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @invoice_bp.route('/invoices/generate', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'accountant')
 def generate_invoice():
     try:
         data = request.get_json()
@@ -141,7 +141,7 @@ def billing_report():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500 
     
 @invoice_bp.route('/invoices/unpaid', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'accountant')
 def invoices_with_jobs_by_status():
     try:
         page = int(request.args.get('page', 1))
@@ -166,7 +166,7 @@ def invoices_with_jobs_by_status():
         return jsonify({'error': 'An unexpected error occurred'}), 500
     
 @invoice_bp.route('/invoices/remove/<int:id>', methods=['DELETE'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'accountant')
 def remove_invoice(id):
     try:
         invoice = InvoiceService.remove_invoice(id)
@@ -178,7 +178,7 @@ def remove_invoice(id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500 
     
 @invoice_bp.route('/invoices/statusUpdate/<int:invoice_id>', methods=['PUT'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'accountant')
 def update_invoice_status(invoice_id):
     try:
         data = request.get_json()
@@ -227,7 +227,7 @@ def update_invoice_status(invoice_id):
 # generate_payment_receipt
 
 @invoice_bp.route('/invoices/download/<int:invoice_id>', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin','accountant')
 def download_invoice(invoice_id):
     try:
         response = PaymentService.generate_payment_receipt(invoice_id)
@@ -239,7 +239,7 @@ def download_invoice(invoice_id):
         return jsonify({'error': 'Failed to generate invoice PDF'}), 500
 
 @invoice_bp.route('/invoices/unpaid/download/<int:invoice_id>', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'accountant')
 def download_unpaid_invoice(invoice_id):
     try:
         response = InvoiceService.unpaid_invoice_download(invoice_id)
@@ -249,10 +249,6 @@ def download_unpaid_invoice(invoice_id):
     except Exception as e:
         logging.error(f"Unhandled error: {e}", exc_info=True)
         return jsonify({'error': 'Failed to generate invoice PDF'}), 500
-    
-
-
-
     
 @invoice_bp.route('/invoices/<int:invoice_id>/payments', methods=['GET'])
 @auth_required()
@@ -435,7 +431,7 @@ def add_payment(invoice_id):
 #         return jsonify({"error": "An unexpected error occurred"}), 500
 
 @invoice_bp.route('/invoices/<int:invoice_id>/payments/<int:payment_id>', methods=['DELETE'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'accountant')
 def delete_payment(invoice_id, payment_id):
     try:
         # invoice = Invoice.query.get_or_404(invoice_id)
