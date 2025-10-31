@@ -699,6 +699,10 @@ def download_job_template():
                     Contractor.status == 'Active',
                     Contractor.name.like('%AG%')
                 ).all()
+            # Handle case where no AG Internal contractor exists
+            if not contractors:
+                logging.warning("No AG Internal contractor found for customer template - samples may be invalid")
+                contractors = []
             logging.info(f"Customer user - Found {len(contractors)} AG contractors: {[c.name for c in contractors]}")
         else:
             # For Admin/Manager users: Show all active data
@@ -724,7 +728,7 @@ def download_job_template():
         # Create valid sample data based on user role
         if is_customer_user:
             # For Customer users: Create sample data with their customer, empty vehicle/driver
-            if customers and services:
+            if customers and services and len(customers) > 0 and len(services) > 0:
                 # First valid sample
                 sample_data.append({
                     'Customer': customers[0].name,
@@ -1463,11 +1467,15 @@ def confirm_upload():
                 contractor = contractors.get(row_data.get('contractor', '')) if row_data.get('contractor') else None
                 vehicle_type = vehicle_types.get(row_data.get('vehicle_type', '')) if row_data.get('vehicle_type') else None
 
-                # For customer users: Validate they can only create jobs for their own customer
+                # For customer users: Validate they can only create jobs for their own customer and AG Internal contractor
                 if is_customer_user:
                     if not customer:
                         raise Exception(f"Customer '{row_data['customer']}' not found")
                     if customer.id != customer_user_customer_id:
+                        raise Exception(f"Customer users can only create jobs for their own customer")
+                    # Validate contractor is AG Internal
+                    if contractor and contractor.name not in ['AG', 'AG (Internal)']:
+                        raise Exception("Customer users can only assign jobs to AG Internal contractor")
                         raise Exception(f"Customer users can only create jobs for their own customer")
 
                 # Get service by name to ensure proper ID lookup
