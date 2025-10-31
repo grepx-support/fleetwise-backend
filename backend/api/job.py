@@ -1984,7 +1984,7 @@ def reinstate_job(job_id):
         # Handle legacy canceled jobs without audit records
         if not cancellation_audit:
             db.session.rollback()
-            logging.error(f"No cancellation record found for job {job_id} - cannot reinate without prior status")
+            logging.error(f"No cancellation record found for job {job_id} - cannot reinstate without prior status")
             return jsonify({'error': 'Cannot reinstate: No cancellation record found'}), 400
         else:
             previous_status = cancellation_audit.old_status
@@ -1992,6 +1992,7 @@ def reinstate_job(job_id):
         # Validate that the previous status is a valid job status
         valid_statuses = [status.value for status in JobStatus]
         if previous_status not in valid_statuses:
+            db.session.rollback()
             return jsonify({
                 'error': f'Invalid previous status: {previous_status}'
             }), 400
