@@ -671,12 +671,48 @@ def jobs_table():
 def download_job_template():
     """Download Excel template for bulk job uploads"""
     try:
-        # Get sample data for dropdowns
-        customers = Customer.query.filter_by(status='Active').all()
+        # Check if user is a Customer role
+        is_customer_user = current_user.has_role('customer')
+
+        # Get sample data for dropdowns - filter based on user role
+        if is_customer_user:
+            # For Customer users: Only show their own customer
+            customer_id = getattr(current_user, 'customer_id', None)
+            if customer_id:
+                customers = Customer.query.filter_by(id=customer_id, status='Active').all()
+            else:
+                customers = []
+
+            # For Customer users: Empty vehicles and drivers (no values in dropdown)
+            vehicles = []
+            drivers = []
+
+            # For Customer users: Only show AG (Internal) contractor
+            # Try to find contractor with name 'AG' or 'AG (Internal)'
+            contractors = Contractor.query.filter(
+                Contractor.status == 'Active',
+                Contractor.name.in_(['AG', 'AG (Internal)'])
+            ).all()
+            # If not found, try partial match for any contractor containing 'AG'
+            if not contractors:
+                contractors = Contractor.query.filter(
+                    Contractor.status == 'Active',
+                    Contractor.name.like('%AG%')
+                ).all()
+            # Handle case where no AG Internal contractor exists
+            if not contractors:
+                logging.warning("No AG Internal contractor found for customer template - samples may be invalid")
+                contractors = []
+            logging.info(f"Customer user - Found {len(contractors)} AG contractors: {[c.name for c in contractors]}")
+        else:
+            # For Admin/Manager users: Show all active data
+            customers = Customer.query.filter_by(status='Active').all()
+            vehicles = Vehicle.query.filter_by(status='Active').all()
+            drivers = Driver.query.filter_by(status='Active').all()
+            contractors = Contractor.query.filter_by(status='Active').all()
+
+        # Services and Vehicle Types are same for all users
         services = Service.query.filter_by(status='Active').all()
-        vehicles = Vehicle.query.filter_by(status='Active').all()
-        drivers = Driver.query.filter_by(status='Active').all()
-        contractors = Contractor.query.filter_by(status='Active').all()
         vehicle_types = VehicleType.query.filter_by(status=True, is_deleted=False).all()
         
         # Create sample data using actual database values
@@ -689,8 +725,49 @@ def download_job_template():
         contractor_value_2 = contractors[1].name if len(contractors) > 1 else contractor_value
         vehicle_type_value_2 = vehicle_types[1].name if len(vehicle_types) > 1 else vehicle_type_value
 
-        # Create valid sample data if we have database records
-        if customers and services and vehicles and drivers:
+        # Create valid sample data based on user role
+        if is_customer_user:
+            # For Customer users: Create sample data with their customer, empty vehicle/driver
+            if customers and services and len(customers) > 0 and len(services) > 0:
+                # First valid sample
+                sample_data.append({
+                    'Customer': customers[0].name,
+                    'Customer Reference No': 'REF001',
+                    'Department/Person In Charge/Sub-Customer': 'Operations Department',
+                    'Service': services[0].name,
+                    'Vehicle': '',  # Empty for customer users
+                    'Driver': '',  # Empty for customer users
+                    'Contractor': contractor_value,
+                    'Vehicle Type': vehicle_type_value,
+                    'Pickup Date': (today + timedelta(days=1)).strftime('%Y-%m-%d'),
+                    'Pickup Time': '09:00',
+                    'Pickup Location': 'Sample Pickup Location 1',
+                    'Drop-off Location': 'Sample Drop-off Location 1',
+                    'Passenger Name': 'Sample Passenger 1',
+                    'Passenger Mobile': '+6591234567',
+                    'Remarks': 'Sample job entry - Valid data'
+                })
+
+                # Second valid sample
+                sample_data.append({
+                    'Customer': customers[0].name,
+                    'Customer Reference No': 'REF002',
+                    'Department/Person In Charge/Sub-Customer': 'Sales Department',
+                    'Service': services[1].name if len(services) > 1 else services[0].name,
+                    'Vehicle': '',  # Empty for customer users
+                    'Driver': '',  # Empty for customer users
+                    'Contractor': contractor_value,
+                    'Vehicle Type': vehicle_type_value_2,
+                    'Pickup Date': (today + timedelta(days=2)).strftime('%Y-%m-%d'),
+                    'Pickup Time': '14:30',
+                    'Pickup Location': 'Sample Pickup Location 2',
+                    'Drop-off Location': 'Sample Drop-off Location 2',
+                    'Passenger Name': 'Sample Passenger 2',
+                    'Passenger Mobile': '+6598765432',
+                    'Remarks': 'Sample job entry - Valid data'
+                })
+        elif customers and services and vehicles and drivers:
+            # For Admin/Manager users: Original sample data with vehicles and drivers
             # First valid sample
             sample_data.append({
                 'Customer': customers[0].name,
@@ -802,8 +879,9 @@ def download_job_template():
                 'Passenger Mobile': '+6511223344',
                 'Remarks': 'Invalid driver - should fail validation'
             })
-        else:
-            # Fallback: Create empty template if no database records exist
+
+        # Fallback: Create empty template if no sample data was created
+        if not sample_data:
             sample_data.append({
                 'Customer': '',
                 'Customer Reference No': '',
@@ -1328,10 +1406,20 @@ def process_excel_file_preview(file_path, column_mapping=None):
 
 
 @job_bp.route('/jobs/confirm-upload', methods=['POST'])
-@roles_accepted('admin', 'manager', 'accountant')
+@roles_accepted('admin', 'manager', 'accountant', 'customer')
 def confirm_upload():
     """Handle confirmation of preview data and create jobs"""
     try:
+        # Check if user is a Customer role
+        is_customer_user = current_user.has_role('customer')
+        customer_user_customer_id = None
+
+        if is_customer_user:
+            # Get the customer_id for the logged-in customer user
+            customer_user_customer_id = getattr(current_user, 'customer_id', None)
+            if not customer_user_customer_id:
+                return jsonify({'error': 'Customer user does not have a customer_id assigned'}), 403
+
         # Get the preview data from the request
         preview_data = request.get_json()
         if not preview_data or 'rows' not in preview_data:
@@ -1378,6 +1466,17 @@ def confirm_upload():
                 driver = drivers.get(row_data['driver'])
                 contractor = contractors.get(row_data.get('contractor', '')) if row_data.get('contractor') else None
                 vehicle_type = vehicle_types.get(row_data.get('vehicle_type', '')) if row_data.get('vehicle_type') else None
+
+                # For customer users: Validate they can only create jobs for their own customer and AG Internal contractor
+                if is_customer_user:
+                    if not customer:
+                        raise Exception(f"Customer '{row_data['customer']}' not found")
+                    if customer.id != customer_user_customer_id:
+                        raise Exception(f"Customer users can only create jobs for their own customer")
+                    # Validate contractor is AG Internal
+                    if contractor and contractor.name not in ['AG', 'AG (Internal)']:
+                        raise Exception("Customer users can only assign jobs to AG Internal contractor")
+                        raise Exception(f"Customer users can only create jobs for their own customer")
 
                 # Get service by name to ensure proper ID lookup
                 service_name = row_data['service']
