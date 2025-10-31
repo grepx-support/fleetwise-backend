@@ -460,7 +460,6 @@ class InvoiceService:
         if not isinstance(invoice_id, int) or invoice_id <= 0:
             raise ValueError(f"Invalid invoice_id: {invoice_id}")
         try:
-            from py_doc_generator.managers import TemplateManager
             invoice = Invoice.query.get(invoice_id)
             customer = Customer.query.get(invoice.customer_id)
             jobs = Job.query.filter_by(invoice_id=invoice_id).all()
@@ -480,6 +479,7 @@ class InvoiceService:
                 Particulars=InvoiceService.build_particulars(job),
                 ServiceType=service.name if service else job.service_type,
                 amount=f"{job.final_price:.2f}",
+                cash_collect=Decimal(str(job.cash_to_collect or 0))
                 ))
         
             user_settings = UserSettings.query.first()
@@ -491,6 +491,7 @@ class InvoiceService:
             # GST
             raw_gst = billing_settings.get("gst_percent", 0) or 0
             gst_percent = Decimal(str(raw_gst))  
+
 
             sub_total = Decimal(str(invoice.total_amount))
             gst_amount = (sub_total * gst_percent / Decimal("100")).quantize(
@@ -516,8 +517,8 @@ class InvoiceService:
             number=f"INV-{invoice.id}",
             date=(invoice.date.date() if hasattr(invoice.date, "date") else invoice.date),
             from_company=customer.name,
-            from_email=customer.email,
-            from_mobile=customer.mobile,
+            from_email=customer.email or "-",
+            from_mobile=customer.mobile or "-",
             to_company=customer.name,
             to_address=customer.address or "",
             items=items,
@@ -526,6 +527,7 @@ class InvoiceService:
             logo_path=logo_path,
             sub_total=sub_total,
             gst_amount=gst_amount,
+            cash_collect_total=sum(item.cash_collect for item in items),
             total_amount=grand_total,
             company_address= company_address,
             email=email,

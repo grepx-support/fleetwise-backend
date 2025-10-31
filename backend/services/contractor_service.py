@@ -290,6 +290,7 @@ class ContractorService:
             bill_no=f"BILL-{bill_id}",
             bill_date=datetime.utcnow().date(),
             items=items,
+            cash_collect_total=sum(item.cash_to_collect for item in items),
             total_amount=net_total
             )
 
