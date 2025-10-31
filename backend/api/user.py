@@ -343,3 +343,31 @@ def assign_customer_or_driver(user_id):
     except Exception as e:
         logging.error(f"Unhandled error in assign_customer_or_driver: {e}", exc_info=True)
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
+
+# Add the missing endpoints for fetching single driver/customer by ID
+from backend.services.driver_service import DriverService
+from backend.services.customer_service import CustomerService
+
+@user_bp.route('/drivers/<int:driver_id>', methods=['GET'])
+@roles_required('admin')
+def get_driver_by_id(driver_id):
+    try:
+        driver = DriverService.get_by_id(driver_id)
+        if not driver:
+            return jsonify({'error': 'Driver not found'}), 404
+        return jsonify(driver_schema.dump(driver)), 200
+    except Exception as e:
+        logging.error(f"Error fetching driver: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to fetch driver'}), 500
+
+@user_bp.route('/customers/<int:customer_id>', methods=['GET'])
+@roles_required('admin')
+def get_customer_by_id(customer_id):
+    try:
+        customer = CustomerService.get_by_id(customer_id)
+        if not customer:
+            return jsonify({'error': 'Customer not found'}), 404
+        return jsonify(customer_schema.dump(customer)), 200
+    except Exception as e:
+        logging.error(f"Error fetching customer: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to fetch customer'}), 500
