@@ -2,15 +2,27 @@ import logging
 import uuid
 from backend.extensions import db
 from backend.models.user import User
+from backend.models.customer import Customer
+from backend.models.driver import Driver
 from backend.models.role import Role
 from flask_security.utils import hash_password
+from sqlalchemy.exc import IntegrityError
+
 
 class ServiceError(Exception):
     def __init__(self, message):
         super().__init__(message)
         self.message = message
 
+
 class UserService:
+    @staticmethod
+    def _validate_entity_not_assigned(user_type, entity_id, exclude_user_id=None):
+        filter_field = 'driver_id' if user_type == 'driver' else 'customer_id'
+        existing = User.query.filter_by(**{filter_field: entity_id}).first()
+        if existing and (exclude_user_id is None or existing.id != exclude_user_id):
+            raise ServiceError(f"{user_type.capitalize()} is already assigned to another user")
+
     @staticmethod
     def get_all():
         try:
@@ -36,6 +48,10 @@ class UserService:
             roles = data.pop('roles', [])
             role_names = data.pop('role_names', None)
             
+            # Handle customer or driver assignment during creation
+            customer_id = data.pop('customer_id', None)
+            driver_id = data.pop('driver_id', None)
+            
             # Ensure fs_uniquifier is set
             if 'fs_uniquifier' not in data or data['fs_uniquifier'] is None:
                 data['fs_uniquifier'] = str(uuid.uuid4())
@@ -43,6 +59,23 @@ class UserService:
             user = User(**data)
             db.session.add(user)
             db.session.flush()
+            
+            # Handle customer assignment
+            if customer_id:
+                customer = Customer.query_active().filter_by(id=customer_id).first()
+                if not customer:
+                    raise ServiceError("Customer not found or inactive")
+                UserService._validate_entity_not_assigned('customer', customer_id)
+                user.customer_id = customer_id
+            
+            # Handle driver assignment
+            if driver_id:
+                driver = Driver.query_active().filter_by(id=driver_id).first()
+                if not driver:
+                    raise ServiceError("Driver not found or inactive")
+                UserService._validate_entity_not_assigned('driver', driver_id)
+                user.driver_id = driver_id
+            
             # Handle roles - prefer role_names if provided
             roles_to_assign = role_names if role_names is not None else roles
             if roles_to_assign:
@@ -52,6 +85,12 @@ class UserService:
                         user.roles.append(role)
             db.session.commit()
             return user
+        except IntegrityError:
+            db.session.rollback()
+            raise ServiceError("Customer or driver is already assigned to another user")
+        except ServiceError:
+            db.session.rollback()
+            raise
         except Exception as e:
             db.session.rollback()
             logging.error(f"Error creating user: {e}", exc_info=True)
@@ -148,3 +187,84 @@ class UserService:
         except Exception as e:
             logging.error(f"Failed to remove device tokens: {e}", exc_info=True)
             raise ServiceError("An unexpected error occurred while removing device tokens.")
+
+    @staticmethod
+    def get_unassigned_customers():
+        """
+        Fetch customers not assigned to any user
+        """
+        try:
+            unassigned_customers = Customer.query_active().filter(
+                Customer.id.notin_(
+                    db.session.query(User.customer_id).filter(User.customer_id.isnot(None))
+                )
+            ).all()
+            return unassigned_customers
+        except Exception as e:
+            logging.error(f"Error fetching unassigned customers: {e}", exc_info=True)
+            raise ServiceError("Could not fetch unassigned customers. Please try again later.")
+
+    @staticmethod
+    def get_unassigned_drivers():
+        """
+        Fetch drivers not assigned to any user
+        """
+        try:
+            unassigned_drivers = Driver.query_active().filter(
+                Driver.id.notin_(
+                    db.session.query(User.driver_id).filter(User.driver_id.isnot(None))
+                )
+            ).all()
+            return unassigned_drivers
+        except Exception as e:
+            logging.error(f"Error fetching unassigned drivers: {e}", exc_info=True)
+            raise ServiceError("Could not fetch unassigned drivers. Please try again later.")
+
+    @staticmethod
+    def assign_customer_or_driver(user_id, user_type, entity_id):
+        """
+        Link users with customers or drivers
+        """
+        try:
+            user = User.query.get(user_id)
+            if not user:
+                raise ServiceError("User not found")
+
+            # Clear only the conflicting assignment
+            if user_type == "customer":
+                user.driver_id = None  # Clear driver when assigning customer
+            elif user_type == "driver":
+                user.customer_id = None  # Clear customer when assigning driver
+            else:
+                raise ServiceError("Invalid user type. Must be 'customer' or 'driver'")
+
+            if user_type == "customer":
+                customer = Customer.query_active().filter_by(id=entity_id).first()
+                if not customer:
+                    raise ServiceError("Customer not found")
+                
+                UserService._validate_entity_not_assigned('customer', entity_id, user_id)
+                user.customer_id = entity_id
+            elif user_type == "driver":
+                driver = Driver.query_active().filter_by(id=entity_id).first()
+                if not driver:
+                    raise ServiceError("Driver not found")
+                    
+                UserService._validate_entity_not_assigned('driver', entity_id, user_id)
+                user.driver_id = entity_id
+
+            db.session.commit()
+            return user
+        except IntegrityError:
+            db.session.rollback()
+            if user_type == "customer":
+                raise ServiceError("Customer is already assigned to another user")
+            else:
+                raise ServiceError("Driver is already assigned to another user")
+        except ServiceError:
+            db.session.rollback()
+            raise
+        except Exception as e:
+            db.session.rollback()
+            logging.error(f"Error assigning customer or driver: {e}", exc_info=True)
+            raise ServiceError("Could not assign customer or driver. Please try again later.")
