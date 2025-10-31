@@ -168,7 +168,17 @@ CORS(app, supports_credentials=True, resources={r"/api/*": {"origins": [
 
 @app.after_request
 def add_cors_headers(response):
-    response.headers["Access-Control-Allow-Credentials"] = "true"
+    allowed_origins = [
+        "http://localhost:3000",
+        "http://ec2-18-143-75-251.ap-southeast-1.compute.amazonaws.com:3000",
+        "http://ec2-52-76-147-189.ap-southeast-1.compute.amazonaws.com:3000"
+    ]
+    origin = request.headers.get('Origin')
+    if origin in allowed_origins:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept"
     return response
 
 # Custom login logging function
