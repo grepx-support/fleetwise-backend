@@ -36,19 +36,24 @@ class ServiceService:
             # Import here to avoid circular imports
             from backend.services.contractor_service_pricing_service import ContractorServicePricingService
 
+            # Track sync outcomes
+            sync_success_count = 0
+            sync_error_count = 0
+
             # Sync the new service to all active contractors
             try:
-                success_count, error_count = ContractorServicePricingService.sync_new_service_to_contractors(service.id)
-                if error_count > 0:
-                    logging.warning(f"Some contractors ({error_count}) failed to sync with new service {service.id}")
+                sync_success_count, sync_error_count = ContractorServicePricingService.sync_new_service_to_contractors(service.id)
+                if sync_error_count > 0:
+                    logging.warning(f"Some contractors ({sync_error_count}) failed to sync with new service {service.id}")
             except Exception as sync_error:
                 logging.error(f"Error syncing service to contractors: {sync_error}", exc_info=True)
-                # Don't block service creation if sync fails
-                
+                sync_error_count = -1  # Flag total failure
+
             db.session.commit()
             logging.info(f"Service created successfully with ID: {service.id}")
-            return service
-            
+            # Return service with sync metrics for API layer to construct accurate message
+            return service, sync_success_count, sync_error_count
+
         except IntegrityError as e:
             db.session.rollback()
             logging.error(f"Integrity error creating service: {e}", exc_info=True)
@@ -56,7 +61,7 @@ class ServiceService:
             if "UNIQUE constraint failed" in str(e) and "service.name" in str(e):
                 raise ServiceError("A service with this name already exists. Please choose a different name.")
             else:
-                raise ServiceError("Could not create service due to a data conflict. Please check your inputs.")
+                raise ServiceError("Failed to create service due to a data conflict.")
         except Exception as e:
             db.session.rollback()
             logging.error(f"Error creating service: {e}", exc_info=True)
