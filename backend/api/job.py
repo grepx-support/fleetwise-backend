@@ -952,7 +952,7 @@ def download_job_template():
             from openpyxl.worksheet.datavalidation import DataValidation
 
             # Customer dropdown (Column A) - Both customer and admin users
-            if customers:
+            if customers and len(customers) > 0:
                 customer_names = [customer.name for customer in customers]
                 # Write customer names to hidden sheet
                 for idx, name in enumerate(customer_names, start=1):
@@ -967,7 +967,7 @@ def download_job_template():
             # Column C: Department/Person In Charge/Sub-Customer (text field - NO dropdown)
 
             # Service dropdown (Column D) - Both customer and admin users
-            if services:
+            if services and len(services) > 0:
                 service_names = [service.name for service in services]
                 # Write service names to hidden sheet (Column B)
                 for idx, name in enumerate(service_names, start=1):
@@ -977,76 +977,61 @@ def download_job_template():
                 service_validation.add('D2:D1000')
                 worksheet.add_data_validation(service_validation)
 
-            # For customer users: Column E = Contractor, Column F = Vehicle Type
-            # For admin users: Column E = Vehicle, Column F = Driver, Column G = Contractor, Column H = Vehicle Type
-            if is_customer_user:
-                # Customer users: Skip Vehicle and Driver dropdowns
-                # Contractor dropdown (Column E for customer users)
-                if contractors:
-                    contractor_names = [contractor.name for contractor in contractors]
-                    # Write contractor names to hidden sheet (Column C)
-                    for idx, name in enumerate(contractor_names, start=1):
-                        ref_sheet.cell(row=idx, column=3, value=name)
-                    contractor_range = f"ReferenceData!$C$1:$C${len(contractor_names)}"
-                    contractor_validation = DataValidation(type="list", formula1=contractor_range, allow_blank=True)
-                    contractor_validation.add('E2:E1000')
-                    worksheet.add_data_validation(contractor_validation)
+            # Use non-overlapping columns for all reference data to prevent collision
+            # Column A: Customers (all users)
+            # Column B: Services (all users)
+            # Column C: Vehicles (admin only)
+            # Column D: Drivers (admin only)
+            # Column E: Contractors (all users)
+            # Column F: Vehicle Types (all users)
 
-                # Vehicle Type dropdown (Column F for customer users)
-                if vehicle_types:
-                    vehicle_type_names = [vtype.name for vtype in vehicle_types]
-                    # Write vehicle type names to hidden sheet (Column D)
-                    for idx, name in enumerate(vehicle_type_names, start=1):
-                        ref_sheet.cell(row=idx, column=4, value=name)
-                    vehicle_type_range = f"ReferenceData!$D$1:$D${len(vehicle_type_names)}"
-                    vehicle_type_validation = DataValidation(type="list", formula1=vehicle_type_range, allow_blank=True)
-                    vehicle_type_validation.add('F2:F1000')
-                    worksheet.add_data_validation(vehicle_type_validation)
-            else:
-                # Admin users: Include Vehicle and Driver dropdowns
-                # Vehicle dropdown (Column E for admin users)
-                if vehicles:
-                    vehicle_numbers = [vehicle.number for vehicle in vehicles]
-                    # Write vehicle numbers to hidden sheet (Column C)
-                    for idx, number in enumerate(vehicle_numbers, start=1):
-                        ref_sheet.cell(row=idx, column=3, value=number)
-                    vehicle_range = f"ReferenceData!$C$1:$C${len(vehicle_numbers)}"
-                    vehicle_validation = DataValidation(type="list", formula1=vehicle_range, allow_blank=True)
-                    vehicle_validation.add('E2:E1000')
-                    worksheet.add_data_validation(vehicle_validation)
+            # Vehicle dropdown (Column C in reference sheet) - Admin users only
+            if not is_customer_user and vehicles and len(vehicles) > 0:
+                vehicle_numbers = [vehicle.number for vehicle in vehicles]
+                # Write vehicle numbers to hidden sheet (Column C)
+                for idx, number in enumerate(vehicle_numbers, start=1):
+                    ref_sheet.cell(row=idx, column=3, value=number)
+                vehicle_range = f"ReferenceData!$C$1:$C${len(vehicle_numbers)}"
+                vehicle_validation = DataValidation(type="list", formula1=vehicle_range, allow_blank=True)
+                vehicle_validation.add('E2:E1000')  # Column E in main sheet
+                worksheet.add_data_validation(vehicle_validation)
 
-                # Driver dropdown (Column F for admin users)
-                if drivers:
-                    driver_names = [driver.name for driver in drivers]
-                    # Write driver names to hidden sheet (Column D)
-                    for idx, name in enumerate(driver_names, start=1):
-                        ref_sheet.cell(row=idx, column=4, value=name)
-                    driver_range = f"ReferenceData!$D$1:$D${len(driver_names)}"
-                    driver_validation = DataValidation(type="list", formula1=driver_range, allow_blank=True)
-                    driver_validation.add('F2:F1000')
-                    worksheet.add_data_validation(driver_validation)
+            # Driver dropdown (Column D in reference sheet) - Admin users only
+            if not is_customer_user and drivers and len(drivers) > 0:
+                driver_names = [driver.name for driver in drivers]
+                # Write driver names to hidden sheet (Column D)
+                for idx, name in enumerate(driver_names, start=1):
+                    ref_sheet.cell(row=idx, column=4, value=name)
+                driver_range = f"ReferenceData!$D$1:$D${len(driver_names)}"
+                driver_validation = DataValidation(type="list", formula1=driver_range, allow_blank=True)
+                driver_validation.add('F2:F1000')  # Column F in main sheet
+                worksheet.add_data_validation(driver_validation)
 
-                # Contractor dropdown (Column G for admin users)
-                if contractors:
-                    contractor_names = [contractor.name for contractor in contractors]
-                    # Write contractor names to hidden sheet (Column E)
-                    for idx, name in enumerate(contractor_names, start=1):
-                        ref_sheet.cell(row=idx, column=5, value=name)
-                    contractor_range = f"ReferenceData!$E$1:$E${len(contractor_names)}"
-                    contractor_validation = DataValidation(type="list", formula1=contractor_range, allow_blank=True)
-                    contractor_validation.add('G2:G1000')
-                    worksheet.add_data_validation(contractor_validation)
+            # Contractor dropdown (Column E in reference sheet) - All users
+            if contractors and len(contractors) > 0:
+                contractor_names = [contractor.name for contractor in contractors]
+                # Write contractor names to hidden sheet (Column E)
+                for idx, name in enumerate(contractor_names, start=1):
+                    ref_sheet.cell(row=idx, column=5, value=name)
+                contractor_range = f"ReferenceData!$E$1:$E${len(contractor_names)}"
+                contractor_validation = DataValidation(type="list", formula1=contractor_range, allow_blank=True)
+                # Column E for customer users, Column G for admin users
+                target_column = 'E2:E1000' if is_customer_user else 'G2:G1000'
+                contractor_validation.add(target_column)
+                worksheet.add_data_validation(contractor_validation)
 
-                # Vehicle Type dropdown (Column H for admin users)
-                if vehicle_types:
-                    vehicle_type_names = [vtype.name for vtype in vehicle_types]
-                    # Write vehicle type names to hidden sheet (Column F)
-                    for idx, name in enumerate(vehicle_type_names, start=1):
-                        ref_sheet.cell(row=idx, column=6, value=name)
-                    vehicle_type_range = f"ReferenceData!$F$1:$F${len(vehicle_type_names)}"
-                    vehicle_type_validation = DataValidation(type="list", formula1=vehicle_type_range, allow_blank=True)
-                    vehicle_type_validation.add('H2:H1000')
-                    worksheet.add_data_validation(vehicle_type_validation)
+            # Vehicle Type dropdown (Column F in reference sheet) - All users
+            if vehicle_types and len(vehicle_types) > 0:
+                vehicle_type_names = [vtype.name for vtype in vehicle_types]
+                # Write vehicle type names to hidden sheet (Column F)
+                for idx, name in enumerate(vehicle_type_names, start=1):
+                    ref_sheet.cell(row=idx, column=6, value=name)
+                vehicle_type_range = f"ReferenceData!$F$1:$F${len(vehicle_type_names)}"
+                vehicle_type_validation = DataValidation(type="list", formula1=vehicle_type_range, allow_blank=True)
+                # Column F for customer users, Column H for admin users
+                target_column = 'F2:F1000' if is_customer_user else 'H2:H1000'
+                vehicle_type_validation.add(target_column)
+                worksheet.add_data_validation(vehicle_type_validation)
 
             # Auto-adjust column widths
             for column in worksheet.columns:
