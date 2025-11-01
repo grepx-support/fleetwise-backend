@@ -727,7 +727,7 @@ def download_job_template():
 
         # Create valid sample data based on user role
         if is_customer_user:
-            # For Customer users: Create sample data with their customer, empty vehicle/driver
+            # For Customer users: Create sample data WITHOUT Vehicle/Driver columns
             if customers and services and len(customers) > 0 and len(services) > 0:
                 # First valid sample
                 sample_data.append({
@@ -735,8 +735,6 @@ def download_job_template():
                     'Customer Reference No': 'REF001',
                     'Department/Person In Charge/Sub-Customer': 'Operations Department',
                     'Service': services[0].name,
-                    'Vehicle': '',  # Empty for customer users
-                    'Driver': '',  # Empty for customer users
                     'Contractor': contractor_value,
                     'Vehicle Type': vehicle_type_value,
                     'Pickup Date': (today + timedelta(days=1)).strftime('%Y-%m-%d'),
@@ -754,8 +752,6 @@ def download_job_template():
                     'Customer Reference No': 'REF002',
                     'Department/Person In Charge/Sub-Customer': 'Sales Department',
                     'Service': services[1].name if len(services) > 1 else services[0].name,
-                    'Vehicle': '',  # Empty for customer users
-                    'Driver': '',  # Empty for customer users
                     'Contractor': contractor_value,
                     'Vehicle Type': vehicle_type_value_2,
                     'Pickup Date': (today + timedelta(days=2)).strftime('%Y-%m-%d'),
@@ -882,23 +878,42 @@ def download_job_template():
 
         # Fallback: Create empty template if no sample data was created
         if not sample_data:
-            sample_data.append({
-                'Customer': '',
-                'Customer Reference No': '',
-                'Department/Person In Charge/Sub-Customer': '',
-                'Service': '',
-                'Vehicle': '',
-                'Driver': '',
-                'Contractor': '',
-                'Vehicle Type': '',
-                'Pickup Date': (today + timedelta(days=1)).strftime('%Y-%m-%d'),
-                'Pickup Time': '09:00',
-                'Pickup Location': '',
-                'Drop-off Location': '',
-                'Passenger Name': '',
-                'Passenger Mobile': '',
-                'Remarks': ''
-            })
+            if is_customer_user:
+                # Customer user template - NO Vehicle/Driver columns
+                sample_data.append({
+                    'Customer': '',
+                    'Customer Reference No': '',
+                    'Department/Person In Charge/Sub-Customer': '',
+                    'Service': '',
+                    'Contractor': '',
+                    'Vehicle Type': '',
+                    'Pickup Date': (today + timedelta(days=1)).strftime('%Y-%m-%d'),
+                    'Pickup Time': '09:00',
+                    'Pickup Location': '',
+                    'Drop-off Location': '',
+                    'Passenger Name': '',
+                    'Passenger Mobile': '',
+                    'Remarks': ''
+                })
+            else:
+                # Admin user template - WITH Vehicle/Driver columns
+                sample_data.append({
+                    'Customer': '',
+                    'Customer Reference No': '',
+                    'Department/Person In Charge/Sub-Customer': '',
+                    'Service': '',
+                    'Vehicle': '',
+                    'Driver': '',
+                    'Contractor': '',
+                    'Vehicle Type': '',
+                    'Pickup Date': (today + timedelta(days=1)).strftime('%Y-%m-%d'),
+                    'Pickup Time': '09:00',
+                    'Pickup Location': '',
+                    'Drop-off Location': '',
+                    'Passenger Name': '',
+                    'Passenger Mobile': '',
+                    'Remarks': ''
+                })
         
         # Create DataFrame
         df = pd.DataFrame(sample_data)
@@ -927,56 +942,111 @@ def download_job_template():
                 cell.font = header_font
                 cell.fill = header_fill
                 cell.alignment = header_alignment
-            
-            # Add data validation for dropdowns
+
+            # Create a hidden sheet for dropdown reference data
+            # This solves the Excel 255-character limit for data validation formulas
+            ref_sheet = workbook.create_sheet('ReferenceData')
+            ref_sheet.sheet_state = 'hidden'
+
+            # Add data validation for dropdowns using hidden reference sheet
             from openpyxl.worksheet.datavalidation import DataValidation
-            
-            # Customer dropdown (Column A)
+
+            # Customer dropdown (Column A) - Both customer and admin users
             if customers:
                 customer_names = [customer.name for customer in customers]
-                customer_validation = DataValidation(type="list", formula1=f'"{",".join(customer_names)}"', allow_blank=True)
+                # Write customer names to hidden sheet
+                for idx, name in enumerate(customer_names, start=1):
+                    ref_sheet.cell(row=idx, column=1, value=name)
+                # Create named range reference
+                customer_range = f"ReferenceData!$A$1:$A${len(customer_names)}"
+                customer_validation = DataValidation(type="list", formula1=customer_range, allow_blank=True)
                 customer_validation.add('A2:A1000')
                 worksheet.add_data_validation(customer_validation)
 
             # Column B: Customer Reference No (text field - NO dropdown)
             # Column C: Department/Person In Charge/Sub-Customer (text field - NO dropdown)
 
-            # Service dropdown (Column D)
+            # Service dropdown (Column D) - Both customer and admin users
             if services:
                 service_names = [service.name for service in services]
-                service_validation = DataValidation(type="list", formula1=f'"{",".join(service_names)}"', allow_blank=True)
+                # Write service names to hidden sheet (Column B)
+                for idx, name in enumerate(service_names, start=1):
+                    ref_sheet.cell(row=idx, column=2, value=name)
+                service_range = f"ReferenceData!$B$1:$B${len(service_names)}"
+                service_validation = DataValidation(type="list", formula1=service_range, allow_blank=True)
                 service_validation.add('D2:D1000')
                 worksheet.add_data_validation(service_validation)
 
-            # Vehicle dropdown (Column E)
-            if vehicles:
-                vehicle_numbers = [vehicle.number for vehicle in vehicles]
-                vehicle_validation = DataValidation(type="list", formula1=f'"{",".join(vehicle_numbers)}"', allow_blank=True)
-                vehicle_validation.add('E2:E1000')
-                worksheet.add_data_validation(vehicle_validation)
+            # For customer users: Column E = Contractor, Column F = Vehicle Type
+            # For admin users: Column E = Vehicle, Column F = Driver, Column G = Contractor, Column H = Vehicle Type
+            if is_customer_user:
+                # Customer users: Skip Vehicle and Driver dropdowns
+                # Contractor dropdown (Column E for customer users)
+                if contractors:
+                    contractor_names = [contractor.name for contractor in contractors]
+                    # Write contractor names to hidden sheet (Column C)
+                    for idx, name in enumerate(contractor_names, start=1):
+                        ref_sheet.cell(row=idx, column=3, value=name)
+                    contractor_range = f"ReferenceData!$C$1:$C${len(contractor_names)}"
+                    contractor_validation = DataValidation(type="list", formula1=contractor_range, allow_blank=True)
+                    contractor_validation.add('E2:E1000')
+                    worksheet.add_data_validation(contractor_validation)
 
-            # Driver dropdown (Column F)
-            if drivers:
-                driver_names = [driver.name for driver in drivers]
-                driver_validation = DataValidation(type="list", formula1=f'"{",".join(driver_names)}"', allow_blank=True)
-                driver_validation.add('F2:F1000')
-                worksheet.add_data_validation(driver_validation)
+                # Vehicle Type dropdown (Column F for customer users)
+                if vehicle_types:
+                    vehicle_type_names = [vtype.name for vtype in vehicle_types]
+                    # Write vehicle type names to hidden sheet (Column D)
+                    for idx, name in enumerate(vehicle_type_names, start=1):
+                        ref_sheet.cell(row=idx, column=4, value=name)
+                    vehicle_type_range = f"ReferenceData!$D$1:$D${len(vehicle_type_names)}"
+                    vehicle_type_validation = DataValidation(type="list", formula1=vehicle_type_range, allow_blank=True)
+                    vehicle_type_validation.add('F2:F1000')
+                    worksheet.add_data_validation(vehicle_type_validation)
+            else:
+                # Admin users: Include Vehicle and Driver dropdowns
+                # Vehicle dropdown (Column E for admin users)
+                if vehicles:
+                    vehicle_numbers = [vehicle.number for vehicle in vehicles]
+                    # Write vehicle numbers to hidden sheet (Column C)
+                    for idx, number in enumerate(vehicle_numbers, start=1):
+                        ref_sheet.cell(row=idx, column=3, value=number)
+                    vehicle_range = f"ReferenceData!$C$1:$C${len(vehicle_numbers)}"
+                    vehicle_validation = DataValidation(type="list", formula1=vehicle_range, allow_blank=True)
+                    vehicle_validation.add('E2:E1000')
+                    worksheet.add_data_validation(vehicle_validation)
 
-            # Contractor dropdown (Column G)
-            if contractors:
-                contractor_names = [contractor.name for contractor in contractors]
-                contractor_validation = DataValidation(type="list", formula1=f'"{",".join(contractor_names)}"', allow_blank=True)
-                contractor_validation.add('G2:G1000')
-                worksheet.add_data_validation(contractor_validation)
+                # Driver dropdown (Column F for admin users)
+                if drivers:
+                    driver_names = [driver.name for driver in drivers]
+                    # Write driver names to hidden sheet (Column D)
+                    for idx, name in enumerate(driver_names, start=1):
+                        ref_sheet.cell(row=idx, column=4, value=name)
+                    driver_range = f"ReferenceData!$D$1:$D${len(driver_names)}"
+                    driver_validation = DataValidation(type="list", formula1=driver_range, allow_blank=True)
+                    driver_validation.add('F2:F1000')
+                    worksheet.add_data_validation(driver_validation)
 
-            # Vehicle Type dropdown (Column H)
-            if vehicle_types:
-                vehicle_type_names = [vtype.name for vtype in vehicle_types]
-                vehicle_type_validation = DataValidation(type="list", formula1=f'"{",".join(vehicle_type_names)}"', allow_blank=True)
-                vehicle_type_validation.add('H2:H1000')
-                worksheet.add_data_validation(vehicle_type_validation)
+                # Contractor dropdown (Column G for admin users)
+                if contractors:
+                    contractor_names = [contractor.name for contractor in contractors]
+                    # Write contractor names to hidden sheet (Column E)
+                    for idx, name in enumerate(contractor_names, start=1):
+                        ref_sheet.cell(row=idx, column=5, value=name)
+                    contractor_range = f"ReferenceData!$E$1:$E${len(contractor_names)}"
+                    contractor_validation = DataValidation(type="list", formula1=contractor_range, allow_blank=True)
+                    contractor_validation.add('G2:G1000')
+                    worksheet.add_data_validation(contractor_validation)
 
-            # Columns I-N: Pickup Date, Pickup Time, Pickup Location, Drop-off Location, Passenger Name, Passenger Mobile, Remarks (all text fields - NO dropdowns)
+                # Vehicle Type dropdown (Column H for admin users)
+                if vehicle_types:
+                    vehicle_type_names = [vtype.name for vtype in vehicle_types]
+                    # Write vehicle type names to hidden sheet (Column F)
+                    for idx, name in enumerate(vehicle_type_names, start=1):
+                        ref_sheet.cell(row=idx, column=6, value=name)
+                    vehicle_type_range = f"ReferenceData!$F$1:$F${len(vehicle_type_names)}"
+                    vehicle_type_validation = DataValidation(type="list", formula1=vehicle_type_range, allow_blank=True)
+                    vehicle_type_validation.add('H2:H1000')
+                    worksheet.add_data_validation(vehicle_type_validation)
 
             # Auto-adjust column widths
             for column in worksheet.columns:
@@ -991,47 +1061,88 @@ def download_job_template():
                 adjusted_width = min(max_length + 2, 50)
                 worksheet.column_dimensions[column_letter].width = adjusted_width
             
-            # Add instructions sheet
-            instructions_data = [
-                ['Instructions for Bulk Job Upload'],
-                [''],
-                ['1. Download this template'],
-                ['2. Fill in your job data (sample data is provided)'],
-                ['3. Save the file'],
-                ['4. Upload the completed file'],
-                [''],
-                ['Required Fields:'],
-                ['- Customer: Select from dropdown'],
-                ['- Service: Select from dropdown'],
-                ['- Vehicle: Select from dropdown'],
-                ['- Driver: Select from dropdown'],
-                ['- Pickup Date: Format YYYY-MM-DD'],
-                ['- Pickup Time: Format HH:MM (24-hour)'],
-                ['- Pickup Location: Text'],
-                ['- Drop-off Location: Text'],
-                [''],
-                ['Optional Fields:'],
-                ['- Customer Reference No: Text'],
-                ['- Department/Person In Charge/Sub-Customer: Text'],
-                ['- Contractor: Select from dropdown'],
-                ['- Vehicle Type: Select from dropdown'],
-                ['- Passenger Name: Text'],
-                ['- Passenger Mobile: Text (with country code, e.g., +6591234567)'],
-                ['- Remarks: Text'],
-                [''],
-                ['Notes:'],
-                ['- Date format must be YYYY-MM-DD'],
-                ['- Time format must be HH:MM (24-hour)'],
-                ['- Use dropdowns for Customer, Service, Vehicle, Driver, Contractor, and Vehicle Type'],
-                ['- Remove sample data before uploading'],
-                ['- Maximum 1000 jobs per file'],
-                [''],
-                ['Job Status Rules:'],
-                ['- Status will be automatically set based on provided fields:'],
-                ['  * CONFIRMED: When both Driver and Vehicle are assigned'],
-                ['  * PENDING: When only mandatory fields are filled (without Driver/Vehicle)'],
-                ['  * NEW: When mandatory fields are missing']
-            ]
+            # Add instructions sheet - Customized based on user role
+            if is_customer_user:
+                # Customer user instructions - No Vehicle/Driver fields
+                instructions_data = [
+                    ['Instructions for Bulk Job Upload'],
+                    [''],
+                    ['1. Download this template'],
+                    ['2. Fill in your job data (sample data is provided)'],
+                    ['3. Save the file'],
+                    ['4. Upload the completed file'],
+                    [''],
+                    ['Required Fields:'],
+                    ['- Customer: Select from dropdown'],
+                    ['- Service: Select from dropdown'],
+                    ['- Pickup Date: Format YYYY-MM-DD'],
+                    ['- Pickup Time: Format HH:MM (24-hour)'],
+                    ['- Pickup Location: Text'],
+                    ['- Drop-off Location: Text'],
+                    [''],
+                    ['Optional Fields:'],
+                    ['- Customer Reference No: Text'],
+                    ['- Department/Person In Charge/Sub-Customer: Text'],
+                    ['- Contractor: Select from dropdown'],
+                    ['- Vehicle Type: Select from dropdown'],
+                    ['- Passenger Name: Text'],
+                    ['- Passenger Mobile: Text (with country code, e.g., +6591234567)'],
+                    ['- Remarks: Text'],
+                    [''],
+                    ['Notes:'],
+                    ['- Date format must be YYYY-MM-DD'],
+                    ['- Time format must be HH:MM (24-hour)'],
+                    ['- Vehicle and Driver will be assigned by the system'],
+                    ['- Use dropdowns for Customer, Service, Contractor, and Vehicle Type'],
+                    ['- Remove sample data before uploading'],
+                    ['- Maximum 1000 jobs per file'],
+                    [''],
+                    ['Job Status Rules:'],
+                    ['- All uploaded jobs will be created with PENDING status'],
+                    ['- Vehicle and Driver will be assigned later by administrators']
+                ]
+            else:
+                # Admin user instructions - With Vehicle/Driver fields
+                instructions_data = [
+                    ['Instructions for Bulk Job Upload'],
+                    [''],
+                    ['1. Download this template'],
+                    ['2. Fill in your job data (sample data is provided)'],
+                    ['3. Save the file'],
+                    ['4. Upload the completed file'],
+                    [''],
+                    ['Required Fields:'],
+                    ['- Customer: Select from dropdown'],
+                    ['- Service: Select from dropdown'],
+                    ['- Vehicle: Select from dropdown'],
+                    ['- Driver: Select from dropdown'],
+                    ['- Pickup Date: Format YYYY-MM-DD'],
+                    ['- Pickup Time: Format HH:MM (24-hour)'],
+                    ['- Pickup Location: Text'],
+                    ['- Drop-off Location: Text'],
+                    [''],
+                    ['Optional Fields:'],
+                    ['- Customer Reference No: Text'],
+                    ['- Department/Person In Charge/Sub-Customer: Text'],
+                    ['- Contractor: Select from dropdown'],
+                    ['- Vehicle Type: Select from dropdown'],
+                    ['- Passenger Name: Text'],
+                    ['- Passenger Mobile: Text (with country code, e.g., +6591234567)'],
+                    ['- Remarks: Text'],
+                    [''],
+                    ['Notes:'],
+                    ['- Date format must be YYYY-MM-DD'],
+                    ['- Time format must be HH:MM (24-hour)'],
+                    ['- Use dropdowns for Customer, Service, Vehicle, Driver, Contractor, and Vehicle Type'],
+                    ['- Remove sample data before uploading'],
+                    ['- Maximum 1000 jobs per file'],
+                    [''],
+                    ['Job Status Rules:'],
+                    ['- Status will be automatically set based on provided fields:'],
+                    ['  * CONFIRMED: When both Driver and Vehicle are assigned'],
+                    ['  * PENDING: When only mandatory fields are filled (without Driver/Vehicle)'],
+                    ['  * NEW: When mandatory fields are missing']
+                ]
             
             instructions_df = pd.DataFrame(instructions_data)
             instructions_df.to_excel(writer, sheet_name='Instructions', index=False, header=False)
@@ -1094,17 +1205,21 @@ def upload_excel_file():
         # Create a secure filename
         filename = secure_filename(file.filename) if file.filename else 'upload.xlsx'
 
-        
+        # Capture user_role parameter from form data
+        user_role = request.form.get('user_role', '')
+        # Determine if user is a customer based on role or current_user
+        is_customer_user = user_role == 'customer' or current_user.has_role('customer')
+
         # Save to temporary file with robust cleanup
         temp_file_path = None
         try:
             with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as temp_file:
                 file.save(temp_file.name)
                 temp_file_path = temp_file.name
-        
-            
-            # Process the Excel file for preview
-            preview_data = process_excel_file_preview(temp_file_path)
+
+
+            # Process the Excel file for preview with user role
+            preview_data = process_excel_file_preview(temp_file_path, is_customer_user=is_customer_user)
             
             return jsonify(preview_data)
                 
@@ -1125,7 +1240,7 @@ def upload_excel_file():
         return jsonify({'error': 'An error occurred while processing the file. Please try again.'}), 500
 
 
-def process_excel_file_preview(file_path, column_mapping=None):
+def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=False):
     """Process the uploaded Excel file for preview with validation and column mapping"""
     try:
         # Read Excel file
@@ -1197,10 +1312,16 @@ def process_excel_file_preview(file_path, column_mapping=None):
             if field not in column_map:
                 column_map[field] = possible_names[0]  # Use first as default
         
-        # Validate required columns
-        required_fields = ['customer', 'service', 'vehicle', 'driver', 'pickup_date', 'pickup_time', 
-                          'pickup_location', 'dropoff_location']
-        
+        # Validate required columns based on user role
+        if is_customer_user:
+            # Customer users: Vehicle and Driver are NOT required
+            required_fields = ['customer', 'service', 'pickup_date', 'pickup_time',
+                              'pickup_location', 'dropoff_location']
+        else:
+            # Admin users: All fields including Vehicle and Driver are required
+            required_fields = ['customer', 'service', 'vehicle', 'driver', 'pickup_date', 'pickup_time',
+                              'pickup_location', 'dropoff_location']
+
         missing_columns = []
         for field in required_fields:
             if field not in column_map or column_map[field] not in actual_columns:
@@ -1252,26 +1373,51 @@ def process_excel_file_preview(file_path, column_mapping=None):
                     return ''
                 return str(value).strip()
             
-            row_data = {
-                'row_number': row_index + 2,  # Excel rows start from 2 (1 is header)
-                'customer': clean_value(row.get(column_map.get('customer', 'Customer'), '')),
-                'customer_reference_no': clean_value(row.get(column_map.get('customer_reference_no', 'Customer Reference No'), '')),
-                'department': clean_value(row.get(column_map.get('department', 'Department/Person In Charge/Sub-Customer'), '')),
-                'service': clean_value(row.get(column_map.get('service', 'Service'), '')),
-                'vehicle': clean_value(row.get(column_map.get('vehicle', 'Vehicle'), '')),
-                'driver': clean_value(row.get(column_map.get('driver', 'Driver'), '')),
-                'contractor': clean_value(row.get(column_map.get('contractor', 'Contractor'), '')),
-                'vehicle_type': clean_value(row.get(column_map.get('vehicle_type', 'Vehicle Type'), '')),
-                'pickup_date': clean_value(row.get(column_map.get('pickup_date', 'Pickup Date'), '')),
-                'pickup_time': clean_value(row.get(column_map.get('pickup_time', 'Pickup Time'), '')),
-                'pickup_location': clean_value(row.get(column_map.get('pickup_location', 'Pickup Location'), '')),
-                'dropoff_location': clean_value(row.get(column_map.get('dropoff_location', 'Drop-off Location'), '')),
-                'passenger_name': clean_value(row.get(column_map.get('passenger_name', 'Passenger Name'), '')),
-                'passenger_mobile': clean_value(row.get(column_map.get('passenger_mobile', 'Passenger Mobile'), '')),
-                'remarks': clean_value(row.get(column_map.get('remarks', 'Remarks'), '')),
-                'is_valid': True,
-                'error_message': ''
-            }
+            # Conditional row data extraction based on user role
+            if is_customer_user:
+                # Customer users: Vehicle and Driver set to empty strings
+                row_data = {
+                    'row_number': row_index + 2,  # Excel rows start from 2 (1 is header)
+                    'customer': clean_value(row.get(column_map.get('customer', 'Customer'), '')),
+                    'customer_reference_no': clean_value(row.get(column_map.get('customer_reference_no', 'Customer Reference No'), '')),
+                    'department': clean_value(row.get(column_map.get('department', 'Department/Person In Charge/Sub-Customer'), '')),
+                    'service': clean_value(row.get(column_map.get('service', 'Service'), '')),
+                    'vehicle': '',  # Always empty for customer users
+                    'driver': '',   # Always empty for customer users
+                    'contractor': clean_value(row.get(column_map.get('contractor', 'Contractor'), '')),
+                    'vehicle_type': clean_value(row.get(column_map.get('vehicle_type', 'Vehicle Type'), '')),
+                    'pickup_date': clean_value(row.get(column_map.get('pickup_date', 'Pickup Date'), '')),
+                    'pickup_time': clean_value(row.get(column_map.get('pickup_time', 'Pickup Time'), '')),
+                    'pickup_location': clean_value(row.get(column_map.get('pickup_location', 'Pickup Location'), '')),
+                    'dropoff_location': clean_value(row.get(column_map.get('dropoff_location', 'Drop-off Location'), '')),
+                    'passenger_name': clean_value(row.get(column_map.get('passenger_name', 'Passenger Name'), '')),
+                    'passenger_mobile': clean_value(row.get(column_map.get('passenger_mobile', 'Passenger Mobile'), '')),
+                    'remarks': clean_value(row.get(column_map.get('remarks', 'Remarks'), '')),
+                    'is_valid': True,
+                    'error_message': ''
+                }
+            else:
+                # Admin users: Vehicle and Driver read from columns
+                row_data = {
+                    'row_number': row_index + 2,  # Excel rows start from 2 (1 is header)
+                    'customer': clean_value(row.get(column_map.get('customer', 'Customer'), '')),
+                    'customer_reference_no': clean_value(row.get(column_map.get('customer_reference_no', 'Customer Reference No'), '')),
+                    'department': clean_value(row.get(column_map.get('department', 'Department/Person In Charge/Sub-Customer'), '')),
+                    'service': clean_value(row.get(column_map.get('service', 'Service'), '')),
+                    'vehicle': clean_value(row.get(column_map.get('vehicle', 'Vehicle'), '')),
+                    'driver': clean_value(row.get(column_map.get('driver', 'Driver'), '')),
+                    'contractor': clean_value(row.get(column_map.get('contractor', 'Contractor'), '')),
+                    'vehicle_type': clean_value(row.get(column_map.get('vehicle_type', 'Vehicle Type'), '')),
+                    'pickup_date': clean_value(row.get(column_map.get('pickup_date', 'Pickup Date'), '')),
+                    'pickup_time': clean_value(row.get(column_map.get('pickup_time', 'Pickup Time'), '')),
+                    'pickup_location': clean_value(row.get(column_map.get('pickup_location', 'Pickup Location'), '')),
+                    'dropoff_location': clean_value(row.get(column_map.get('dropoff_location', 'Drop-off Location'), '')),
+                    'passenger_name': clean_value(row.get(column_map.get('passenger_name', 'Passenger Name'), '')),
+                    'passenger_mobile': clean_value(row.get(column_map.get('passenger_mobile', 'Passenger Mobile'), '')),
+                    'remarks': clean_value(row.get(column_map.get('remarks', 'Remarks'), '')),
+                    'is_valid': True,
+                    'error_message': ''
+                }
 
             # Validate mandatory fields first (before centralized validation)
             mandatory_fields = ['customer', 'service', 'pickup_date', 'pickup_time',
