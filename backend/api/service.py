@@ -56,11 +56,27 @@ def create_service():
         if errors:
             logging.error(f"Schema validation errors: {errors}")
             return jsonify(errors), 400
+
+        # Create the service (this will also handle contractor pricing sync)
         service = ServiceService.create(service_data)
         result = schema.dump(service)
+        
+        # Add success message about contractor pricing sync
+        from backend.models.contractor import Contractor
+        active_contractor_count = Contractor.query_active().filter_by(status='Active').count()
+        
+        if active_contractor_count > 0:
+            result['message'] = f"Service created successfully and synced to contractor pricing lists with default price $0.00"
+        else:
+            result['message'] = "Service created successfully. No active contractors found for pricing sync."
+            
         logging.info(f"Service created successfully with ID: {service.id}")
         return jsonify(result), 201
+        
     except ServiceError as se:
+        # Return 409 Conflict for duplicate name errors, 400 for other validation errors
+        if "already exists" in se.message.lower():
+            return jsonify({'error': se.message}), 409
         return jsonify({'error': se.message}), 400
     except Exception as e:
         logging.error(f"Unhandled error in create_service: {e}", exc_info=True)
@@ -144,6 +160,9 @@ def create_service_with_pricing():
         logging.info(f"Service with pricing created successfully: ID {service.id}")
         return jsonify(result_dict), 201
     except ServiceError as se:
+        # Return 409 Conflict for duplicate name errors, 400 for other validation errors
+        if "already exists" in se.message.lower():
+            return jsonify({'error': se.message}), 409
         return jsonify({'error': se.message}), 400
     except Exception as e:
         logging.error(f"Unhandled error in create_service_with_pricing: {e}", exc_info=True)
@@ -251,15 +270,18 @@ def create_service_with_all_pricing():
         logging.info(f"Service with all vehicle type pricing created successfully: ID {service.id}")
         return jsonify(result_dict), 201
     except ServiceError as se:
+        # Return 409 Conflict for duplicate name errors, 400 for other validation errors
+        if "already exists" in se.message.lower():
+            return jsonify({'error': se.message}), 409
         return jsonify({'error': se.message}), 400
     except IntegrityError as e:
         db.session.rollback()
         logging.error(f"Integrity error in create_service_with_all_pricing: {e}", exc_info=True)
         # Check if it's a duplicate name error
         if "UNIQUE constraint failed" in str(e) and "service.name" in str(e):
-            return jsonify({'error': 'A service with this name already exists. Please choose a different name.'}), 400
+            return jsonify({'error': 'A service with this name already exists. Please choose a different name.'}), 409
         else:
-            return jsonify({'error': 'Could not create service due to a data conflict. Please check your inputs.'}), 400
+            return jsonify({'error': 'Could not create service due to a data conflict. Please check your inputs.'}), 409
     except Exception as e:
         logging.error(f"Unhandled error in create_service_with_all_pricing: {e}", exc_info=True)
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
@@ -309,6 +331,9 @@ def update_service(service_id):
         logging.info(f"Service updated successfully: ID {service.id}")
         return jsonify(result), 200
     except ServiceError as se:
+        # Return 409 Conflict for duplicate name errors, 400 for other validation errors
+        if "already exists" in se.message.lower():
+            return jsonify({'error': se.message}), 409
         return jsonify({'error': se.message}), 400
     except Exception as e:
         logging.error(f"Unhandled error in update_service: {e}", exc_info=True)
@@ -430,11 +455,14 @@ def update_service_with_all_pricing(service_id):
             return jsonify(result), 200
             
     except ServiceError as se:
+        # Return 409 Conflict for duplicate name errors, 400 for other validation errors
+        if "already exists" in se.message.lower():
+            return jsonify({'error': se.message}), 409
         return jsonify({'error': se.message}), 400
     except IntegrityError as e:
         db.session.rollback()
         logging.error(f"Integrity error in update_service_with_all_pricing: {e}", exc_info=True)
-        return jsonify({'error': 'Could not update service due to a data conflict. Please check your inputs.'}), 400
+        return jsonify({'error': 'Could not update service due to a data conflict. Please check your inputs.'}), 409
     except Exception as e:
         logging.error(f"Unhandled error in update_service_with_all_pricing: {e}", exc_info=True)
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
