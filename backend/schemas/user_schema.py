@@ -1,11 +1,11 @@
-from marshmallow import Schema, fields
+from marshmallow import Schema, fields, validate
 from marshmallow_sqlalchemy import fields as ma_fields
 
 class UserSchema(Schema):
     id = fields.Int(dump_only=True)
     email = fields.Email(required=True)
     password = fields.Str(load_only=True, required=True)
-    name = fields.Str(allow_none=True)  # New name field
+    name = fields.Str(allow_none=True, validate=validate.Length(max=255))  # New name field with length validation
     active = fields.Bool()
     fs_uniquifier = fields.Str()
     customer_id = fields.Int(allow_none=True)

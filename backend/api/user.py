@@ -39,6 +39,10 @@ def update_my_profile():
     """
     Update the current user's profile information (name, etc.)
     
+    Security: Users can only update their own profile. User ID is derived from
+    authentication token via current_user.id. This endpoint intentionally restricts
+    updates to the authenticated user's own profile to prevent privilege escalation.
+    
     Expected JSON:
     {
         "name": "John Doe"
@@ -51,7 +55,14 @@ def update_my_profile():
             
         # Only allow updating specific fields
         allowed_fields = ['name']
-        update_data = {key: value for key, value in data.items() if key in allowed_fields}
+        update_data = {}
+        for key, value in data.items():
+            if key in allowed_fields:
+                if key == 'name' and value is not None:
+                    value = value.strip()
+                    if not value:  # Treat empty string as null
+                        value = None
+                update_data[key] = value
         
         if not update_data:
             return jsonify({'error': 'No valid fields to update'}), 400
