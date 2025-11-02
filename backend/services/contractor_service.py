@@ -274,7 +274,7 @@ class ContractorService:
                 job_cost=job_cost,
                 cash_to_collect=cash_to_collect))
 
-            net_total = total_job_cost - total_cash_collect                
+            net_total = total_job_cost                
             contractor = Contractor.query.filter_by(id=bill.contractor_id).first()
             print("Contractor Name:", contractor.name)
 

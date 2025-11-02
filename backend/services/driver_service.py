@@ -232,7 +232,7 @@ class DriverService:
                 job_cost=job_cost,
                 cash_to_collect=cash_to_collect))
 
-            net_total = total_job_cost - total_cash_collect                
+            net_total = total_job_cost                 
             #driver = Driver.query.filter_by(id=bill.driver_id).first()
             #print("Driver Name:", driver.name)
 
