@@ -5,6 +5,7 @@
                 <th>Date & Time</th>
                 <th>Job</th>
                 <th>Particulars</th>
+                <th>Cash Collected</th>
                 <th>Amount</th>
             </tr>
         </thead>
@@ -14,6 +15,7 @@
                 <td class="date-and-time">{{ item.Date }} {{item.Time}}</td>
                 <td class="job-id">{{ item.Job }}</td>
                 <td class="particulars">{{item.ServiceType}} <br/> {{ item.Particulars | safe}}</td>
+                <td class="total">{{ item.cash_collect }}</td>
                 <td class="total">{{ item.amount }}</td>
             </tr>
             {% endfor %}

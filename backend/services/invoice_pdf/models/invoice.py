@@ -29,6 +29,7 @@ class Invoice(BaseModel):
     currency: str = Field(default="USD")
     sub_total: Decimal
     gst_amount: Decimal
+    cash_collect_total: Decimal = Field(ge=0, decimal_places=2)
     total_amount: Decimal = Field(gt=0, decimal_places=2)
 
     email: EmailStr
@@ -37,4 +38,9 @@ class Invoice(BaseModel):
     
     payment_info: str
     qr_code: str
+
+    @property
+    def total(self) -> Decimal:
+        return self.total_amount - self.cash_collect_total
+
     
