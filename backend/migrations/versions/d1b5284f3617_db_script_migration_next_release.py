@@ -22,6 +22,9 @@ def upgrade() -> None:
     """Upgrade schema."""
     # Use batch mode for SQLite compatibility
     with op.batch_alter_table('user', schema=None) as batch_op:
+        # Add name column to user table
+        batch_op.add_column(sa.Column('name', sa.String(length=255), nullable=True))
+        # Add unique constraints
         batch_op.create_unique_constraint('uq_user_customer_id', ['customer_id'])
         batch_op.create_unique_constraint('uq_user_driver_id', ['driver_id'])
 
@@ -30,5 +33,8 @@ def downgrade() -> None:
     """Downgrade schema."""
     # Use batch mode for SQLite compatibility
     with op.batch_alter_table('user', schema=None) as batch_op:
+        # Remove unique constraints
         batch_op.drop_constraint('uq_user_customer_id', type_='unique')
         batch_op.drop_constraint('uq_user_driver_id', type_='unique')
+        # Remove name column
+        batch_op.drop_column('name')
