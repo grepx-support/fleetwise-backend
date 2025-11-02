@@ -500,6 +500,17 @@ class InvoiceService:
             grand_total = (sub_total + gst_amount).quantize(
                 Decimal("0.01"), rounding=ROUND_HALF_UP
             )
+            cash_collect_total = sum(item.cash_collect for item in items)
+            if cash_collect_total > 0:
+                job_ids_with_cash = [str(job.id) for job in jobs if job.cash_to_collect and job.cash_to_collect > 0]
+                payment = Payment(
+                invoice_id=invoice_id,
+                amount=float(cash_collect_total),
+                payment_date=datetime.utcnow(),
+                notes=f"Cash collected from jobs: {', '.join(job_ids_with_cash)}"
+                )
+                db.session.add(payment)
+                db.session.commit()
 
             # Footer Data
             general_settings = prefs.get("general_settings", {})
@@ -527,7 +538,7 @@ class InvoiceService:
             logo_path=logo_path,
             sub_total=sub_total,
             gst_amount=gst_amount,
-            cash_collect_total=sum(item.cash_collect for item in items),
+            cash_collect_total=cash_collect_total,
             total_amount=grand_total,
             company_address= company_address,
             email=email,

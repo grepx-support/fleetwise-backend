@@ -51,6 +51,9 @@ def create_driver():
         if errors:
             return jsonify(errors), 400
         driver = DriverService.create(data)
+        if current_user.has_role('accountant'):
+           logging.info(f"Accountant {current_user.email} created driver", extra={'data': request.get_json()})
+
         return jsonify(schema.dump(driver)), 201
     except ServiceError as se:
         return jsonify({'error': se.message}), 400
