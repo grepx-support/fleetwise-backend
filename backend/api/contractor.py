@@ -52,7 +52,7 @@ def get_contractor(contractor_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @contractor_bp.route('/contractors', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def create_contractor():
     try:
         data = request.get_json()
@@ -115,7 +115,7 @@ def create_contractor():
 
 
 @contractor_bp.route('/contractors/<int:contractor_id>', methods=['PUT'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def update_contractor(contractor_id):
     try:
         data = request.get_json()
@@ -133,7 +133,7 @@ def update_contractor(contractor_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @contractor_bp.route('/contractors/<int:contractor_id>', methods=['DELETE'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def delete_contractor(contractor_id):
     try:
         success = ContractorService.delete(contractor_id)
@@ -147,7 +147,7 @@ def delete_contractor(contractor_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @contractor_bp.route('/contractors/<int:contractor_id>/soft-delete', methods=['PUT'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def toggle_contractor_soft_delete(contractor_id):
     try:
         data = request.get_json()
@@ -202,7 +202,7 @@ def get_contractor_pricing(contractor_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @contractor_bp.route('/contractors/<int:contractor_id>/pricing', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def update_contractor_pricing(contractor_id):
     try:
         data = request.get_json()
@@ -267,7 +267,7 @@ def update_contractor_pricing(contractor_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
     
 @contractor_bp.route('/contractors/download/<int:bill_id>', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def download_contractor_invoice(bill_id):
     try:
         response = ContractorService.contractor_invoice_download(bill_id)

@@ -10,7 +10,7 @@ schema = ServicesVehicleTypePriceSchema(session=db.session)
 schema_many = ServicesVehicleTypePriceSchema(many=True, session=db.session)
 
 @services_vehicle_type_price_bp.route('/services-vehicle-type-prices', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def list_services_vehicle_type_prices():
     try:
         # Check if service_id parameter is provided
@@ -31,7 +31,7 @@ def list_services_vehicle_type_prices():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @services_vehicle_type_price_bp.route('/services-vehicle-type-prices/<int:services_vehicle_type_price_id>', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def get_services_vehicle_type_price(services_vehicle_type_price_id):
     try:
         services_vehicle_type_price = ServicesVehicleTypePriceService.get_by_id(services_vehicle_type_price_id)
@@ -45,7 +45,7 @@ def get_services_vehicle_type_price(services_vehicle_type_price_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @services_vehicle_type_price_bp.route('/services-vehicle-type-prices', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def create_services_vehicle_type_price():
     try:
         data = request.get_json()
@@ -82,7 +82,7 @@ def create_services_vehicle_type_price():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @services_vehicle_type_price_bp.route('/services-vehicle-type-prices/<int:services_vehicle_type_price_id>', methods=['PUT'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def update_services_vehicle_type_price(services_vehicle_type_price_id):
     try:
         data = request.get_json()
@@ -122,7 +122,7 @@ def update_services_vehicle_type_price(services_vehicle_type_price_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @services_vehicle_type_price_bp.route('/services-vehicle-type-prices/<int:services_vehicle_type_price_id>', methods=['DELETE'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def delete_services_vehicle_type_price(services_vehicle_type_price_id):
     try:
         success = ServicesVehicleTypePriceService.delete(services_vehicle_type_price_id)
