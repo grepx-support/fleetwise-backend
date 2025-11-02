@@ -13,10 +13,6 @@ class ContractorInvoice(BaseModel):
     cash_collect_total: Optional[float] = Field(default=None)
     total_amount: Optional[float] = Field(default=None)
     items: List[ContractorInvoiceItem]
-
-    @property
-    def cash_collect_total(self) -> float:
-        return round(sum(item.cash_to_collect for item in self.items), 2)
     
     @property
     def total(self) -> float:

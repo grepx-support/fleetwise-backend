@@ -15,7 +15,7 @@
                 <td class="date-and-time">{{ item.Date }} {{item.Time}}</td>
                 <td class="job-id">{{ item.Job }}</td>
                 <td class="particulars">{{item.ServiceType}} <br/> {{ item.Particulars | safe}}</td>
-                <td class="total">{{ item.cash_collect }}</td>
+                <td class="total">${{ "%.2f"|format(item.cash_collect|default(0)) }}</td>
                 <td class="total">{{ item.amount }}</td>
             </tr>
             {% endfor %}
