@@ -5,7 +5,8 @@ from backend.schemas.user_schema import UserSchema
 from backend.schemas.customer_schema import CustomerSchema
 from backend.schemas.driver_schema import DriverSchema
 import logging
-from flask_security import roles_required, auth_required, current_user, roles_accepted
+from flask_security.decorators import roles_required, auth_required, roles_accepted
+from flask_security import current_user
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
@@ -30,6 +31,51 @@ def get_me():
         return jsonify(schema.dump(current_user)), 200
     except Exception as e:
         logging.error(f"Unhandled error in get_me: {e}", exc_info=True)
+        return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
+
+@user_bp.route('/me', methods=['PUT'])
+@auth_required()
+def update_my_profile():
+    """
+    Update the current user's profile information (name, etc.)
+    
+    Security: Users can only update their own profile. User ID is derived from
+    authentication token via current_user.id. This endpoint intentionally restricts
+    updates to the authenticated user's own profile to prevent privilege escalation.
+    
+    Expected JSON:
+    {
+        "name": "John Doe"
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Request body must be JSON'}), 400
+            
+        # Only allow updating specific fields
+        allowed_fields = ['name']
+        update_data = {}
+        for key, value in data.items():
+            if key in allowed_fields:
+                if key == 'name' and value is not None:
+                    value = value.strip()
+                    if not value:  # Treat empty string as null
+                        value = None
+                update_data[key] = value
+        
+        if not update_data:
+            return jsonify({'error': 'No valid fields to update'}), 400
+            
+        user = UserService.update(current_user.id, update_data)
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+            
+        return jsonify(schema.dump(user)), 200
+    except ServiceError as se:
+        return jsonify({'error': se.message}), 400
+    except Exception as e:
+        logging.error(f"Unhandled error in update_my_profile: {e}", exc_info=True)
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @user_bp.route('/users', methods=['GET'])
