@@ -12,16 +12,18 @@ from flask_security import auth_required, current_user
 # Load environment variables from .env file
 load_dotenv()
 
+env = os.environ.get('NODE_ENV', 'development')
+
 # Add the current directory to Python path to fix import issues
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 # Try different import paths for config
 try:
-    from backend.config import DevConfig
+    from backend.config import DevConfig, StagingConfig, ProductionConfig
 except ImportError:
     try:
-        from config import DevConfig
+        from config import DevConfig, StagingConfig, ProductionConfig
     except ImportError:
         # Fallback config
         class DevConfig:
@@ -98,7 +100,12 @@ logger = logging.getLogger(__name__)
 
 # Initialize app and extensions
 app = Flask(__name__)
-app.config.from_object(DevConfig)
+if env == 'production':
+    app.config.from_object(ProductionConfig)
+elif env == 'staging':
+    app.config.from_object(StagingConfig)
+else:
+    app.config.from_object(DevConfig)
 
 # Add Flask-Security-Too configuration
 app.config['SECURITY_URL_PREFIX'] = '/api/auth'
@@ -611,4 +618,4 @@ def uploaded_file(filename):
 
 
 if __name__ == '__main__':
-    app.run(host="::", port=5000, debug=True) 
+    app.run(host="0.0.0.0", port=5000, debug=True) 

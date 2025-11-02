@@ -40,4 +40,4 @@ source venv/bin/activate && pip install --no-cache-dir -r requirements.txt
 source venv/bin/activate && test -f requirements-firebase.txt && pip install -r requirements-firebase.txt || echo "No Firebase requirements found, skipping"
 
 # Run database migrations (if Alembic is configured)
-source venv/bin/activate && test -d alembic && alembic upgrade head || echo "Alembic not configured, skipping migrations"
+source venv/bin/activate && cd backend && test -d alembic && alembic upgrade head && cd .. || echo "Alembic not configured, skipping migrations"

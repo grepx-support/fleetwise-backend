@@ -20,8 +20,6 @@ class Config:
     WTF_CSRF_ENABLED = False
     SECURITY_CSRF_PROTECT_MECHANISMS = []
     SECURITY_CSRF_IGNORE_UNAUTH_ENDPOINTS = True
-    SESSION_COOKIE_SAMESITE = None  # Use None for production
-    SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'False').lower() == 'true'
     SESSION_COOKIE_HTTPONLY = True
     SECURITY_UNAUTHORIZED_VIEW = None
     # REMEMBER_COOKIE_SAMESITE = "Strict"
@@ -67,6 +65,7 @@ class Config:
  
 class DevConfig(Config):
     SESSION_COOKIE_SAMESITE = 'Lax'  # Use Lax for development
+    SESSION_COOKIE_SECURE = False
     # Ensure consistent database path regardless of working directory
     BASEDIR = os.path.dirname(os.path.abspath(__file__))
     DB_PATH = os.path.join(BASEDIR, 'app.db')
@@ -80,4 +79,11 @@ class DevConfig(Config):
         print(f"Working directory: {os.getcwd()}")
 
 
+class StagingConfig(Config):
+    SESSION_COOKIE_SAMESITE = 'None'
+    SESSION_COOKIE_SECURE = True
 
+
+class ProductionConfig(Config):
+    SESSION_COOKIE_SAMESITE = 'None'
+    SESSION_COOKIE_SECURE = True
