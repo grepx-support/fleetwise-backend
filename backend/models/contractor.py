@@ -10,6 +10,15 @@ class Contractor(db.Model):
     email = db.Column(db.String(128), nullable=True)
     status = db.Column(db.String(32), default='Active', nullable=False)
     is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default=false())
+
+    # Valid status values
+    STATUS_ACTIVE = 'Active'
+    STATUS_INACTIVE = 'Inactive'
+    
+    @property
+    def is_active(self):
+        """Check if contractor is truly active (correct status and not deleted)"""
+        return self.status == self.STATUS_ACTIVE and not self.is_deleted
     
     # Relationships
     service_pricing = db.relationship('ContractorServicePricing', backref='contractor', lazy=True, cascade='all, delete-orphan')
