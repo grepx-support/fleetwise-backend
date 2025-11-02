@@ -17,6 +17,14 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+# Get database URI from DBManager (single source of truth)
+# This ensures Alembic uses the same database configuration as the application
+from backend.database import DBManager
+database_url = DBManager.get_sqlalchemy_uri()
+
+# Override the URL from alembic.ini with the one from DBManager
+config.set_main_option("sqlalchemy.url", database_url)
+
 # add your model's MetaData object here
 # for 'autogenerate' support
 # from myapp import mymodel

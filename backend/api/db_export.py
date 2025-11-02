@@ -10,6 +10,16 @@ import io
 import threading
 import logging
 
+# Import DBManager for singleton database connection management
+try:
+    from backend.database import DBManager
+except ImportError:
+    try:
+        from database import DBManager
+    except ImportError:
+        # Fallback if import fails
+        DBManager = None
+
 # Add the current directory to Python path to fix import issues
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
@@ -105,15 +115,10 @@ def is_valid_table_name(table_name):
 
 def get_table_names():
     """Get list of all table names in the database"""
-    # Get the database path - try different methods
-    try:
-        db_path = DevConfig.DB_PATH
-    except:
-        # Fallback to direct path construction
-        db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'app.db')
-    
-    # Connect to the database
-    conn = sqlite3.connect(db_path)
+    # Connect to the database using DBManager singleton
+    if DBManager is None:
+        raise ImportError("DBManager could not be imported. Please ensure backend.database module exists.")
+    conn = DBManager.connect()
     cursor = conn.cursor()
     
     # Get all table names in alphabetical order
@@ -144,15 +149,10 @@ def export_table_to_excel(table_name):
     if table_name not in available_tables:
         raise ValueError(f"Invalid table name: {table_name}")
     
-    # Get the database path - try different methods
-    try:
-        db_path = DevConfig.DB_PATH
-    except:
-        # Fallback to direct path construction
-        db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'app.db')
-    
-    # Connect to the database
-    conn = sqlite3.connect(db_path)
+    # Connect to the database using DBManager singleton
+    if DBManager is None:
+        raise ImportError("DBManager could not be imported. Please ensure backend.database module exists.")
+    conn = DBManager.connect()
     
     # Read the table into a pandas DataFrame
     # Use SQLite identifier quoting to prevent SQL injection
@@ -195,13 +195,6 @@ def export_multiple_tables_to_excel(table_names):
         if table_name not in available_tables:
             raise ValueError(f"Invalid table name: {table_name}")
     
-    # Get the database path - try different methods
-    try:
-        db_path = DevConfig.DB_PATH
-    except:
-        # Fallback to direct path construction
-        db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'app.db')
-    
     # Create a temporary file
     temp_file = tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False)
     temp_file.close()
@@ -210,8 +203,10 @@ def export_multiple_tables_to_excel(table_names):
     try:
         with pd.ExcelWriter(temp_file.name, engine='openpyxl') as writer:
             for table_name in table_names:
-                # Connect to the database
-                conn = sqlite3.connect(db_path)
+                # Connect to the database using DBManager singleton
+                if DBManager is None:
+                    raise ImportError("DBManager could not be imported. Please ensure db_manager.py exists.")
+                conn = DBManager.connect()
                 
                 # Read the table into a pandas DataFrame
                 # Use SQLite identifier quoting to prevent SQL injection

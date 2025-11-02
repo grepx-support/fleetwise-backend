@@ -67,17 +67,29 @@ class Config:
  
 class DevConfig(Config):
     SESSION_COOKIE_SAMESITE = 'Lax'  # Use Lax for development
-    # Ensure consistent database path regardless of working directory
-    BASEDIR = os.path.dirname(os.path.abspath(__file__))
-    DB_PATH = os.path.join(BASEDIR, 'app.db')
-    SQLALCHEMY_DATABASE_URI = f"sqlite:///{DB_PATH}"
     DEBUG = True
     
     def __init__(self):
-        # Debug: Print the actual database path being used
-        print(f"Database path: {self.DB_PATH}")
-        print(f"BASEDIR: {self.BASEDIR}")
-        print(f"Working directory: {os.getcwd()}")
+        # Import DBManager to get database configuration
+        # This ensures all database decisions come from DBManager
+        # No fallback - DBManager must be available
+        from backend.database import DBManager
+        
+        # Get database configuration from DBManager (single source of truth)
+        # Use static methods - no need to instantiate
+        self.SQLALCHEMY_DATABASE_URI = DBManager.get_sqlalchemy_uri()
+        
+        # For SQLite, also set DB_PATH for backwards compatibility
+        db_instance = DBManager()
+        if db_instance.is_sqlite():
+            self.DB_PATH = db_instance.get_db_path()
+            self.BASEDIR = os.path.dirname(os.path.abspath(__file__))
+            print(f"Database path: {self.DB_PATH}")
+            print(f"BASEDIR: {self.BASEDIR}")
+            print(f"Working directory: {os.getcwd()}")
+        else:
+            print(f"Database type: {db_instance.get_db_type()}")
+            print(f"Database URI: {self.SQLALCHEMY_DATABASE_URI}")
 
 
 
