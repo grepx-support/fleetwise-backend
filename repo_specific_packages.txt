@@ -33,12 +33,6 @@ source venv/bin/activate && pip install -e libs/py-web-libs
 source venv/bin/activate && pip install -e libs/grepx-py-sql-database-libs
 source venv/bin/activate && pip install -e libs/py-utils
 
-# Install Orange Workflow dependencies
-git clone https://bitbucket.org/grepx/orange-workflow.git libs/orangeworkflow
-
-# Install orangeworkflow requirements first
-source venv/bin/activate && pip install -r libs/orangeworkflow/requirements.txt
-
 # Install main backend dependencies
 source venv/bin/activate && pip install --no-cache-dir -r requirements.txt
 
