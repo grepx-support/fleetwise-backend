@@ -40,9 +40,10 @@ class Invoice(BaseModel):
     qr_code: str
 
     @property
+    def cash_collect_total(self) -> Decimal:
+        return sum(item.cash_collect for item in self.items)
+    @property
     def total(self) -> Decimal:
-        if any(item.cash_collect > 0 for item in self.items):
-           return self.total_amount - self.cash_collect_total
         return self.total_amount - self.cash_collect_total
 
     

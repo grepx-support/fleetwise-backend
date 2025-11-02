@@ -180,16 +180,6 @@ def add_cors_headers(response):
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
         response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept"
     return response
-@app.before_request
-def handle_preflight():
-    if request.method == "OPTIONS":
-        response = app.make_default_options_response()
-        origin = request.headers.get('Origin')
-        if origin:
-            response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept"
-        return response
 
 # Custom login logging function
 def log_authentication_details(email, provided_password, user_obj=None):
@@ -307,8 +297,7 @@ blueprints = [
     ('db_export', '/api'),
     ('contractor', '/api'),
     ('services_vehicle_type_price', '/api'),
-    ('bill', '/api'),
-    ('ai_pipeline_routes', '/api'),
+    ('bill', '/api')
 ]
 
 for blueprint_name, prefix in blueprints:

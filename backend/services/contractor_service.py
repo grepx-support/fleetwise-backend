@@ -274,9 +274,8 @@ class ContractorService:
                 job_cost=job_cost,
                 cash_to_collect=cash_to_collect))
 
-            gross_total = sum(item.job_cost for item in items)        
+            net_total = total_job_cost - total_cash_collect                
             contractor = Contractor.query.filter_by(id=bill.contractor_id).first()
-            cash_collect_total = sum(item.cash_to_collect for item in items)
             print("Contractor Name:", contractor.name)
 
             user_settings = UserSettings.query.first()
@@ -291,8 +290,8 @@ class ContractorService:
             bill_no=f"BILL-{bill_id}",
             bill_date=datetime.utcnow().date(),
             items=items,
-            cash_collect_total=round(cash_collect_total, 2),
-            total_amount=round(gross_total, 2)
+            cash_collect_total=sum(item.cash_to_collect for item in items),
+            total_amount=net_total
             )
 
             templates_dir = Path(__file__).resolve().parent / "contractor_pdf" /"templates"

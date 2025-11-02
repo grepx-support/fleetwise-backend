@@ -479,7 +479,7 @@ class InvoiceService:
                 Particulars=InvoiceService.build_particulars(job),
                 ServiceType=service.name if service else job.service_type,
                 amount=f"{job.final_price:.2f}",
-                cash_collect=Decimal(str(getattr(job, 'cash_to_collect', 0) or 0))
+                cash_collect=Decimal(str(job.cash_to_collect or 0))
                 ))
         
             user_settings = UserSettings.query.first()
@@ -500,15 +500,7 @@ class InvoiceService:
             grand_total = (sub_total + gst_amount).quantize(
                 Decimal("0.01"), rounding=ROUND_HALF_UP
             )
-            cash_collected = sum(Decimal(str(getattr(item, 'cash_collect', 0))) for item in items)
-            if cash_collected > 0:
-                job_ids_with_cash = [str(job.id) for job in jobs if getattr(job, "cash_to_collect", 0) and job.cash_to_collect > 0]
-                payment = Payment(invoice_id=invoice.id,amount=float(cash_collected),date=datetime.utcnow(),reference_number="",  notes=f"Cash collected from jobs: {', '.join(job_ids_with_cash)}")
-                db.session.add(payment)
-                db.session.commit()
-                current_app.logger.info(f"💰 Recorded partial cash payment of {cash_collected} for invoice {invoice.id}")
-                
-            
+
             # Footer Data
             general_settings = prefs.get("general_settings", {})
             company_address = general_settings.get("company_address", "")
@@ -535,7 +527,7 @@ class InvoiceService:
             logo_path=logo_path,
             sub_total=sub_total,
             gst_amount=gst_amount,
-            cash_collect_total=cash_collected,
+            cash_collect_total=sum(item.cash_collect for item in items),
             total_amount=grand_total,
             company_address= company_address,
             email=email,
