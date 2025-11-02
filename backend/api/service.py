@@ -11,6 +11,12 @@ service_bp = Blueprint('service', __name__)
 schema = ServiceSchema(session=db.session)
 schema_many = ServiceSchema(many=True, session=db.session)
 
+def handle_service_error(se):
+    """Centralized ServiceError handling with appropriate HTTP status codes."""
+    if "already exists" in se.message.lower():
+        return jsonify({'error': se.message}), 409
+    return jsonify({'error': se.message}), 400
+
 @service_bp.route('/services', methods=['GET'])
 @roles_accepted('admin', 'manager', 'accountant', 'customer')
 def list_services():
@@ -43,25 +49,40 @@ def create_service():
     try:
         data = request.get_json()
         logging.info(f"Raw data received: {data}")
-        
+
         # Extract only the fields that exist in the Service model
         service_data = {
             'name': data.get('name'),
             'description': data.get('description', ''),
             'status': data.get('status', 'Active')
         }
-        
+
         logging.info(f"Processed data: {service_data}")
         errors = schema.validate(service_data)
         if errors:
             logging.error(f"Schema validation errors: {errors}")
             return jsonify(errors), 400
-        service = ServiceService.create(service_data)
+
+        # Create service and get actual sync results
+        service, sync_success_count, sync_error_count = ServiceService.create(service_data)
         result = schema.dump(service)
+
+        # Construct accurate message based on sync outcomes
+        if sync_success_count > 0:
+            if sync_error_count == 0:
+                result['message'] = f"Service created successfully and synced to {sync_success_count} contractor pricing lists with default price $0.00"
+            else:
+                result['message'] = f"Service created successfully. Synced to {sync_success_count} contractors, but {sync_error_count} sync(s) failed."
+        elif sync_error_count > 0:
+            result['message'] = "Service created but contractor pricing sync failed. Please sync manually."
+        else:
+            result['message'] = "Service created successfully. No active contractors found for pricing sync."
+
         logging.info(f"Service created successfully with ID: {service.id}")
         return jsonify(result), 201
+
     except ServiceError as se:
-        return jsonify({'error': se.message}), 400
+        return handle_service_error(se)
     except Exception as e:
         logging.error(f"Unhandled error in create_service: {e}", exc_info=True)
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
@@ -72,22 +93,22 @@ def create_service_with_pricing():
     try:
         data = request.get_json()
         logging.info(f"Creating service with pricing data: {data}")
-        
+
         # Extract only the fields that exist in the Service model
         service_data = {
             'name': data.get('name'),
             'description': data.get('description', ''),
             'status': data.get('status', 'Active')
         }
-        
+
         logging.info(f"Processed service data: {service_data}")
         errors = schema.validate(service_data)
         if errors:
             logging.error(f"Service schema validation errors: {errors}")
             return jsonify(errors), 400
-            
+
         # Create the service first
-        service = ServiceService.create(service_data)
+        service, sync_success_count, sync_error_count = ServiceService.create(service_data)
         logging.info(f"Service created successfully with ID: {service.id}")
         
         # Extract and create pricing data
@@ -144,7 +165,7 @@ def create_service_with_pricing():
         logging.info(f"Service with pricing created successfully: ID {service.id}")
         return jsonify(result_dict), 201
     except ServiceError as se:
-        return jsonify({'error': se.message}), 400
+        return handle_service_error(se)
     except Exception as e:
         logging.error(f"Unhandled error in create_service_with_pricing: {e}", exc_info=True)
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
@@ -156,22 +177,22 @@ def create_service_with_all_pricing():
     try:
         data = request.get_json()
         logging.info(f"Creating service with all vehicle type pricing data: {data}")
-        
+
         # Extract only the fields that exist in the Service model
         service_data = {
             'name': data.get('name'),
             'description': data.get('description', ''),
             'status': data.get('status', 'Active')
         }
-        
+
         logging.info(f"Processed service data: {service_data}")
         errors = schema.validate(service_data)
         if errors:
             logging.error(f"Service schema validation errors: {errors}")
             return jsonify(errors), 400
-            
+
         # Create the service first
-        service = ServiceService.create(service_data)
+        service, sync_success_count, sync_error_count = ServiceService.create(service_data)
         logging.info(f"Service created successfully with ID: {service.id}")
         
         # Get all vehicle types
@@ -251,15 +272,15 @@ def create_service_with_all_pricing():
         logging.info(f"Service with all vehicle type pricing created successfully: ID {service.id}")
         return jsonify(result_dict), 201
     except ServiceError as se:
-        return jsonify({'error': se.message}), 400
+        return handle_service_error(se)
     except IntegrityError as e:
         db.session.rollback()
         logging.error(f"Integrity error in create_service_with_all_pricing: {e}", exc_info=True)
         # Check if it's a duplicate name error
         if "UNIQUE constraint failed" in str(e) and "service.name" in str(e):
-            return jsonify({'error': 'A service with this name already exists. Please choose a different name.'}), 400
+            return jsonify({'error': 'A service with this name already exists. Please choose a different name.'}), 409
         else:
-            return jsonify({'error': 'Could not create service due to a data conflict. Please check your inputs.'}), 400
+            return jsonify({'error': 'Could not create service due to a data conflict. Please check your inputs.'}), 409
     except Exception as e:
         logging.error(f"Unhandled error in create_service_with_all_pricing: {e}", exc_info=True)
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
@@ -309,7 +330,7 @@ def update_service(service_id):
         logging.info(f"Service updated successfully: ID {service.id}")
         return jsonify(result), 200
     except ServiceError as se:
-        return jsonify({'error': se.message}), 400
+        return handle_service_error(se)
     except Exception as e:
         logging.error(f"Unhandled error in update_service: {e}", exc_info=True)
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
@@ -430,11 +451,11 @@ def update_service_with_all_pricing(service_id):
             return jsonify(result), 200
             
     except ServiceError as se:
-        return jsonify({'error': se.message}), 400
+        return handle_service_error(se)
     except IntegrityError as e:
         db.session.rollback()
         logging.error(f"Integrity error in update_service_with_all_pricing: {e}", exc_info=True)
-        return jsonify({'error': 'Could not update service due to a data conflict. Please check your inputs.'}), 400
+        return jsonify({'error': 'Could not update service due to a data conflict. Please check your inputs.'}), 409
     except Exception as e:
         logging.error(f"Unhandled error in update_service_with_all_pricing: {e}", exc_info=True)
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500

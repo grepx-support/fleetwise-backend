@@ -31,9 +31,29 @@ class ServiceService:
             logging.info(f"Creating service with data: {list(data.keys())}")
             service = Service(**data)
             db.session.add(service)
+            db.session.flush()  # Get the service ID without committing
+
+            # Import here to avoid circular imports
+            from backend.services.contractor_service_pricing_service import ContractorServicePricingService
+
+            # Track sync outcomes
+            sync_success_count = 0
+            sync_error_count = 0
+
+            # Sync the new service to all active contractors
+            try:
+                sync_success_count, sync_error_count = ContractorServicePricingService.sync_new_service_to_contractors(service.id)
+                if sync_error_count > 0:
+                    logging.warning(f"Some contractors ({sync_error_count}) failed to sync with new service {service.id}")
+            except Exception as sync_error:
+                logging.error(f"Error syncing service to contractors: {sync_error}", exc_info=True)
+                sync_error_count = -1  # Flag total failure
+
             db.session.commit()
             logging.info(f"Service created successfully with ID: {service.id}")
-            return service
+            # Return service with sync metrics for API layer to construct accurate message
+            return service, sync_success_count, sync_error_count
+
         except IntegrityError as e:
             db.session.rollback()
             logging.error(f"Integrity error creating service: {e}", exc_info=True)
@@ -41,7 +61,7 @@ class ServiceService:
             if "UNIQUE constraint failed" in str(e) and "service.name" in str(e):
                 raise ServiceError("A service with this name already exists. Please choose a different name.")
             else:
-                raise ServiceError("Could not create service due to a data conflict. Please check your inputs.")
+                raise ServiceError("Failed to create service due to a data conflict.")
         except Exception as e:
             db.session.rollback()
             logging.error(f"Error creating service: {e}", exc_info=True)
@@ -78,10 +98,10 @@ class ServiceService:
             service = Service.query_active().filter_by(id=service_id).first()
             if not service:
                 return False
-            
+
             # Soft delete the service instead of hard delete
             service.is_deleted = True
-            
+
             db.session.commit()
             logging.info(f"Service {service_id} soft deleted successfully")
             return True
