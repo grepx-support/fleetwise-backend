@@ -14,6 +14,7 @@ class InvoiceItem(BaseModel):
     Particulars: str = Field(min_length=1, max_length=200)
     ServiceType: str = constr(strip_whitespace=True, min_length=1) 
     amount: Decimal = Field(gt=0, decimal_places=2)
+    cash_collect: Decimal = Field(ge=0, decimal_places=2, default=Decimal("0.00"))
 
 
     @property
@@ -23,7 +24,8 @@ class InvoiceItem(BaseModel):
     @property
     def tax_amount(self) -> Decimal:
         return self.amount * 0
+
     
     @property
     def total(self) -> Decimal:
-        return self.subtotal + self.tax_amount
+        return self.subtotal + self.tax_amount 

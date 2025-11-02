@@ -2,6 +2,7 @@ from datetime import date as Date
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from .contractor_invoice_item import ContractorInvoiceItem
+from decimal import Decimal
 
 class ContractorInvoice(BaseModel):
     company_name: str
@@ -9,6 +10,7 @@ class ContractorInvoice(BaseModel):
     contractor_name: str
     bill_no: str
     bill_date: Date
+    cash_collect_total: Optional[float] = Field(default=None)
     total_amount: Optional[float] = Field(default=None)
     items: List[ContractorInvoiceItem]
     
