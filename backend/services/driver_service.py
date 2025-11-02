@@ -248,7 +248,7 @@ class DriverService:
             bill_no=f"BILL-{bill_id}",
             bill_date=datetime.utcnow().date(),
             items=items,
-            cash_collect_total=sum(item.cash_to_collect for item in items),
+            cash_collect_total=total_cash_collect,
             total_amount=net_total
             )
 
