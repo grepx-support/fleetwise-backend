@@ -506,7 +506,7 @@ class InvoiceService:
                 payment = Payment(
                 invoice_id=invoice_id,
                 amount=float(cash_collect_total),
-                payment_date=datetime.utcnow(),
+                date=datetime.utcnow(),
                 notes=f"Cash collected from jobs: {', '.join(job_ids_with_cash)}"
                 )
                 db.session.add(payment)
