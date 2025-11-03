@@ -16,7 +16,7 @@ customer_service_pricing_bp = Blueprint('customer_service_pricing', __name__)
 schema = CustomerServicePricingSchema()
 
 @customer_service_pricing_bp.route('/customer_service_pricing', methods=['POST'], strict_slashes=False)
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def create_customer_service_pricing():
     """Create a new customer service pricing record"""
     try:
@@ -42,7 +42,7 @@ def create_customer_service_pricing():
         return jsonify({'error': 'Could not create pricing record'}), 500
 
 @customer_service_pricing_bp.route('/customer_service_pricing', methods=['GET'], strict_slashes=False)
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def get_customer_service_pricing():
     """Get all customer service pricing records"""
     try:
@@ -53,7 +53,7 @@ def get_customer_service_pricing():
         return jsonify({'error': 'Could not fetch pricing records'}), 500
 
 @customer_service_pricing_bp.route('/customer_service_pricing/<int:pricing_id>', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def get_customer_service_pricing_by_id(pricing_id):
     """Get customer service pricing record by ID"""
     try:
@@ -65,7 +65,7 @@ def get_customer_service_pricing_by_id(pricing_id):
         return jsonify({'error': 'Could not fetch pricing record'}), 500
 
 @customer_service_pricing_bp.route('/customer_service_pricing/customer/<int:cust_id>/service/<int:service_id>', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def get_customer_service_pricing_by_customer_and_service(cust_id, service_id):
     """Get customer service pricing record by customer ID and service ID"""
     try:
@@ -78,7 +78,7 @@ def get_customer_service_pricing_by_customer_and_service(cust_id, service_id):
         return jsonify({'error': 'Could not fetch pricing record'}), 500
 
 @customer_service_pricing_bp.route('/customer_service_pricing/lookup', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def get_customer_service_pricing_lookup():
     """Get customer service pricing record by customer ID, service name, and vehicle type"""
     try:
@@ -124,7 +124,7 @@ def get_customer_service_pricing_lookup():
         return jsonify({'error': 'Could not fetch pricing record'}), 500
 
 @customer_service_pricing_bp.route('/customer_service_pricing/<int:pricing_id>', methods=['PUT'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def update_customer_service_pricing(pricing_id):
     """Update customer service pricing record"""
     try:
@@ -152,7 +152,7 @@ def update_customer_service_pricing(pricing_id):
         return jsonify({'error': 'Could not update pricing record'}), 500
 
 @customer_service_pricing_bp.route('/customer_service_pricing/<int:pricing_id>', methods=['DELETE'], strict_slashes=False)
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def delete_customer_service_pricing(pricing_id):
     """Delete customer service pricing record"""
     try:
@@ -164,7 +164,7 @@ def delete_customer_service_pricing(pricing_id):
         return jsonify({'error': 'Could not delete pricing record'}), 500
     
 @customer_service_pricing_bp.route('/pricing-matrix/defaults', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def pricing_defaults_matrix():
     services = Service.query.order_by(Service.id).all()
     vehicles = VehicleType.query.order_by(VehicleType.id).all()
@@ -188,7 +188,7 @@ def pricing_defaults_matrix():
     })
 
 @customer_service_pricing_bp.route('/customers/<int:cust_id>/pricing-matrix', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def get_pricing_matrix(cust_id: int):
     services = Service.query.all()
     vehicle_types = VehicleType.query.all()
@@ -219,7 +219,7 @@ def get_pricing_matrix(cust_id: int):
 
 
 @customer_service_pricing_bp.route('/customers/<int:cust_id>/pricing-matrix', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def save_pricing_customer_matrix(cust_id):
     payload = request.get_json(silent=True) or {}
     items = payload.get("items", [])
@@ -255,7 +255,7 @@ def save_pricing_customer_matrix(cust_id):
     return jsonify({"ok": True, "count": count}), 200
 
 @customer_service_pricing_bp.route('/customer_with_pricing', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def create_customer_with_pricing():
     """
     Atomically create a customer and their pricing overrides in one transaction.

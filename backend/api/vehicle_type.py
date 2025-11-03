@@ -22,7 +22,7 @@ def list_vehicle_types():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @vehicle_type_bp.route('/vehicle-types/<int:vehicle_type_id>', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def get_vehicle_type(vehicle_type_id):
     try:
         vehicle_type = VehicleTypeService.get_by_id(vehicle_type_id)
@@ -36,7 +36,7 @@ def get_vehicle_type(vehicle_type_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @vehicle_type_bp.route('/vehicle-types', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def create_vehicle_type():
     try:
         data = request.get_json()
@@ -70,7 +70,7 @@ def update_vehicle_type(vehicle_type_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @vehicle_type_bp.route('/vehicle-types/<int:vehicle_type_id>', methods=['DELETE'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def delete_vehicle_type(vehicle_type_id):
     try:
         success = VehicleTypeService.delete(vehicle_type_id)
@@ -84,7 +84,7 @@ def delete_vehicle_type(vehicle_type_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @vehicle_type_bp.route('/vehicle-types/<int:vehicle_type_id>/soft-delete', methods=['PUT'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def toggle_vehicle_type_soft_delete(vehicle_type_id):
     try:
         data = request.get_json()
