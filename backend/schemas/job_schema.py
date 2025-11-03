@@ -141,11 +141,66 @@ class JobSchema(SQLAlchemyAutoSchema):
             return []
 
     def get_ancillary_charges(self, obj):
-        """Get ancillary_charges as JSON data for API response"""
+        """
+        Get ancillary_charges as JSON data for API response with validation.
+
+        Expected structure: Array of objects with:
+        - service_id (int, required)
+        - name (str, required)
+        - price (float, required)
+        - unit_price (float, required)
+        - quantity (int, required)
+        - condition_type (str, optional)
+        """
         if obj.ancillary_charges:
             try:
-                return json.loads(obj.ancillary_charges)
-            except (json.JSONDecodeError, TypeError):
+                data = json.loads(obj.ancillary_charges)
+
+                # Validate structure
+                if not isinstance(data, list):
+                    logging.error(f"Job {obj.id} ancillary_charges is not a list: {obj.ancillary_charges}")
+                    return []
+
+                # Validate each charge has required fields
+                required_fields = ['service_id', 'name', 'price', 'unit_price', 'quantity']
+                validated_charges = []
+
+                for idx, charge in enumerate(data):
+                    if not isinstance(charge, dict):
+                        logging.error(f"Job {obj.id} ancillary charge #{idx} is not a dict: {charge}")
+                        continue
+
+                    # Check required fields
+                    missing_fields = [field for field in required_fields if field not in charge]
+                    if missing_fields:
+                        logging.error(
+                            f"Job {obj.id} ancillary charge #{idx} missing required fields "
+                            f"{missing_fields}: {charge}"
+                        )
+                        continue
+
+                    # Validate field types
+                    try:
+                        validated_charge = {
+                            'service_id': int(charge['service_id']),
+                            'name': str(charge['name']),
+                            'price': float(charge['price']),
+                            'unit_price': float(charge['unit_price']),
+                            'quantity': int(charge['quantity']),
+                            'condition_type': charge.get('condition_type', '')
+                        }
+                        validated_charges.append(validated_charge)
+                    except (ValueError, TypeError) as e:
+                        logging.error(
+                            f"Job {obj.id} ancillary charge #{idx} has invalid field types: {charge}. "
+                            f"Error: {str(e)}"
+                        )
+                        continue
+
+                return validated_charges
+
+            except (json.JSONDecodeError, TypeError) as e:
+                logging.error(f"Failed to deserialize ancillary_charges for job {obj.id}: {str(e)}")
                 return []
         return []
 

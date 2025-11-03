@@ -2,6 +2,8 @@ from flask import Blueprint, request, jsonify
 from backend.services.service_service import ServiceService, ServiceError
 from backend.schemas.service_schema import ServiceSchema
 import logging
+import json
+import re
 from flask_security.decorators import roles_required, roles_accepted, auth_required
 from backend.extensions import db
 from decimal import Decimal, InvalidOperation
@@ -16,6 +18,69 @@ def handle_service_error(se):
     if "already exists" in se.message.lower():
         return jsonify({'error': se.message}), 409
     return jsonify({'error': se.message}), 400
+
+
+def validate_condition_config(condition_type, condition_config_str):
+    """
+    Validate condition_config JSON matches condition_type schema.
+
+    Args:
+        condition_type: The type of condition ('always', 'time_range', 'additional_stops')
+        condition_config_str: JSON string of the configuration
+
+    Raises:
+        ValueError: If validation fails with specific error message
+    """
+    # If no condition_type, config should be empty
+    if not condition_type or condition_type == 'always':
+        if condition_config_str:
+            raise ValueError("condition_config should be empty for 'always' or no condition_type")
+        return
+
+    # For other condition types, config is required
+    if not condition_config_str:
+        raise ValueError(f"condition_config is required for condition_type '{condition_type}'")
+
+    # Validate JSON structure
+    try:
+        config = json.loads(condition_config_str)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON in condition_config: {str(e)}")
+
+    if not isinstance(config, dict):
+        raise ValueError("condition_config must be a JSON object")
+
+    # Validate based on condition_type
+    if condition_type == 'time_range':
+        required_fields = ['start_time', 'end_time']
+        for field in required_fields:
+            if field not in config:
+                raise ValueError(f"time_range config missing required field '{field}'")
+            # Validate HH:MM format
+            if not isinstance(config[field], str) or not re.match(r'^\d{2}:\d{2}$', config[field]):
+                raise ValueError(f"{field} must be in HH:MM format (e.g., '23:00'), got '{config[field]}'")
+            # Validate time values are valid
+            try:
+                hours, minutes = map(int, config[field].split(':'))
+                if hours < 0 or hours > 23:
+                    raise ValueError(f"{field} hours must be between 00-23, got {hours}")
+                if minutes < 0 or minutes > 59:
+                    raise ValueError(f"{field} minutes must be between 00-59, got {minutes}")
+            except ValueError as e:
+                raise ValueError(f"Invalid time format for {field}: {str(e)}")
+
+    elif condition_type == 'additional_stops':
+        if 'trigger_count' not in config:
+            raise ValueError("additional_stops config missing required field 'trigger_count'")
+
+        trigger_count = config['trigger_count']
+        if not isinstance(trigger_count, int):
+            raise ValueError(f"trigger_count must be an integer, got {type(trigger_count).__name__}")
+        if trigger_count < 0:
+            raise ValueError(f"trigger_count must be non-negative, got {trigger_count}")
+    else:
+        # Unknown condition type - log warning but don't fail
+        logging.warning(f"Unknown condition_type '{condition_type}' - skipping detailed validation")
 
 @service_bp.route('/services', methods=['GET'])
 @roles_accepted('admin', 'manager', 'accountant', 'customer')
@@ -62,6 +127,18 @@ def create_service():
         }
 
         logging.info(f"Processed data: {service_data}")
+
+        # Validate condition_config if ancillary service
+        if service_data.get('is_ancillary'):
+            try:
+                validate_condition_config(
+                    service_data.get('condition_type'),
+                    service_data.get('condition_config')
+                )
+            except ValueError as e:
+                logging.error(f"condition_config validation error: {str(e)}")
+                return jsonify({'error': f"Invalid ancillary configuration: {str(e)}"}), 400
+
         errors = schema.validate(service_data)
         if errors:
             logging.error(f"Schema validation errors: {errors}")
@@ -110,6 +187,18 @@ def create_service_with_pricing():
         }
 
         logging.info(f"Processed service data: {service_data}")
+
+        # Validate condition_config if ancillary service
+        if service_data.get('is_ancillary'):
+            try:
+                validate_condition_config(
+                    service_data.get('condition_type'),
+                    service_data.get('condition_config')
+                )
+            except ValueError as e:
+                logging.error(f"condition_config validation error: {str(e)}")
+                return jsonify({'error': f"Invalid ancillary configuration: {str(e)}"}), 400
+
         errors = schema.validate(service_data)
         if errors:
             logging.error(f"Service schema validation errors: {errors}")
@@ -118,7 +207,7 @@ def create_service_with_pricing():
         # Create the service first
         service, sync_success_count, sync_error_count = ServiceService.create(service_data)
         logging.info(f"Service created successfully with ID: {service.id}")
-        
+
         # Extract and create pricing data
         pricing_data = data.get('pricing', [])
         created_pricing = []
@@ -331,6 +420,24 @@ def update_service(service_id):
                         return jsonify({'error': f'{field} must be a valid number'}), 400
         
         logging.info(f"Processed update data: {data}")
+
+        # Validate condition_config if ancillary service (or being updated to ancillary)
+        if data.get('is_ancillary') or 'condition_config' in data or 'condition_type' in data:
+            # Get current service to check if it's ancillary
+            from backend.models.service import Service
+            current_service = Service.query.get(service_id)
+            is_ancillary = data.get('is_ancillary', current_service.is_ancillary if current_service else False)
+
+            if is_ancillary:
+                condition_type = data.get('condition_type', current_service.condition_type if current_service else None)
+                condition_config = data.get('condition_config', current_service.condition_config if current_service else None)
+
+                try:
+                    validate_condition_config(condition_type, condition_config)
+                except ValueError as e:
+                    logging.error(f"condition_config validation error: {str(e)}")
+                    return jsonify({'error': f"Invalid ancillary configuration: {str(e)}"}), 400
+
         errors = schema.validate(data, partial=True)
         if errors:
             logging.error(f"Schema validation errors: {errors}")
