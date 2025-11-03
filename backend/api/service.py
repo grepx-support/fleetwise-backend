@@ -95,7 +95,7 @@ def list_services():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @service_bp.route('/services/<int:service_id>', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def get_service(service_id):
     try:
         service = ServiceService.get_by_id(service_id)
@@ -109,7 +109,7 @@ def get_service(service_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @service_bp.route('/services', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def create_service():
     try:
         data = request.get_json()
@@ -169,7 +169,7 @@ def create_service():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @service_bp.route('/services-with-pricing', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def create_service_with_pricing():
     try:
         data = request.get_json()
@@ -269,7 +269,7 @@ def create_service_with_pricing():
 
 # Add the new endpoint for creating service with all vehicle type prices
 @service_bp.route('/services/create-with-all-pricing', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def create_service_with_all_pricing():
     try:
         data = request.get_json()
@@ -387,7 +387,7 @@ def create_service_with_all_pricing():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @service_bp.route('/services/<int:service_id>', methods=['PUT'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def update_service(service_id):
     try:
         data = request.get_json()
@@ -455,7 +455,7 @@ def update_service(service_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @service_bp.route('/services/<int:service_id>/update-with-all-pricing', methods=['PUT'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def update_service_with_all_pricing(service_id):
     try:
         data = request.get_json()
@@ -584,7 +584,7 @@ def update_service_with_all_pricing(service_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @service_bp.route('/services/<int:service_id>', methods=['DELETE'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def delete_service(service_id):
     try:
         # Debug: Log the deletion attempt
@@ -604,7 +604,7 @@ def delete_service(service_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @service_bp.route('/services/<int:service_id>/soft-delete', methods=['PUT'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def toggle_service_soft_delete(service_id):
     try:
         data = request.get_json()

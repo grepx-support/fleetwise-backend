@@ -59,7 +59,7 @@ def get_customer(customer_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @customer_bp.route('/customers', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def create_customer():
     try:
         data = request.get_json()
@@ -85,7 +85,7 @@ def create_customer():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @customer_bp.route('/customers/<int:customer_id>', methods=['PUT'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def update_customer(customer_id):
     try:
         data = request.get_json()
@@ -110,7 +110,7 @@ def update_customer(customer_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @customer_bp.route('/customers/<int:customer_id>', methods=['DELETE'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def delete_customer(customer_id):
     try:
         # Debug: Log the deletion attempt
@@ -134,7 +134,7 @@ def delete_customer(customer_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @customer_bp.route('/customers/<int:customer_id>/soft-delete', methods=['PUT'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def toggle_customer_soft_delete(customer_id):
     try:
         data = request.get_json()

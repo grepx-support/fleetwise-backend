@@ -10,7 +10,7 @@ schema = RoleSchema()
 schema_many = RoleSchema(many=True)
 
 @role_bp.route('/roles', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def list_roles():
     try:
         roles = RoleService.get_all()
@@ -22,7 +22,7 @@ def list_roles():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @role_bp.route('/roles/<int:role_id>', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def get_role(role_id):
     try:
         role = RoleService.get_by_id(role_id)
