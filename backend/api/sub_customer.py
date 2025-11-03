@@ -10,7 +10,7 @@ schema = SubCustomerSchema(session=db.session)
 schema_many = SubCustomerSchema(many=True, session=db.session)
 
 @sub_customer_bp.route('/sub_customers', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def list_sub_customers():
     try:
         sub_customers = SubCustomerService.get_all()
@@ -39,7 +39,7 @@ def get_sub_customer(sub_customer_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @sub_customer_bp.route('/sub_customers', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def create_sub_customer():
     try:
         data = request.get_json()
@@ -55,7 +55,7 @@ def create_sub_customer():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @sub_customer_bp.route('/sub_customers/<int:sub_customer_id>', methods=['PUT'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def update_sub_customer(sub_customer_id):
     try:
         data = request.get_json()
@@ -73,7 +73,7 @@ def update_sub_customer(sub_customer_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @sub_customer_bp.route('/sub_customers/<int:sub_customer_id>', methods=['DELETE'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def delete_sub_customer(sub_customer_id):
     try:
         success = SubCustomerService.delete(sub_customer_id)

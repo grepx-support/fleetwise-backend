@@ -79,7 +79,7 @@ def update_my_profile():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @user_bp.route('/users', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def list_users():
     try:
         users = UserService.get_all()
