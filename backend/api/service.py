@@ -54,7 +54,11 @@ def create_service():
         service_data = {
             'name': data.get('name'),
             'description': data.get('description', ''),
-            'status': data.get('status', 'Active')
+            'status': data.get('status', 'Active'),
+            'is_ancillary': data.get('is_ancillary', False),
+            'condition_type': data.get('condition_type'),
+            'condition_config': data.get('condition_config'),
+            'is_per_occurrence': data.get('is_per_occurrence', False)
         }
 
         logging.info(f"Processed data: {service_data}")
@@ -98,7 +102,11 @@ def create_service_with_pricing():
         service_data = {
             'name': data.get('name'),
             'description': data.get('description', ''),
-            'status': data.get('status', 'Active')
+            'status': data.get('status', 'Active'),
+            'is_ancillary': data.get('is_ancillary', False),
+            'condition_type': data.get('condition_type'),
+            'condition_config': data.get('condition_config'),
+            'is_per_occurrence': data.get('is_per_occurrence', False)
         }
 
         logging.info(f"Processed service data: {service_data}")
@@ -182,7 +190,11 @@ def create_service_with_all_pricing():
         service_data = {
             'name': data.get('name'),
             'description': data.get('description', ''),
-            'status': data.get('status', 'Active')
+            'status': data.get('status', 'Active'),
+            'is_ancillary': data.get('is_ancillary', False),
+            'condition_type': data.get('condition_type'),
+            'condition_config': data.get('condition_config'),
+            'is_per_occurrence': data.get('is_per_occurrence', False)
         }
 
         logging.info(f"Processed service data: {service_data}")
@@ -346,7 +358,11 @@ def update_service_with_all_pricing(service_id):
         service_data = {
             'name': data.get('name'),
             'description': data.get('description', ''),
-            'status': data.get('status', 'Active')
+            'status': data.get('status', 'Active'),
+            'is_ancillary': data.get('is_ancillary', False),
+            'condition_type': data.get('condition_type'),
+            'condition_config': data.get('condition_config'),
+            'is_per_occurrence': data.get('is_per_occurrence', False)
         }
         
         logging.info(f"Processed service data: {service_data}")

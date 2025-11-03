@@ -44,6 +44,7 @@ class Job(db.Model):
     booking_ref = db.Column(db.String(128), nullable=True)
     status = db.Column(db.String(32), nullable=False, default=JobStatus.NEW.value, index=True)
     extra_services = db.Column(db.Text, nullable=True)
+    ancillary_charges = db.Column(db.Text, nullable=True)  # JSON array of auto-applied ancillary charges
     additional_discount = db.Column(db.Float, nullable=True)
     extra_charges = db.Column(db.Float, nullable=True)
     base_price = db.Column(db.Float, nullable=False)

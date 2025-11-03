@@ -34,6 +34,8 @@ class JobSchema(SQLAlchemyAutoSchema):
     status = auto_field()
     # Handle extra_services as JSON data
     extra_services = fields.Method('get_extra_services', 'set_extra_services')
+    # Handle ancillary_charges as JSON data
+    ancillary_charges = fields.Method('get_ancillary_charges', 'set_ancillary_charges')
     additional_discount = auto_field()
     extra_charges = auto_field()
     base_price = auto_field()
@@ -125,9 +127,30 @@ class JobSchema(SQLAlchemyAutoSchema):
     def get_extra_services(self, obj):
         """Get extra_services as JSON data for API response"""
         return obj.extra_services_data
-    
+
     def set_extra_services(self, value):
         """Set extra_services from JSON data in API request"""
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except (json.JSONDecodeError, TypeError):
+                return []
+        elif isinstance(value, list):
+            return value
+        else:
+            return []
+
+    def get_ancillary_charges(self, obj):
+        """Get ancillary_charges as JSON data for API response"""
+        if obj.ancillary_charges:
+            try:
+                return json.loads(obj.ancillary_charges)
+            except (json.JSONDecodeError, TypeError):
+                return []
+        return []
+
+    def set_ancillary_charges(self, value):
+        """Set ancillary_charges from JSON data in API request"""
         if isinstance(value, str):
             try:
                 return json.loads(value)

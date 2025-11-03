@@ -341,6 +341,12 @@ class JobService:
                 raise ServiceError(price_result['error'])
             data['final_price'] = price_result['final_price']
 
+            # Store ancillary charges if any
+            if price_result.get('ancillary_charges'):
+                data['ancillary_charges'] = json.dumps(price_result['ancillary_charges'])
+            else:
+                data['ancillary_charges'] = None
+
             # Populate job_cost from ContractorServicePricing when contractor + service present
             try:
                 contractor_id = data.get('contractor_id')
@@ -609,6 +615,12 @@ class JobService:
                         raise ServiceError(price_result['error'])
                     job.final_price = price_result['final_price']
 
+                    # Store ancillary charges if any
+                    if price_result.get('ancillary_charges'):
+                        job.ancillary_charges = json.dumps(price_result['ancillary_charges'])
+                    else:
+                        job.ancillary_charges = None
+
                 # Update job_cost from ContractorServicePricing if contractor/service provided
                 try:
                     contractor_id = data.get('contractor_id') or getattr(job, 'contractor_id', None)
@@ -666,8 +678,129 @@ class JobService:
             logging.error(f"Error deleting job: {e}", exc_info=True)
             raise ServiceError("Could not delete job. Please try again later.")
 
-   
-    
+    @staticmethod
+    def evaluate_ancillary_charges(data: dict, vehicle_type_id=None):
+        """
+        Evaluate which ancillary charges should be applied based on job conditions.
+
+        Args:
+            data: Job data dict containing pickup_time, dropoff locations, etc.
+            vehicle_type_id: Vehicle type ID for pricing lookup
+
+        Returns:
+            tuple: (ancillary_charges_list, total_ancillary_amount)
+            - ancillary_charges_list: List of dicts with {service_id, name, price, condition_type}
+            - total_ancillary_amount: Sum of all ancillary charge prices
+        """
+        try:
+            ancillary_charges = []
+            total_amount = 0.0
+
+            # Get all active ancillary services
+            ancillary_services = Service.query.filter_by(
+                is_ancillary=True,
+                is_deleted=False,
+                status='Active'
+            ).all()
+
+            if not ancillary_services:
+                return [], 0.0
+
+            for service in ancillary_services:
+                should_apply = False
+                price = 0.0
+                occurrence_count = 1  # Default to 1 application
+
+                # Parse condition config
+                condition_config = {}
+                if service.condition_config:
+                    try:
+                        condition_config = json.loads(service.condition_config)
+                    except json.JSONDecodeError:
+                        logging.warning(f"Invalid condition_config JSON for service {service.id}: {service.condition_config}")
+                        continue
+
+                # Evaluate condition based on type
+                if service.condition_type == 'always':
+                    should_apply = True
+
+                elif service.condition_type == 'time_range':
+                    # Check if pickup_time falls within configured time range
+                    pickup_time = data.get('pickup_time')
+                    if pickup_time and condition_config:
+                        start_time = condition_config.get('start_time', '00:00')
+                        end_time = condition_config.get('end_time', '06:00')
+
+                        try:
+                            # Parse times
+                            pickup_hour, pickup_min = map(int, pickup_time.split(':'))
+                            start_hour, start_min = map(int, start_time.split(':'))
+                            end_hour, end_min = map(int, end_time.split(':'))
+
+                            # Convert to minutes for easier comparison
+                            pickup_minutes = pickup_hour * 60 + pickup_min
+                            start_minutes = start_hour * 60 + start_min
+                            end_minutes = end_hour * 60 + end_min
+
+                            # Handle overnight ranges (e.g., 23:00-06:00)
+                            if start_minutes > end_minutes:
+                                # Range crosses midnight
+                                should_apply = pickup_minutes >= start_minutes or pickup_minutes < end_minutes
+                            else:
+                                # Normal range
+                                should_apply = start_minutes <= pickup_minutes < end_minutes
+
+                        except (ValueError, AttributeError) as e:
+                            logging.warning(f"Error parsing time for ancillary service {service.id}: {e}")
+
+                elif service.condition_type == 'additional_stops':
+                    # Count total dropoff locations
+                    dropoff_count = 0
+                    for i in range(1, 6):
+                        dropoff_field = f'dropoff_loc{i}'
+                        if data.get(dropoff_field):
+                            dropoff_count += 1
+
+                    # Check trigger count
+                    trigger_count = condition_config.get('trigger_count', 1)
+                    if dropoff_count > trigger_count:
+                        should_apply = True
+                        # Calculate occurrence count if per_occurrence is enabled
+                        if service.is_per_occurrence:
+                            occurrence_count = dropoff_count - trigger_count
+
+                # If condition met, get the price
+                if should_apply:
+                    # Get price for this service + vehicle type
+                    if vehicle_type_id:
+                        price_obj = ServicesVehicleTypePrice.query.filter_by(
+                            service_id=service.id,
+                            vehicle_type_id=vehicle_type_id
+                        ).first()
+                        if price_obj:
+                            price = float(price_obj.price or 0)
+
+                    # If no vehicle-specific pricing, skip this charge
+                    if price > 0:
+                        total_charge = price * occurrence_count
+                        ancillary_charges.append({
+                            'service_id': service.id,
+                            'name': service.name,
+                            'price': total_charge,
+                            'unit_price': price,
+                            'quantity': occurrence_count,
+                            'condition_type': service.condition_type
+                        })
+                        total_amount += total_charge
+                        logging.info(f"Applied ancillary charge: {service.name} (${total_charge})")
+
+            return ancillary_charges, total_amount
+
+        except Exception as e:
+            logging.error(f"Error evaluating ancillary charges: {e}", exc_info=True)
+            return [], 0.0
+
+
     @staticmethod
     def calculate_price(data: dict, vehicle_type_id=None):
         try:
@@ -718,10 +851,19 @@ class JobService:
             final_price += midnight_surcharge
             # Add extra charges (which now includes extra service prices)
             final_price += safe_float(data.get("extra_charges", 0))
+
+            # Evaluate and apply ancillary charges
+            ancillary_charges_list, ancillary_total = JobService.evaluate_ancillary_charges(data, vehicle_type_id)
+            final_price += ancillary_total
+
             # Apply discounts
             final_price -= safe_float(data.get("additional_discount", 0))
-            
-            return {"final_price": round(final_price, 2)}
+
+            return {
+                "final_price": round(final_price, 2),
+                "ancillary_charges": ancillary_charges_list,
+                "ancillary_total": round(ancillary_total, 2)
+            }
         except ServiceError as se:
             return {"error": str(se)}
         except Exception as e:

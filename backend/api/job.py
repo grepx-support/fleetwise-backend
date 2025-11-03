@@ -1650,12 +1650,21 @@ def confirm_upload():
                 elif mandatory_filled:
                     job_status = 'pending'
 
+                # Validate customer_id is not None (required field)
+                if not customer:
+                    raise Exception(f"Customer '{row_data['customer']}' not found or not active")
+
+                # Validate service_id is not None (required field)
+                if not service:
+                    raise Exception(f"Service '{service_name}' not found or not active")
+
                 # Create job with all data
                 job_data = {
-                    'customer_id': customer.id if customer else None,
+                    'customer_id': customer.id,
                     'booking_ref': row_data.get('customer_reference_no', ''),  # Map to booking_ref field
                     'sub_customer_name': row_data.get('department', ''),  # Map to sub_customer_name field
-                    'service_type': service.name if service else row_data.get('service', ''),
+                    'service_type': service.name,
+                    'service_id': service.id,
                     'vehicle_id': vehicle.id if vehicle else None,
                     'driver_id': driver.id if driver else None,
                     'contractor_id': contractor.id if contractor else None,
