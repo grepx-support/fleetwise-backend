@@ -72,7 +72,7 @@ class DevConfig(Config):
     FRONTEND_URL = 'http://localhost:3000'
 
     # Ensure consistent database path regardless of working directory
-    DB_PATH = os.path.join(BASE_DIR, 'app.db')
+    DB_PATH = os.path.join(Config.BASE_DIR, 'app.db')
     SQLALCHEMY_DATABASE_URI = f"sqlite:///{DB_PATH}"
     DEBUG = True
 
