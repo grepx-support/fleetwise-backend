@@ -14,7 +14,7 @@ from sqlalchemy.exc import OperationalError
 MAX_RETRIES = 3
 RETRY_DELAY = 0.2 
 @driver_bp.route('/drivers', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def list_drivers():
     try:
         drivers = DriverService.get_all()
@@ -43,7 +43,7 @@ def get_driver(driver_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @driver_bp.route('/drivers', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def create_driver():
     try:
         data = request.get_json()
@@ -51,6 +51,9 @@ def create_driver():
         if errors:
             return jsonify(errors), 400
         driver = DriverService.create(data)
+        if current_user.has_role('accountant'):
+           logging.info(f"Accountant {current_user.email} created driver", extra={'data': request.get_json()})
+
         return jsonify(schema.dump(driver)), 201
     except ServiceError as se:
         return jsonify({'error': se.message}), 400
@@ -59,7 +62,7 @@ def create_driver():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @driver_bp.route('/drivers/<int:driver_id>', methods=['PUT'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def update_driver(driver_id):
     try:
         data = request.get_json()
@@ -77,7 +80,7 @@ def update_driver(driver_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @driver_bp.route('/drivers/<int:driver_id>', methods=['DELETE'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def delete_driver(driver_id):
     try:
         success = DriverService.delete(driver_id)
@@ -91,7 +94,7 @@ def delete_driver(driver_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @driver_bp.route('/drivers/<int:driver_id>/soft-delete', methods=['PUT'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def toggle_driver_soft_delete(driver_id):
     try:
         data = request.get_json()
@@ -125,7 +128,7 @@ def driver_billing_report(driver_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500 
      
 @driver_bp.route('/drivers/<int:driver_id>/jobs', methods=['GET'])
-@roles_accepted('admin', 'manager','driver')
+@roles_accepted('admin', 'manager','driver', 'accountant')
 def get_driver_jobs(driver_id):
     try:
         page = max(1, int(request.args.get('page', 1)))
@@ -148,7 +151,7 @@ def get_driver_jobs(driver_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @driver_bp.route('/drivers/completed-jobs/<int:driver_id>/jobs', methods=['GET'])
-@roles_accepted('admin', 'manager','driver')
+@roles_accepted('admin', 'manager','driver', 'accountant')
 def get_driver_completed_jobs(driver_id):
     try:
         page = int(request.args.get('page', 1))
@@ -168,7 +171,7 @@ def get_driver_completed_jobs(driver_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @driver_bp.route('/drivers/<int:driver_id>/jobs/<int:job_id>/status', methods=['PUT'])
-@roles_accepted('admin', 'manager', 'driver')
+@roles_accepted('admin', 'manager', 'driver', 'accountant')
 def update_driver_job_status(driver_id, job_id):
     if not (
         current_user.has_role('admin') or
@@ -230,7 +233,7 @@ def update_driver_job_status(driver_id, job_id):
     return jsonify({'error': 'Database busy. Try again later.'}), 503
 
 @driver_bp.route('/drivers/download/<int:bill_id>', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def download_driver_invoice(bill_id):
     try:
         response = DriverService.driver_invoice_download(bill_id)

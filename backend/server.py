@@ -12,16 +12,18 @@ from flask_security import auth_required, current_user
 # Load environment variables from .env file
 load_dotenv()
 
+env = os.environ.get('NODE_ENV', 'development')
+
 # Add the current directory to Python path to fix import issues
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 # Try different import paths for config
 try:
-    from backend.config import DevConfig
+    from backend.config import DevConfig, StagingConfig, ProductionConfig
 except ImportError:
     try:
-        from config import DevConfig
+        from config import DevConfig, StagingConfig, ProductionConfig
     except ImportError:
         # Fallback config
         class DevConfig:
@@ -98,7 +100,12 @@ logger = logging.getLogger(__name__)
 
 # Initialize app and extensions
 app = Flask(__name__)
-app.config.from_object(DevConfig)
+if env == 'production':
+    app.config.from_object(ProductionConfig)
+elif env == 'staging':
+    app.config.from_object(StagingConfig)
+else:
+    app.config.from_object(DevConfig)
 
 # Add Flask-Security-Too configuration
 app.config['SECURITY_URL_PREFIX'] = '/api/auth'
@@ -162,7 +169,7 @@ CORS(app, supports_credentials=True, resources={r"/api/*": {"origins": [
     "https://fleet.avant-garde.com.sg/",
     "capacitor://localhost",
     "ionic://localhost",
-    "http://ec2-18-143-75-251.ap-southeast-1.compute.amazonaws.com:3000",
+    "http://ec2-47-130-215-5.ap-southeast-1.compute.amazonaws.com:3000",
     "http://ec2-52-76-147-189.ap-southeast-1.compute.amazonaws.com:3000"  # Add this!
 ]}})
 
@@ -170,8 +177,8 @@ CORS(app, supports_credentials=True, resources={r"/api/*": {"origins": [
 def add_cors_headers(response):
     allowed_origins = [
         "http://localhost:3000",
-        "http://ec2-18-143-75-251.ap-southeast-1.compute.amazonaws.com:3000",
-        "http://ec2-52-76-147-189.ap-southeast-1.compute.amazonaws.com:3000"
+        "https://test.grepx.sg",
+        "https://fleet.avant-garde.com.sg/"
     ]
     origin = request.headers.get('Origin')
     if origin in allowed_origins:
@@ -611,4 +618,9 @@ def uploaded_file(filename):
 
 
 if __name__ == '__main__':
-    app.run(host="::", port=5000, debug=True) 
+    host = app.config.get('FLASK_HOST', '0.0.0.0')
+    port = app.config.get('FLASK_PORT', 5000)
+    debug = app.config.get('DEBUG', True)
+    
+    logger.info(f"Starting Flask app on {host}:{port} (debug={debug})")
+    app.run(host=host, port=port, debug=debug)

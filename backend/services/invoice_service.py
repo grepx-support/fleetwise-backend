@@ -506,7 +506,7 @@ class InvoiceService:
                 payment = Payment(
                 invoice_id=invoice_id,
                 amount=float(cash_collect_total),
-                payment_date=datetime.utcnow(),
+                date=datetime.utcnow(),
                 notes=f"Cash collected from jobs: {', '.join(job_ids_with_cash)}"
                 )
                 db.session.add(payment)
@@ -579,7 +579,7 @@ class InvoiceService:
                 current_app.logger.info(f"Using configured invoice storage root: {storage_root}")
             else:
                 # Fallback: derive automatically
-                repos_root = Path(current_app.root_path).resolve().parents[2]
+                repos_root = Path(current_app.root_path).resolve().parents[1]
                 storage_root = repos_root / "fleetwise-storage"
                 current_app.logger.warning(
                     f"INVOICE_STORAGE_ROOT not set or invalid. Falling back to: {storage_root}"

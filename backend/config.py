@@ -20,8 +20,6 @@ class Config:
     WTF_CSRF_ENABLED = False
     SECURITY_CSRF_PROTECT_MECHANISMS = []
     SECURITY_CSRF_IGNORE_UNAUTH_ENDPOINTS = True
-    SESSION_COOKIE_SAMESITE = None  # Use None for production
-    SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'False').lower() == 'true'
     SESSION_COOKIE_HTTPONLY = True
     SECURITY_UNAUTHORIZED_VIEW = None
     # REMEMBER_COOKIE_SAMESITE = "Strict"
@@ -54,7 +52,7 @@ class Config:
 
 
      # Upload folder for job photos
-    BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     print("basedir ", BASE_DIR)
     JOB_PHOTO_UPLOAD_FOLDER = os.path.join(BASE_DIR, 'static', 'uploads')
     STATIC_FOLDER = os.environ.get('STATIC_FOLDER', 'uploads')  # base static folder
@@ -67,17 +65,30 @@ class Config:
  
 class DevConfig(Config):
     SESSION_COOKIE_SAMESITE = 'Lax'  # Use Lax for development
+    SESSION_COOKIE_SECURE = False
+    # Development: Use 0.0.0.0 for cross-platform compatibility (Windows/Mac/Linux)
+    FLASK_HOST = '0.0.0.0'
+    FLASK_PORT = 5000
+    FRONTEND_URL = 'http://localhost:3000'
+
     # Ensure consistent database path regardless of working directory
-    BASEDIR = os.path.dirname(os.path.abspath(__file__))
-    DB_PATH = os.path.join(BASEDIR, 'app.db')
+    DB_PATH = os.path.join(Config.BASE_DIR, 'app.db')
     SQLALCHEMY_DATABASE_URI = f"sqlite:///{DB_PATH}"
     DEBUG = True
-    
-    def __init__(self):
-        # Debug: Print the actual database path being used
-        print(f"Database path: {self.DB_PATH}")
-        print(f"BASEDIR: {self.BASEDIR}")
-        print(f"Working directory: {os.getcwd()}")
 
+class StagingConfig(Config):
+    SESSION_COOKIE_SAMESITE = 'None'
+    SESSION_COOKIE_SECURE = True
+    # Staging: Use IPv6 dual-stack on Linux server
+    FLASK_HOST = '::'
+    FLASK_PORT = 5000
+    FRONTEND_URL = 'https://test.grepx.sg'
 
+class ProductionConfig(Config):
+    SESSION_COOKIE_SAMESITE = 'None'
+    SESSION_COOKIE_SECURE = True
+    # Staging: Use IPv6 dual-stack on Linux server
+    FLASK_HOST = '::'
+    FLASK_PORT = 5000
+    FRONTEND_URL = 'https://fleet.avant-garde.com.sg'
 
