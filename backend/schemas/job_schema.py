@@ -34,8 +34,6 @@ class JobSchema(SQLAlchemyAutoSchema):
     status = auto_field()
     # Handle extra_services as JSON data
     extra_services = fields.Method('get_extra_services', 'set_extra_services')
-    # Handle ancillary_charges as JSON data
-    ancillary_charges = fields.Method('get_ancillary_charges', 'set_ancillary_charges')
     additional_discount = auto_field()
     extra_charges = auto_field()
     base_price = auto_field()
@@ -140,82 +138,6 @@ class JobSchema(SQLAlchemyAutoSchema):
         else:
             return []
 
-    def get_ancillary_charges(self, obj):
-        """
-        Get ancillary_charges as JSON data for API response with validation.
-
-        Expected structure: Array of objects with:
-        - service_id (int, required)
-        - name (str, required)
-        - price (float, required)
-        - unit_price (float, required)
-        - quantity (int, required)
-        - condition_type (str, optional)
-        """
-        if obj.ancillary_charges:
-            try:
-                data = json.loads(obj.ancillary_charges)
-
-                # Validate structure
-                if not isinstance(data, list):
-                    logging.error(f"Job {obj.id} ancillary_charges is not a list: {obj.ancillary_charges}")
-                    return []
-
-                # Validate each charge has required fields
-                required_fields = ['service_id', 'name', 'price', 'unit_price', 'quantity']
-                validated_charges = []
-
-                for idx, charge in enumerate(data):
-                    if not isinstance(charge, dict):
-                        logging.error(f"Job {obj.id} ancillary charge #{idx} is not a dict: {charge}")
-                        continue
-
-                    # Check required fields
-                    missing_fields = [field for field in required_fields if field not in charge]
-                    if missing_fields:
-                        logging.error(
-                            f"Job {obj.id} ancillary charge #{idx} missing required fields "
-                            f"{missing_fields}: {charge}"
-                        )
-                        continue
-
-                    # Validate field types
-                    try:
-                        validated_charge = {
-                            'service_id': int(charge['service_id']),
-                            'name': str(charge['name']),
-                            'price': float(charge['price']),
-                            'unit_price': float(charge['unit_price']),
-                            'quantity': int(charge['quantity']),
-                            'condition_type': charge.get('condition_type', '')
-                        }
-                        validated_charges.append(validated_charge)
-                    except (ValueError, TypeError) as e:
-                        logging.error(
-                            f"Job {obj.id} ancillary charge #{idx} has invalid field types: {charge}. "
-                            f"Error: {str(e)}"
-                        )
-                        continue
-
-                return validated_charges
-
-            except (json.JSONDecodeError, TypeError) as e:
-                logging.error(f"Failed to deserialize ancillary_charges for job {obj.id}: {str(e)}")
-                return []
-        return []
-
-    def set_ancillary_charges(self, value):
-        """Set ancillary_charges from JSON data in API request"""
-        if isinstance(value, str):
-            try:
-                return json.loads(value)
-            except (json.JSONDecodeError, TypeError):
-                return []
-        elif isinstance(value, list):
-            return value
-        else:
-            return []
-    
     def get_duration_str(self, obj):
         """Get duration_str from the Job model"""
         return obj.duration_str if obj.duration_str is not None else "0h 0m"

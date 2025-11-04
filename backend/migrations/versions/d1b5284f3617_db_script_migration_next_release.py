@@ -33,7 +33,6 @@ def upgrade() -> None:
     op.add_column('service', sa.Column('condition_type', sa.String(length=64), nullable=True))
     op.add_column('service', sa.Column('condition_config', sa.Text(), nullable=True))
     op.add_column('service', sa.Column('is_per_occurrence', sa.Boolean(), nullable=False, server_default=sa.false()))
-    op.add_column('job', sa.Column('ancillary_charges', sa.Text(), nullable=True))
 
 
 def downgrade() -> None:
@@ -50,4 +49,3 @@ def downgrade() -> None:
     op.drop_column('service', 'condition_config')
     op.drop_column('service', 'condition_type')
     op.drop_column('service', 'is_ancillary')
-    op.drop_column('job', 'ancillary_charges')

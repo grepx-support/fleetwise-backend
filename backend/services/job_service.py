@@ -367,12 +367,6 @@ class JobService:
                 raise ServiceError(price_result['error'])
             data['final_price'] = price_result['final_price']
 
-            # Store ancillary charges if any
-            if price_result.get('ancillary_charges'):
-                data['ancillary_charges'] = json.dumps(price_result['ancillary_charges'])
-            else:
-                data['ancillary_charges'] = None
-
             # Populate job_cost from ContractorServicePricing when contractor + service present
             try:
                 contractor_id = data.get('contractor_id')
@@ -641,12 +635,6 @@ class JobService:
                         raise ServiceError(price_result['error'])
                     job.final_price = price_result['final_price']
 
-                    # Store ancillary charges if any
-                    if price_result.get('ancillary_charges'):
-                        job.ancillary_charges = json.dumps(price_result['ancillary_charges'])
-                    else:
-                        job.ancillary_charges = None
-
                 # Update job_cost from ContractorServicePricing if contractor/service provided
                 try:
                     contractor_id = data.get('contractor_id') or getattr(job, 'contractor_id', None)
@@ -898,16 +886,24 @@ class JobService:
             # Add extra charges (which now includes extra service prices)
             final_price += safe_float(data.get("extra_charges", 0))
 
-            # Evaluate and apply ancillary charges
-            ancillary_charges_list, ancillary_total = JobService.evaluate_ancillary_charges(data, vehicle_type_id)
-            final_price += ancillary_total
+            # Evaluate and apply ancillary charges only if vehicle_type_id is present
+            ancillary_charges_list = []
+            ancillary_total = 0.0
+            if vehicle_type_id is not None:
+                ancillary_charges_list, ancillary_total = JobService.evaluate_ancillary_charges(data, vehicle_type_id)
+                final_price += ancillary_total
+            else:
+                # Log warning for missing vehicle_type_id
+                logging.warning(
+                    f"Cannot evaluate ancillary charges: vehicle_type_id is None "
+                    f"(customer_id={data.get('customer_id')}, service_type={data.get('service_type')})"
+                )
 
             # Apply discounts
             final_price -= safe_float(data.get("additional_discount", 0))
 
             return {
                 "final_price": round(final_price, 2),
-                "ancillary_charges": ancillary_charges_list,
                 "ancillary_total": round(ancillary_total, 2)
             }
         except ServiceError as se:
