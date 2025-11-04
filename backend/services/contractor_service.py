@@ -115,11 +115,12 @@ class ContractorService:
             raise ServiceError("Could not fetch contractor pricing. Please try again later.")
 
     @staticmethod
-    def update_contractor_pricing(contractor_id, service_id, cost):
+    def update_contractor_pricing(contractor_id, service_id, vehicle_type_id, cost):
         try:
             pricing = ContractorServicePricing.query.filter_by(
                 contractor_id=contractor_id, 
-                service_id=service_id
+                service_id=service_id,
+                vehicle_type_id=vehicle_type_id
             ).first()
             
             if pricing:
@@ -128,6 +129,7 @@ class ContractorService:
                 pricing = ContractorServicePricing()
                 pricing.contractor_id = contractor_id
                 pricing.service_id = service_id
+                pricing.vehicle_type_id = vehicle_type_id
                 pricing.cost = cost
                 db.session.add(pricing)
             
@@ -168,10 +170,13 @@ class ContractorService:
             for pricing_item in pricing_data:
                 service_id = pricing_item['service_id']
                 cost = pricing_item['cost']
+                # Get vehicle_type_id from pricing_item, default to 1 (E-Class Sedan) if not provided
+                vehicle_type_id = pricing_item.get('vehicle_type_id', 1)
                 
                 pricing = ContractorServicePricing.query.filter_by(
                     contractor_id=contractor_id, 
-                    service_id=service_id
+                    service_id=service_id,
+                    vehicle_type_id=vehicle_type_id
                 ).first()
                 
                 if pricing:
@@ -180,6 +185,7 @@ class ContractorService:
                     pricing = ContractorServicePricing()
                     pricing.contractor_id = contractor_id
                     pricing.service_id = service_id
+                    pricing.vehicle_type_id = vehicle_type_id
                     pricing.cost = cost
                     db.session.add(pricing)
                 

@@ -1,10 +1,12 @@
 from flask import Blueprint, request, jsonify
 from backend.services.contractor_service import ContractorService, ServiceError
+from backend.services.contractor_service_pricing_service import ContractorServicePricingService
+from backend.models.contractor_service_pricing import ContractorServicePricing
 from backend.schemas.contractor_schema import ContractorSchema
 import logging
 from flask_security.decorators import roles_required, roles_accepted, auth_required
-from backend.extensions import db
 from flask_security import current_user
+from backend.extensions import db
 
 contractor_bp = Blueprint('contractor', __name__)
 schema = ContractorSchema(session=db.session)
@@ -77,22 +79,54 @@ def create_contractor():
         # If pricing data is provided, create pricing entries
         pricing_data = data.get('pricing_data', [])
         if pricing_data and isinstance(pricing_data, list):
-            # Validate each pricing item
-            for pricing_item in pricing_data:
-                if 'service_id' not in pricing_item or 'cost' not in pricing_item:
-                    return jsonify({'error': 'Each pricing item must have service_id and cost'}), 400
+            # Check if this is vehicle-type-specific pricing (has vehicle_type_id)
+            if pricing_data and 'vehicle_type_id' in pricing_data[0]:
+                # Handle vehicle-type-specific pricing
+                for pricing_item in pricing_data:
+                    if 'service_id' not in pricing_item or 'vehicle_type_id' not in pricing_item or 'cost' not in pricing_item:
+                        return jsonify({'error': 'Each pricing item must have service_id, vehicle_type_id, and cost'}), 400
+                    
+                    service_id = pricing_item['service_id']
+                    vehicle_type_id = pricing_item['vehicle_type_id']
+                    cost = pricing_item['cost']
+                    
+                    # Validate that cost is non-negative
+                    if cost < 0:
+                        return jsonify({'error': f'Cost for service {service_id} and vehicle type {vehicle_type_id} must be non-negative'}), 400
+                    
+                    # Create or update the pricing entry
+                    ContractorServicePricingService.update_pricing(
+                        contractor.id, service_id, vehicle_type_id, cost
+                    )
+            else:
+                # Handle regular service-based pricing
+                # Add default vehicle_type_id to each pricing item if not present
+                for pricing_item in pricing_data:
+                    if 'vehicle_type_id' not in pricing_item:
+                        pricing_item['vehicle_type_id'] = 1  # Default to E-Class Sedan
                 
-                cost = pricing_item['cost']
+                # Validate each pricing item
+                for pricing_item in pricing_data:
+                    if 'service_id' not in pricing_item or 'cost' not in pricing_item:
+                        return jsonify({'error': 'Each pricing item must have service_id and cost'}), 400
+                    
+                    cost = pricing_item['cost']
+                    
+                    # Validate that cost is non-negative
+                    if cost < 0:
+                        return jsonify({'error': f'Cost for service {pricing_item["service_id"]} must be non-negative'}), 400
                 
-                # Validate that cost is non-negative
-                if cost < 0:
-                    return jsonify({'error': f'Cost for service {pricing_item["service_id"]} must be non-negative'}), 400
-            
-            # Create pricing entries
-            ContractorService.bulk_update_contractor_pricing(contractor.id, pricing_data)
+                # Create pricing entries
+                ContractorService.bulk_update_contractor_pricing(contractor.id, pricing_data)
         
         # Return the created contractor with its pricing
-        result = schema.dump(contractor)
+        contractor_data = schema.dump(contractor)
+        
+        # Create a new dictionary to avoid type issues
+        result = {}
+        # Copy all contractor data
+        for key in contractor_data:
+            result[key] = contractor_data[key]
         
         # Add pricing information to the response
         pricing = ContractorService.get_contractor_pricing(contractor.id)
@@ -102,7 +136,9 @@ def create_contractor():
                 'id': p.id,
                 'contractor_id': p.contractor_id,
                 'service_id': p.service_id,
+                'vehicle_type_id': p.vehicle_type_id,
                 'service_name': p.service.name if p.service else None,
+                'vehicle_type_name': p.vehicle_type.name if p.vehicle_type else None,
                 'cost': p.cost
             })
         
@@ -191,7 +227,9 @@ def get_contractor_pricing(contractor_id):
                 'id': p.id,
                 'contractor_id': p.contractor_id,
                 'service_id': p.service_id,
+                'vehicle_type_id': p.vehicle_type_id,
                 'service_name': p.service.name if p.service else None,
+                'vehicle_type_name': p.vehicle_type.name if p.vehicle_type else None,
                 'cost': p.cost
             })
         return jsonify(result), 200
@@ -237,6 +275,7 @@ def update_contractor_pricing(contractor_id):
                     'id': pricing.id,
                     'contractor_id': pricing.contractor_id,
                     'service_id': pricing.service_id,
+                    'vehicle_type_id': pricing.vehicle_type_id,
                     'cost': pricing.cost
                 })
             
@@ -248,16 +287,19 @@ def update_contractor_pricing(contractor_id):
             
             service_id = data['service_id']
             cost = data['cost']
+            # Get vehicle_type_id from data, default to 1 (E-Class Sedan) if not provided
+            vehicle_type_id = data.get('vehicle_type_id', 1)
             
             # Validate that cost is non-negative
             if cost < 0:
                 return jsonify({'error': 'Cost must be non-negative'}), 400
             
-            pricing = ContractorService.update_contractor_pricing(contractor_id, service_id, cost)
+            pricing = ContractorService.update_contractor_pricing(contractor_id, service_id, vehicle_type_id, cost)
             return jsonify({
                 'id': pricing.id,
                 'contractor_id': pricing.contractor_id,
                 'service_id': pricing.service_id,
+                'vehicle_type_id': pricing.vehicle_type_id,
                 'cost': pricing.cost
             }), 200
     except ServiceError as se:
@@ -277,4 +319,88 @@ def download_contractor_invoice(bill_id):
     except Exception as e:
         logging.error(f"Unhandled error: {e}", exc_info=True)
         return jsonify({'error': 'Failed to generate invoice PDF'}), 500
-    
+
+@contractor_bp.route('/contractors/<int:contractor_id>/pricing/vehicle-type', methods=['GET'])
+@auth_required()
+def get_contractor_pricing_by_vehicle_type(contractor_id):
+    try:
+        # Get optional query parameters
+        service_id = request.args.get('service_id', type=int)
+        vehicle_type_id = request.args.get('vehicle_type_id', type=int)
+        
+        # Get pricing based on provided parameters
+        if service_id and vehicle_type_id:
+            # Get specific pricing for contractor, service, and vehicle type
+            pricing = ContractorServicePricingService.get_pricing(contractor_id, service_id, vehicle_type_id)
+            if not pricing:
+                return jsonify({'error': 'Pricing not found'}), 404
+                
+            result = {
+                'id': pricing.id,
+                'contractor_id': pricing.contractor_id,
+                'service_id': pricing.service_id,
+                'vehicle_type_id': pricing.vehicle_type_id,
+                'service_name': pricing.service.name if pricing.service else None,
+                'vehicle_type_name': pricing.vehicle_type.name if pricing.vehicle_type else None,
+                'cost': pricing.cost
+            }
+            return jsonify(result), 200
+        else:
+            # Get all pricing for the contractor
+            all_pricing = ContractorServicePricing.query.filter_by(contractor_id=contractor_id).all()
+            logging.info(f"Found {len(all_pricing)} pricing records for contractor {contractor_id}")  # Debug log
+            result = []
+            for pricing in all_pricing:
+                logging.info(f"Pricing record: id={pricing.id}, contractor_id={pricing.contractor_id}, service_id={pricing.service_id}, vehicle_type_id={pricing.vehicle_type_id}, cost={pricing.cost}")  # Debug log
+                result.append({
+                    'id': pricing.id,
+                    'contractor_id': pricing.contractor_id,
+                    'service_id': pricing.service_id,
+                    'vehicle_type_id': pricing.vehicle_type_id,
+                    'service_name': pricing.service.name if pricing.service else None,
+                    'vehicle_type_name': pricing.vehicle_type.name if pricing.vehicle_type else None,
+                    'cost': pricing.cost
+                })
+            logging.info(f"Returning {len(result)} pricing records for contractor {contractor_id}")  # Debug log
+            return jsonify(result), 200
+    except Exception as e:
+        logging.error(f"Unhandled error in get_contractor_pricing_by_vehicle_type: {e}", exc_info=True)
+        return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
+
+@contractor_bp.route('/contractors/<int:contractor_id>/pricing/vehicle-type', methods=['POST'])
+@roles_accepted('admin', 'manager', 'accountant')
+def update_contractor_pricing_by_vehicle_type(contractor_id):
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        if 'service_id' not in data or 'vehicle_type_id' not in data:
+            return jsonify({'error': 'Missing service_id or vehicle_type_id'}), 400
+            
+        service_id = data['service_id']
+        vehicle_type_id = data['vehicle_type_id']
+        cost = data.get('cost')
+        
+        # Validate that cost is non-negative if provided
+        if cost is not None and cost < 0:
+            return jsonify({'error': 'Cost must be non-negative'}), 400
+            
+        # Update the pricing
+        pricing = ContractorServicePricingService.update_pricing(
+            contractor_id, service_id, vehicle_type_id, cost
+        )
+        
+        result = {
+            'id': pricing.id,
+            'contractor_id': pricing.contractor_id,
+            'service_id': pricing.service_id,
+            'vehicle_type_id': pricing.vehicle_type_id,
+            'service_name': pricing.service.name if pricing.service else None,
+            'vehicle_type_name': pricing.vehicle_type.name if pricing.vehicle_type else None,
+            'cost': pricing.cost
+        }
+        
+        return jsonify(result), 200
+    except Exception as e:
+        logging.error(f"Unhandled error in update_contractor_pricing_by_vehicle_type: {e}", exc_info=True)
+        return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500

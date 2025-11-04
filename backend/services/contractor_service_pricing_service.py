@@ -1,6 +1,7 @@
 from backend.extensions import db
 from backend.models.contractor_service_pricing import ContractorServicePricing
 from backend.models.contractor import Contractor
+from backend.models.vehicle_type import VehicleType
 from sqlalchemy.exc import IntegrityError
 import logging
 
@@ -40,6 +41,10 @@ class ContractorServicePricingService:
                 logging.info(f"No active contractors found for service {service_id} sync")
                 return 0, 0
 
+            # Get all vehicle types
+            vehicle_types = db.session.query(VehicleType).filter(VehicleType.is_deleted.is_(False)).all()
+            logging.info(f"Found {len(vehicle_types)} vehicle types for service {service_id} sync")
+
             success_count = 0
             error_count = 0
 
@@ -52,30 +57,34 @@ class ContractorServicePricingService:
                         )
                         continue
 
-                    # Check if pricing already exists (defensive programming)
-                    existing = ContractorServicePricing.query.filter_by(
-                        contractor_id=contractor.id,
-                        service_id=service_id
-                    ).first()
+                    # For each vehicle type, create a pricing entry
+                    for vehicle_type in vehicle_types:
+                        # Check if pricing already exists (defensive programming)
+                        existing = ContractorServicePricing.query.filter_by(
+                            contractor_id=contractor.id,
+                            service_id=service_id,
+                            vehicle_type_id=vehicle_type.id
+                        ).first()
 
-                    if existing:
-                        logging.warning(
-                            f"Pricing already exists for contractor {contractor.id} "
-                            f"and service {service_id}, skipping"
-                        )
-                        continue
+                        if existing:
+                            logging.warning(
+                                f"Pricing already exists for contractor {contractor.id}, "
+                                f"service {service_id}, and vehicle type {vehicle_type.id}, skipping"
+                            )
+                            continue
 
-                    # Create new pricing entry with default price $0.00
-                    pricing = ContractorServicePricing(
-                        contractor_id=contractor.id,
-                        service_id=service_id,
-                        cost=0.0
-                    )
-                    db.session.add(pricing)
-                    # Commit immediately to prevent race conditions
+                        # Create new pricing entry with default values
+                        pricing = ContractorServicePricing()
+                        pricing.contractor_id = contractor.id
+                        pricing.service_id = service_id
+                        pricing.vehicle_type_id = vehicle_type.id
+                        pricing.cost = 0.0
+                        db.session.add(pricing)
+                    
+                    # Commit all pricing entries for this contractor
                     db.session.commit()
                     success_count += 1
-                    logging.debug(f"Added pricing for contractor {contractor.id} and service {service_id}")
+                    logging.debug(f"Added pricing for contractor {contractor.id} and service {service_id} for all vehicle types")
 
                 except IntegrityError as ie:
                     error_count += 1
@@ -101,3 +110,53 @@ class ContractorServicePricingService:
             db.session.rollback()
             logging.error(f"Error in sync_new_service_to_contractors: {str(e)}", exc_info=True)
             raise ContractorServicePricingError("Failed to sync service to contractors. Please check the logs.")
+
+    @staticmethod
+    def get_pricing(contractor_id, service_id, vehicle_type_id):
+        """
+        Get pricing for a specific contractor, service, and vehicle type combination.
+
+        Args:
+            contractor_id (int): The contractor ID
+            service_id (int): The service ID
+            vehicle_type_id (int): The vehicle type ID
+
+        Returns:
+            ContractorServicePricing: The pricing record or None if not found
+        """
+        return ContractorServicePricing.query.filter_by(
+            contractor_id=contractor_id,
+            service_id=service_id,
+            vehicle_type_id=vehicle_type_id
+        ).first()
+
+    @staticmethod
+    def update_pricing(contractor_id, service_id, vehicle_type_id, cost=None):
+        """
+        Update pricing for a specific contractor, service, and vehicle type combination.
+
+        Args:
+            contractor_id (int): The contractor ID
+            service_id (int): The service ID
+            vehicle_type_id (int): The vehicle type ID
+            cost (float, optional): The cost value
+
+        Returns:
+            ContractorServicePricing: The updated pricing record
+        """
+        pricing = ContractorServicePricingService.get_pricing(contractor_id, service_id, vehicle_type_id)
+        
+        if not pricing:
+            # Create new pricing record if it doesn't exist
+            pricing = ContractorServicePricing()
+            pricing.contractor_id = contractor_id
+            pricing.service_id = service_id
+            pricing.vehicle_type_id = vehicle_type_id
+            pricing.cost = 0.0
+            db.session.add(pricing)
+        
+        if cost is not None:
+            pricing.cost = cost
+            
+        db.session.commit()
+        return pricing

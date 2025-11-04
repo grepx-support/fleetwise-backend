@@ -27,6 +27,21 @@ def upgrade() -> None:
         # Add unique constraints
         batch_op.create_unique_constraint('uq_user_customer_id', ['customer_id'])
         batch_op.create_unique_constraint('uq_user_driver_id', ['driver_id'])
+    
+    # Use batch mode for SQLite compatibility
+    with op.batch_alter_table('contractor_service_pricing', schema=None) as batch_op:
+        # Add vehicle_type_id column
+        batch_op.add_column(sa.Column('vehicle_type_id', sa.Integer(), nullable=False))
+        # Add foreign key constraint
+        batch_op.create_foreign_key('fk_contractor_service_pricing_vehicle_type_id_vehicle_type', 'vehicle_type', ['vehicle_type_id'], ['id'], ondelete='CASCADE')
+        # Create index
+        batch_op.create_index(batch_op.f('ix_contractor_service_pricing_vehicle_type_id'), ['vehicle_type_id'], unique=False)
+        # Add price column
+        batch_op.add_column(sa.Column('price', sa.Float(), nullable=True))
+        # Drop old unique constraint
+        batch_op.drop_constraint('unique_contractor_service', type_='unique')
+        # Create new unique constraint including vehicle_type_id
+        batch_op.create_unique_constraint('unique_contractor_service_vehicle', ['contractor_id', 'service_id', 'vehicle_type_id'])
 
 
 def downgrade() -> None:
@@ -38,3 +53,15 @@ def downgrade() -> None:
         batch_op.drop_constraint('uq_user_driver_id', type_='unique')
         # Remove name column
         batch_op.drop_column('name')
+    
+    # Use batch mode for SQLite compatibility
+    with op.batch_alter_table('contractor_service_pricing', schema=None) as batch_op:
+        # Drop new unique constraint
+        batch_op.drop_constraint('unique_contractor_service_vehicle', type_='unique')
+        # Recreate old unique constraint
+        batch_op.create_unique_constraint('unique_contractor_service', ['contractor_id', 'service_id'])
+        # Drop added columns
+        batch_op.drop_index(batch_op.f('ix_contractor_service_pricing_vehicle_type_id'))
+        batch_op.drop_constraint('fk_contractor_service_pricing_vehicle_type_id_vehicle_type', type_='foreignkey')
+        batch_op.drop_column('vehicle_type_id')
+        batch_op.drop_column('price')
