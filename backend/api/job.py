@@ -3012,6 +3012,9 @@ def update_job_status(job_id):
         # Get optional remark
         remark = data.get('remark')
         
+        # Get optional changed_at timestamp from frontend
+        changed_at_timestamp = data.get('changed_at')
+        
         # Get the job with row-level locking to prevent race conditions
         # This is now done AFTER validation to minimize lock time
         job = Job.query.with_for_update().get(job_id)
@@ -3038,11 +3041,30 @@ def update_job_status(job_id):
             reason=remark
         )
         
+        # Set custom timestamp if provided by frontend
+        if changed_at_timestamp:
+            try:
+                # Parse the timestamp from the frontend
+                from datetime import datetime
+                if isinstance(changed_at_timestamp, str):
+                    # Try to parse as ISO format
+                    custom_timestamp = datetime.fromisoformat(changed_at_timestamp.replace('Z', '+00:00'))
+                else:
+                    # Assume it's already a datetime object
+                    custom_timestamp = changed_at_timestamp
+                # Set the changed_at field directly
+                audit_record.changed_at = custom_timestamp
+            except Exception as e:
+                logging.warning(f"Invalid changed_at timestamp format: {changed_at_timestamp}")
+        
         # Update job status
         job.status = new_status
         
         # Add audit record to database
         db.session.add(audit_record)
+        
+        # Commit both changes atomically
+        db.session.commit()
         
         # Commit both changes atomically
         db.session.commit()
