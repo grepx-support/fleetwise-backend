@@ -118,25 +118,29 @@ def get_table_names():
     # Connect to the database using DBManager singleton
     if DBManager is None:
         raise ImportError("DBManager could not be imported. Please ensure backend.database module exists.")
-    conn = DBManager.connect()
-    cursor = conn.cursor()
-    
-    # Get all table names in alphabetical order
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;")
-    tables = cursor.fetchall()
-    
-    # Close connection
-    conn.close()
-    
-    # Extract table names from tuples and return in alphabetical order
-    table_names = [table[0] for table in tables]
-    
-    # Validate table names to prevent SQL injection
-    for table_name in table_names:
-        if not is_valid_table_name(table_name):
-            raise ValueError(f"Invalid table name format: {table_name}")
-    
-    return table_names
+
+    conn = None
+    try:
+        conn = DBManager.connect()
+        cursor = conn.cursor()
+
+        # Get all table names in alphabetical order
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;")
+        tables = cursor.fetchall()
+
+        # Extract table names from tuples and return in alphabetical order
+        table_names = [table[0] for table in tables]
+
+        # Validate table names to prevent SQL injection
+        for table_name in table_names:
+            if not is_valid_table_name(table_name):
+                raise ValueError(f"Invalid table name format: {table_name}")
+
+        return table_names
+    finally:
+        # Ensure connection is always closed, even if an exception occurs
+        if conn:
+            conn.close()
 
 def export_table_to_excel(table_name):
     """Export a specific table to Excel format"""
@@ -152,18 +156,18 @@ def export_table_to_excel(table_name):
     # Connect to the database using DBManager singleton
     if DBManager is None:
         raise ImportError("DBManager could not be imported. Please ensure backend.database module exists.")
-    conn = DBManager.connect()
-    
-    # Read the table into a pandas DataFrame
-    # Use SQLite identifier quoting to prevent SQL injection
+
+    conn = None
     try:
+        conn = DBManager.connect()
+
+        # Read the table into a pandas DataFrame
+        # Use SQLite identifier quoting to prevent SQL injection
         df = pd.read_sql_query(f'SELECT * FROM "{table_name}"', conn)
-    except Exception as e:
-        conn.close()
-        raise e
-    
-    # Close connection
-    conn.close()
+    finally:
+        # Ensure connection is always closed, even if an exception occurs
+        if conn:
+            conn.close()
     
     # Create a temporary file
     temp_file = tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False)
@@ -206,26 +210,28 @@ def export_multiple_tables_to_excel(table_names):
                 # Connect to the database using DBManager singleton
                 if DBManager is None:
                     raise ImportError("DBManager could not be imported. Please ensure db_manager.py exists.")
-                conn = DBManager.connect()
-                
-                # Read the table into a pandas DataFrame
-                # Use SQLite identifier quoting to prevent SQL injection
+
+                conn = None
                 try:
+                    conn = DBManager.connect()
+
+                    # Read the table into a pandas DataFrame
+                    # Use SQLite identifier quoting to prevent SQL injection
                     df = pd.read_sql_query(f'SELECT * FROM "{table_name}"', conn)
+
+                    # Write DataFrame to a sheet in the Excel file
+                    df.to_excel(writer, sheet_name=table_name, index=False)
                 except Exception as e:
-                    conn.close()
                     # Clean up the excel file if something fails
                     try:
                         os.remove(temp_file.name)
                     except:
                         pass
                     raise e
-                
-                # Close connection
-                conn.close()
-                
-                # Write DataFrame to a sheet in the Excel file
-                df.to_excel(writer, sheet_name=table_name, index=False)
+                finally:
+                    # Ensure connection is always closed, even if an exception occurs
+                    if conn:
+                        conn.close()
     except Exception as e:
         # Clean up the temporary file if Excel generation fails
         try:

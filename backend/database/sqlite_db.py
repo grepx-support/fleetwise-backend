@@ -3,6 +3,7 @@ SQLite Database Manager - Handles all SQLite-specific database operations.
 """
 import sqlite3
 import os
+from pathlib import Path
 from .base import BaseDBManager
 
 
@@ -22,14 +23,16 @@ class SqliteDB(BaseDBManager):
         """
         super().__init__()
 
-        # Get database path from parameter, environment variable, or default
+        # Get database path from parameter, environment variable, or fallback default
         if db_path is None:
             db_path = os.environ.get('DB_PATH')
 
-            # Fallback to default location
-            if db_path is None:
-                # fatal error if no path is provided
-                raise Exception("DB_PATH environment variable not set and no db_path provided.")
+        # Fallback to default location if not provided
+        if db_path is None:
+            # Use same default as config.py for consistency
+            fallback_path = Path(__file__).resolve().parents[3] / "fleetwise-storage" / "database" / "fleetwise.db"
+            db_path = str(fallback_path)
+            print(f"WARNING: DB_PATH not set, using fallback default: {db_path}")
 
         self.db_path = db_path
 
@@ -54,13 +57,26 @@ class SqliteDB(BaseDBManager):
 
     def connect(self):
         """
-        Get a direct SQLite database connection.
-        
+        Get a direct SQLite database connection configured for thread safety.
+
         Returns:
-            sqlite3.Connection: A connection to the SQLite database
+            sqlite3.Connection: A connection to the SQLite database with threading support
+
+        Note: Configured for multi-threaded environments with proper isolation and timeout.
         """
-        # SQLite connections are not thread-safe, so each call creates a new connection
-        return sqlite3.connect(self.db_path)
+        # Configure connection for thread safety and multi-threaded access
+        # check_same_thread=False allows use across threads (required for Flask)
+        # timeout=30 prevents indefinite blocking under write contention
+        # isolation_level='DEFERRED' allows better concurrency
+        conn = sqlite3.connect(
+            self.db_path,
+            check_same_thread=False,
+            timeout=30.0,
+            isolation_level='DEFERRED'
+        )
+        # Use Row factory for dict-like access to query results
+        conn.row_factory = sqlite3.Row
+        return conn
 
     def get_db_type(self) -> str:
         """Get the database type identifier"""
