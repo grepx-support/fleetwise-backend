@@ -1,6 +1,10 @@
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__) + '/../..'))
+
+# Import config first to set environment variables
+from backend.config import Config
+
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config

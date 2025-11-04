@@ -1,6 +1,12 @@
 import os
 from pathlib import Path
 
+# Set database configuration directly in code
+os.environ['DB_TYPE'] = 'sqlite'
+# Point to feetwise-storage/database directory (same location as invoice storage)
+fleetwise_storage_path = str(Path(__file__).resolve().parents[2] / "feetwise-storage" / "database")
+os.environ['DB_PATH'] = os.path.join(fleetwise_storage_path, 'fleetwise.db')
+
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key')
     SQLALCHEMY_TRACK_MODIFICATIONS = False

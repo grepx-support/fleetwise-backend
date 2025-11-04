@@ -32,6 +32,13 @@ class SqliteDB(BaseDBManager):
                 raise Exception("DB_PATH environment variable not set and no db_path provided.")
 
         self.db_path = db_path
+
+        # Ensure the directory exists for the database file
+        db_dir = os.path.dirname(self.db_path)
+        if db_dir and not os.path.exists(db_dir):
+            os.makedirs(db_dir, exist_ok=True)
+            print(f"Created database directory: {db_dir}")
+
         self.sqlalchemy_uri = f"sqlite:///{self.db_path}"
 
         print(f"SqliteDB initialized with database: {self.db_path}")
