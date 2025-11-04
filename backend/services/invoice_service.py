@@ -460,7 +460,6 @@ class InvoiceService:
         if not isinstance(invoice_id, int) or invoice_id <= 0:
             raise ValueError(f"Invalid invoice_id: {invoice_id}")
         try:
-            from py_doc_generator.managers import TemplateManager
             invoice = Invoice.query.get(invoice_id)
             customer = Customer.query.get(invoice.customer_id)
             jobs = Job.query.filter_by(invoice_id=invoice_id).all()
@@ -480,6 +479,7 @@ class InvoiceService:
                 Particulars=InvoiceService.build_particulars(job),
                 ServiceType=service.name if service else job.service_type,
                 amount=f"{job.final_price:.2f}",
+                cash_collect=Decimal(str(job.cash_to_collect or 0))
                 ))
         
             user_settings = UserSettings.query.first()
@@ -492,6 +492,7 @@ class InvoiceService:
             raw_gst = billing_settings.get("gst_percent", 0) or 0
             gst_percent = Decimal(str(raw_gst))  
 
+
             sub_total = Decimal(str(invoice.total_amount))
             gst_amount = (sub_total * gst_percent / Decimal("100")).quantize(
                 Decimal("0.01"), rounding=ROUND_HALF_UP
@@ -499,6 +500,17 @@ class InvoiceService:
             grand_total = (sub_total + gst_amount).quantize(
                 Decimal("0.01"), rounding=ROUND_HALF_UP
             )
+            cash_collect_total = sum(item.cash_collect for item in items)
+            if cash_collect_total > 0:
+                job_ids_with_cash = [str(job.id) for job in jobs if job.cash_to_collect and job.cash_to_collect > 0]
+                payment = Payment(
+                invoice_id=invoice_id,
+                amount=float(cash_collect_total),
+                date=datetime.utcnow(),
+                notes=f"Cash collected from jobs: {', '.join(job_ids_with_cash)}"
+                )
+                db.session.add(payment)
+                db.session.commit()
 
             # Footer Data
             general_settings = prefs.get("general_settings", {})
@@ -516,8 +528,8 @@ class InvoiceService:
             number=f"INV-{invoice.id}",
             date=(invoice.date.date() if hasattr(invoice.date, "date") else invoice.date),
             from_company=customer.name,
-            from_email=customer.email,
-            from_mobile=customer.mobile,
+            from_email=customer.email or "-",
+            from_mobile=customer.mobile or "-",
             to_company=customer.name,
             to_address=customer.address or "",
             items=items,
@@ -526,6 +538,7 @@ class InvoiceService:
             logo_path=logo_path,
             sub_total=sub_total,
             gst_amount=gst_amount,
+            cash_collect_total=cash_collect_total,
             total_amount=grand_total,
             company_address= company_address,
             email=email,
@@ -566,7 +579,7 @@ class InvoiceService:
                 current_app.logger.info(f"Using configured invoice storage root: {storage_root}")
             else:
                 # Fallback: derive automatically
-                repos_root = Path(current_app.root_path).resolve().parents[2]
+                repos_root = Path(current_app.root_path).resolve().parents[1]
                 storage_root = repos_root / "fleetwise-storage"
                 current_app.logger.warning(
                     f"INVOICE_STORAGE_ROOT not set or invalid. Falling back to: {storage_root}"

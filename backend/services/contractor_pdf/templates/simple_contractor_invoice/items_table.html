@@ -4,6 +4,7 @@
       <th>Job Date</th>
       <th>Job ID</th>
       <th>Driver Name</th>
+      <th>Cash Collected</th>
       <th>Job Cost</th>
     </tr>
   </thead>
@@ -13,12 +14,9 @@
       <td>{{ item.job_date }}</td>
       <td>{{ item.job_id }}</td>
       <td>{{ item.driver_name }}</td>
+       <td> ${{"%.2f"|format(item.cash_to_collect)}}</td>
       <td class="amt">
   ${{ "%.2f"|format(item.job_cost) }}
-  {% if item.cash_to_collect > 0 %}
-    <br>
-    <span style="color: #777;">-{{ "%.2f"|format(item.cash_to_collect) }}</span>
-  {% endif %}
 </td>
 
     </tr>
@@ -27,7 +25,15 @@
   <tfoot>
     <tr>
   <td colspan="3" class="text-right"><strong>Total:</strong></td>
+  <td><strong>${{cash_collect_total}}</strong></td>
   <td><strong>${{ total_amount }}</strong></td>
+</tr>
+<tr>
+  <td colspan="4" class="text-right"><strong>Cash Collected</strong></td>
+  <td><strong>-${{cash_collect_total}}</strong></td>
+</tr>
+<td colspan="4" class="text-right"><strong>Remaining Balance</strong></td>
+  <td><strong>${{total_amount - cash_collect_total}}</strong></td>
 </tr>
   </tfoot>
 </table>

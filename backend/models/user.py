@@ -9,6 +9,7 @@ class User(db.Model, UserMixin):
     password = db.Column(db.String(255), nullable=False)
     active = db.Column(db.Boolean(), default=True)
     fs_uniquifier = db.Column(db.String(64), unique=True, nullable=False)
+    name = db.Column(db.String(255), nullable=True)  # New name field
     # Optionally link to Customer/Driver
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=True)
     driver_id = db.Column(db.Integer, db.ForeignKey('driver.id'), nullable=True)
@@ -22,4 +23,3 @@ class User(db.Model, UserMixin):
     android_device_token = db.Column(db.String(1024),nullable=True)
     ios_device_token = db.Column(db.String(1024),nullable=True)
     driver = db.relationship('Driver', backref='user', uselist=False)
-    

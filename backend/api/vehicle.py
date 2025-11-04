@@ -11,7 +11,7 @@ schema = VehicleSchema(session=db.session)
 schema_many = VehicleSchema(many=True, session=db.session)
 
 @vehicle_bp.route('/vehicles', methods=['GET'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def list_vehicles():
     try:
         vehicles = VehicleService.get_all()
@@ -40,7 +40,7 @@ def get_vehicle(vehicle_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @vehicle_bp.route('/vehicles', methods=['POST'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def create_vehicle():
     try:
         data = request.get_json()
@@ -56,7 +56,7 @@ def create_vehicle():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @vehicle_bp.route('/vehicles/<int:vehicle_id>', methods=['PUT'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def update_vehicle(vehicle_id):
     try:
         data = request.get_json()
@@ -74,7 +74,7 @@ def update_vehicle(vehicle_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @vehicle_bp.route('/vehicles/<int:vehicle_id>', methods=['DELETE'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def delete_vehicle(vehicle_id):
     try:
         success = VehicleService.delete(vehicle_id)
@@ -88,7 +88,7 @@ def delete_vehicle(vehicle_id):
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @vehicle_bp.route('/vehicles/<int:vehicle_id>/soft-delete', methods=['PUT'])
-@roles_accepted('admin', 'manager')
+@roles_accepted('admin', 'manager', 'accountant')
 def toggle_vehicle_soft_delete(vehicle_id):
     try:
         data = request.get_json()
