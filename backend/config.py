@@ -72,7 +72,7 @@ class DevConfig(Config):
     FRONTEND_URL = 'http://localhost:3000'
     
     # Development database - SQLite with fallback
-	DB_TYPE = 'sqlite'
+    DB_TYPE = 'sqlite'
     STORAGE_PATH = str(Path(__file__).resolve().parents[2] / "fleetwise-storage" / "database")
     DB_PATH = os.path.join(STORAGE_PATH, 'fleetwise.db')
     SQLALCHEMY_DATABASE_URI = os.environ.get('SQLALCHEMY_DATABASE_URI', f"sqlite:///{DB_PATH}")
@@ -88,7 +88,7 @@ class StagingConfig(Config):
     FRONTEND_URL = 'https://test.grepx.sg'
     
     # Staging database - MUST be set via environment
-	DB_TYPE = 'sqlite'
+    DB_TYPE = 'sqlite'
     STORAGE_PATH = str(Path(__file__).resolve().parents[2] / "fleetwise-storage" / "database")
     DB_PATH = os.path.join(STORAGE_PATH, 'fleetwise.db')
     SQLALCHEMY_DATABASE_URI = os.environ.get('SQLALCHEMY_DATABASE_URI', f"sqlite:///{DB_PATH}")
@@ -104,7 +104,7 @@ class ProductionConfig(Config):
     FRONTEND_URL = 'https://fleet.avant-garde.com.sg'
     
     # Production database - MUST be set via environment
-	DB_TYPE = 'sqlite'
+    DB_TYPE = 'sqlite'
     STORAGE_PATH = str(Path(__file__).resolve().parents[2] / "fleetwise-storage" / "database")
     DB_PATH = os.path.join(STORAGE_PATH, 'fleetwise.db')
     SQLALCHEMY_DATABASE_URI = os.environ.get('SQLALCHEMY_DATABASE_URI', f"sqlite:///{DB_PATH}")
