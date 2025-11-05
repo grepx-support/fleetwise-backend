@@ -94,27 +94,42 @@ def create_contractor():
                     if cost < 0:
                         return jsonify({'error': f'Cost for service {service_id} and vehicle type {vehicle_type_id} must be non-negative'}), 400
                     
+                    # Validate service exists and is active
+                    from backend.models.service import Service
+                    service = Service.query.filter_by(id=service_id, is_deleted=False).first()
+                    if not service:
+                        return jsonify({'error': f'Service {service_id} not found or inactive'}), 400
+                    
                     # Create or update the pricing entry
                     ContractorServicePricingService.update_pricing(
                         contractor.id, service_id, vehicle_type_id, cost
                     )
             else:
                 # Handle regular service-based pricing
-                # Add default vehicle_type_id to each pricing item if not present
+                # Require explicit vehicle_type_id in each pricing item
                 for pricing_item in pricing_data:
                     if 'vehicle_type_id' not in pricing_item:
-                        pricing_item['vehicle_type_id'] = 1  # Default to E-Class Sedan
+                        return jsonify({
+                            'error': 'vehicle_type_id is required for each pricing item'
+                        }), 400
                 
                 # Validate each pricing item
                 for pricing_item in pricing_data:
                     if 'service_id' not in pricing_item or 'cost' not in pricing_item:
                         return jsonify({'error': 'Each pricing item must have service_id and cost'}), 400
                     
+                    service_id = pricing_item['service_id']
                     cost = pricing_item['cost']
                     
                     # Validate that cost is non-negative
                     if cost < 0:
-                        return jsonify({'error': f'Cost for service {pricing_item["service_id"]} must be non-negative'}), 400
+                        return jsonify({'error': f'Cost for service {service_id} must be non-negative'}), 400
+                    
+                    # Validate service exists and is active
+                    from backend.models.service import Service
+                    service = Service.query.filter_by(id=service_id, is_deleted=False).first()
+                    if not service:
+                        return jsonify({'error': f'Service {service_id} not found or inactive'}), 400
                 
                 # Create pricing entries
                 ContractorService.bulk_update_contractor_pricing(contractor.id, pricing_data)
@@ -260,11 +275,18 @@ def update_contractor_pricing(contractor_id):
                 if 'service_id' not in pricing_item or 'cost' not in pricing_item:
                     return jsonify({'error': 'Each pricing item must have service_id and cost'}), 400
                 
+                service_id = pricing_item['service_id']
                 cost = pricing_item['cost']
                 
                 # Validate that cost is non-negative
                 if cost < 0:
-                    return jsonify({'error': f'Cost for service {pricing_item["service_id"]} must be non-negative'}), 400
+                    return jsonify({'error': f'Cost for service {service_id} must be non-negative'}), 400
+                
+                # Validate service exists and is active
+                from backend.models.service import Service
+                service = Service.query.filter_by(id=service_id, is_deleted=False).first()
+                if not service:
+                    return jsonify({'error': f'Service {service_id} not found or inactive'}), 400
             
             updated_pricing = ContractorService.bulk_update_contractor_pricing(contractor_id, pricing_data)
             
@@ -293,6 +315,12 @@ def update_contractor_pricing(contractor_id):
             # Validate that cost is non-negative
             if cost < 0:
                 return jsonify({'error': 'Cost must be non-negative'}), 400
+            
+            # Validate service exists and is active
+            from backend.models.service import Service
+            service = Service.query.filter_by(id=service_id, is_deleted=False).first()
+            if not service:
+                return jsonify({'error': f'Service {service_id} not found or inactive'}), 400
             
             pricing = ContractorService.update_contractor_pricing(contractor_id, service_id, vehicle_type_id, cost)
             return jsonify({
@@ -371,6 +399,12 @@ def get_contractor_pricing_by_vehicle_type(contractor_id):
 @roles_accepted('admin', 'manager', 'accountant')
 def update_contractor_pricing_by_vehicle_type(contractor_id):
     try:
+        # Validate contractor exists and is active
+        from backend.models.contractor import Contractor
+        contractor = Contractor.query.filter_by(id=contractor_id, is_deleted=False).first()
+        if not contractor:
+            return jsonify({'error': f'Contractor {contractor_id} not found'}), 404
+            
         data = request.get_json()
         
         # Validate required fields
@@ -384,6 +418,18 @@ def update_contractor_pricing_by_vehicle_type(contractor_id):
         # Validate that cost is non-negative if provided
         if cost is not None and cost < 0:
             return jsonify({'error': 'Cost must be non-negative'}), 400
+            
+        # Validate vehicle type exists and is active
+        from backend.models.vehicle_type import VehicleType
+        vehicle_type = VehicleType.query.filter_by(id=vehicle_type_id, is_deleted=False).first()
+        if not vehicle_type:
+            return jsonify({'error': f'Vehicle type {vehicle_type_id} not found or inactive'}), 400
+            
+        # Validate service exists and is active
+        from backend.models.service import Service
+        service = Service.query.filter_by(id=service_id, is_deleted=False).first()
+        if not service:
+            return jsonify({'error': f'Service {service_id} not found or inactive'}), 400
             
         # Update the pricing
         pricing = ContractorServicePricingService.update_pricing(

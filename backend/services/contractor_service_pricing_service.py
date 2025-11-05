@@ -48,6 +48,7 @@ class ContractorServicePricingService:
             success_count = 0
             error_count = 0
 
+            # Process all contractors without committing individually
             for contractor in active_contractors:
                 try:
                     # Double-check status hasn't changed (defensive programming)
@@ -81,31 +82,31 @@ class ContractorServicePricingService:
                         pricing.cost = 0.0
                         db.session.add(pricing)
                     
-                    # Commit all pricing entries for this contractor
-                    db.session.commit()
                     success_count += 1
                     logging.debug(f"Added pricing for contractor {contractor.id} and service {service_id} for all vehicle types")
 
                 except IntegrityError as ie:
                     error_count += 1
-                    db.session.rollback()
                     logging.error(
                         f"Integrity error syncing service {service_id} to contractor {contractor.id}: {str(ie)}"
                     )
+                    # Continue processing other contractors - we'll rollback all at the end if needed
                 except Exception as e:
                     error_count += 1
-                    db.session.rollback()
                     logging.error(
                         f"Error syncing service {service_id} to contractor {contractor.id}: {str(e)}"
                     )
+                    # Continue processing other contractors - we'll rollback all at the end if needed
 
+            # Single commit for entire batch to ensure atomicity
+            db.session.commit()
             logging.info(
                 f"Successfully synced service {service_id} to {success_count} active contractors "
                 f"({error_count} errors)"
             )
 
             return success_count, error_count
-            
+
         except Exception as e:
             db.session.rollback()
             logging.error(f"Error in sync_new_service_to_contractors: {str(e)}", exc_info=True)
@@ -133,8 +134,8 @@ class ContractorServicePricingService:
     @staticmethod
     def update_pricing(contractor_id, service_id, vehicle_type_id, cost=None):
         """
-        Update pricing for a specific contractor, service, and vehicle type combination.
-
+        Update pricing by delegating to ContractorService to maintain single source of truth.
+        
         Args:
             contractor_id (int): The contractor ID
             service_id (int): The service ID
@@ -144,19 +145,9 @@ class ContractorServicePricingService:
         Returns:
             ContractorServicePricing: The updated pricing record
         """
-        pricing = ContractorServicePricingService.get_pricing(contractor_id, service_id, vehicle_type_id)
-        
-        if not pricing:
-            # Create new pricing record if it doesn't exist
-            pricing = ContractorServicePricing()
-            pricing.contractor_id = contractor_id
-            pricing.service_id = service_id
-            pricing.vehicle_type_id = vehicle_type_id
-            pricing.cost = 0.0
-            db.session.add(pricing)
-        
-        if cost is not None:
-            pricing.cost = cost
-            
-        db.session.commit()
-        return pricing
+        from backend.services.contractor_service import ContractorService
+        if cost is None:
+            cost = 0.0
+        return ContractorService.update_contractor_pricing(
+            contractor_id, service_id, vehicle_type_id, cost
+        )

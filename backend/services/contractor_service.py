@@ -117,11 +117,12 @@ class ContractorService:
     @staticmethod
     def update_contractor_pricing(contractor_id, service_id, vehicle_type_id, cost):
         try:
+            # Use pessimistic locking to prevent race conditions
             pricing = ContractorServicePricing.query.filter_by(
                 contractor_id=contractor_id, 
                 service_id=service_id,
                 vehicle_type_id=vehicle_type_id
-            ).first()
+            ).with_for_update().first()
             
             if pricing:
                 pricing.cost = cost
@@ -166,6 +167,12 @@ class ContractorService:
     @staticmethod
     def bulk_update_contractor_pricing(contractor_id, pricing_data):
         try:
+            # Detect if vehicle-type-specific pricing by checking ALL items
+            has_vehicle_type = all('vehicle_type_id' in item for item in pricing_data)
+            missing_vehicle_type = any('vehicle_type_id' not in item for item in pricing_data)
+            if has_vehicle_type and missing_vehicle_type:
+                raise ServiceError("All pricing items must consistently include or exclude vehicle_type_id")
+            
             updated_pricing = []
             for pricing_item in pricing_data:
                 service_id = pricing_item['service_id']
@@ -173,11 +180,12 @@ class ContractorService:
                 # Get vehicle_type_id from pricing_item, default to 1 (E-Class Sedan) if not provided
                 vehicle_type_id = pricing_item.get('vehicle_type_id', 1)
                 
+                # Use pessimistic locking to prevent race conditions
                 pricing = ContractorServicePricing.query.filter_by(
                     contractor_id=contractor_id, 
                     service_id=service_id,
                     vehicle_type_id=vehicle_type_id
-                ).first()
+                ).with_for_update().first()
                 
                 if pricing:
                     pricing.cost = cost

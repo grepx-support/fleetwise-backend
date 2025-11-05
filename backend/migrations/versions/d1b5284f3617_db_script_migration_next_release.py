@@ -29,19 +29,26 @@ def upgrade() -> None:
         batch_op.create_unique_constraint('uq_user_driver_id', ['driver_id'])
     
     # Use batch mode for SQLite compatibility
+    # First, add vehicle_type_id as nullable
     with op.batch_alter_table('contractor_service_pricing', schema=None) as batch_op:
-        # Add vehicle_type_id column
-        batch_op.add_column(sa.Column('vehicle_type_id', sa.Integer(), nullable=False))
+        batch_op.add_column(sa.Column('vehicle_type_id', sa.Integer(), nullable=True))
+        # Add price column
+        batch_op.add_column(sa.Column('price', sa.Float(), nullable=True))
         # Add foreign key constraint
         batch_op.create_foreign_key('fk_contractor_service_pricing_vehicle_type_id_vehicle_type', 'vehicle_type', ['vehicle_type_id'], ['id'], ondelete='CASCADE')
         # Create index
         batch_op.create_index(batch_op.f('ix_contractor_service_pricing_vehicle_type_id'), ['vehicle_type_id'], unique=False)
-        # Add price column
-        batch_op.add_column(sa.Column('price', sa.Float(), nullable=True))
         # Drop old unique constraint
         batch_op.drop_constraint('unique_contractor_service', type_='unique')
         # Create new unique constraint including vehicle_type_id
         batch_op.create_unique_constraint('unique_contractor_service_vehicle', ['contractor_id', 'service_id', 'vehicle_type_id'])
+    
+    # Backfill existing rows with default value (1 for E-Class Sedan)
+    op.execute("UPDATE contractor_service_pricing SET vehicle_type_id = 1 WHERE vehicle_type_id IS NULL")
+    
+    # Then alter to non-nullable in new batch operation
+    with op.batch_alter_table('contractor_service_pricing', schema=None) as batch_op:
+        batch_op.alter_column('vehicle_type_id', nullable=False)
 
 
 def downgrade() -> None:
@@ -58,6 +65,19 @@ def downgrade() -> None:
     with op.batch_alter_table('contractor_service_pricing', schema=None) as batch_op:
         # Drop new unique constraint
         batch_op.drop_constraint('unique_contractor_service_vehicle', type_='unique')
+    
+    # Before recreating old constraint, remove duplicates by keeping only one row per contractor_id/service_id combination
+    op.execute("""
+        DELETE FROM contractor_service_pricing 
+        WHERE id NOT IN (
+            SELECT MIN(id) 
+            FROM contractor_service_pricing 
+            GROUP BY contractor_id, service_id
+        )
+    """)
+    
+    # Use batch mode for SQLite compatibility
+    with op.batch_alter_table('contractor_service_pricing', schema=None) as batch_op:
         # Recreate old unique constraint
         batch_op.create_unique_constraint('unique_contractor_service', ['contractor_id', 'service_id'])
         # Drop added columns
