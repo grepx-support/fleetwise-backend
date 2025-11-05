@@ -22,9 +22,6 @@ class Config:
     SECURITY_CSRF_IGNORE_UNAUTH_ENDPOINTS = True
     SESSION_COOKIE_HTTPONLY = True
     SECURITY_UNAUTHORIZED_VIEW = None
-    # REMEMBER_COOKIE_SAMESITE = "Strict"
-    # REMEMBER_COOKIE_SECURE = True
-    # REMEMBER_COOKIE_HTTPONLY = True
     
     # JSON API configurations
     SECURITY_RENDER_AS_JSON = True
@@ -50,9 +47,11 @@ class Config:
     PASSWORD_RESET_TOKEN_EXPIRY_HOURS = int(os.environ.get('PASSWORD_RESET_TOKEN_EXPIRY_HOURS', 1))
     FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
 
-
-     # Upload folder for job photos
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    # Ensure consistent database path regardless of working directory
+    DB_PATH = os.path.join(BASE_DIR, 'app.db')
+    SQLALCHEMY_DATABASE_URI = f"sqlite:///{DB_PATH}"
+     # Upload folder for job photos
     print("basedir ", BASE_DIR)
     JOB_PHOTO_UPLOAD_FOLDER = os.path.join(BASE_DIR, 'static', 'uploads')
     STATIC_FOLDER = os.environ.get('STATIC_FOLDER', 'uploads')  # base static folder
@@ -71,9 +70,6 @@ class DevConfig(Config):
     FLASK_PORT = 5000
     FRONTEND_URL = 'http://localhost:3000'
 
-    # Ensure consistent database path regardless of working directory
-    DB_PATH = os.path.join(Config.BASE_DIR, 'app.db')
-    SQLALCHEMY_DATABASE_URI = f"sqlite:///{DB_PATH}"
     DEBUG = True
 
 class StagingConfig(Config):
