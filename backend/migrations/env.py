@@ -1,6 +1,14 @@
 import sys
 import os
+from pathlib import Path
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__) + '/../..'))
+
+# Set environment variables directly to avoid circular import dependency on config.py
+# This ensures migrations are self-contained and don't depend on side effects
+os.environ.setdefault('DB_TYPE', 'sqlite')
+storage_path = str(Path(__file__).resolve().parents[2] / "fleetwise-storage" / "database")
+os.environ.setdefault('DB_PATH', os.path.join(storage_path, 'fleetwise.db'))
+
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
@@ -16,6 +24,14 @@ config = context.config
 # This line sets up loggers basically.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+
+# Get database URI from DBManager (single source of truth)
+# This ensures Alembic uses the same database configuration as the application
+from backend.database import DBManager
+database_url = DBManager.get_sqlalchemy_uri()
+
+# Override the URL from alembic.ini with the one from DBManager
+config.set_main_option("sqlalchemy.url", database_url)
 
 # add your model's MetaData object here
 # for 'autogenerate' support
