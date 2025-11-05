@@ -26,14 +26,27 @@ except ImportError:
         from config import DevConfig, StagingConfig, ProductionConfig
     except ImportError:
         # Fallback config
+        # Note: Get database configuration from DBManager (single source of truth)
         class DevConfig:
             SECRET_KEY = 'dev-secret-key'
             SQLALCHEMY_TRACK_MODIFICATIONS = False
-            BASEDIR = os.path.dirname(os.path.abspath(__file__))
-            DB_PATH = os.path.join(BASEDIR, 'app.db')
-            SQLALCHEMY_DATABASE_URI = f"sqlite:///{DB_PATH}"
             DEBUG = True
+            BASEDIR = os.path.dirname(os.path.abspath(__file__))
             JOB_PHOTO_UPLOAD_FOLDER = os.path.join(BASEDIR, 'static', 'uploads')
+            
+            def __init__(self):
+                # Import DBManager to get database configuration
+                # No fallback - DBManager must be available
+                from backend.database import DBManager
+                
+                # Get database configuration from DBManager (single source of truth)
+                # Use static methods - no need to instantiate for URI
+                self.SQLALCHEMY_DATABASE_URI = DBManager.get_sqlalchemy_uri()
+                
+                # For SQLite, also set DB_PATH for backwards compatibility
+                db_instance = DBManager()
+                if db_instance.is_sqlite():
+                    self.DB_PATH = db_instance.get_db_path()
 
 # Try different import paths for extensions
 try:
@@ -105,7 +118,9 @@ if env == 'production':
 elif env == 'staging':
     app.config.from_object(StagingConfig)
 else:
-    app.config.from_object(DevConfig)
+    # Instantiate DevConfig to trigger __init__ which sets up the database URI
+    dev_config_instance = DevConfig()
+    app.config.from_object(dev_config_instance)
 
 # Add Flask-Security-Too configuration
 app.config['SECURITY_URL_PREFIX'] = '/api/auth'
