@@ -51,18 +51,19 @@ else:
     dev_config_instance = DevConfig()
     app.config.from_object(dev_config_instance)
 
-# Configuration debug output
-print("="*80)
-print("🔧 CONFIGURATION DEBUG")
-print("="*80)
-print(f"🌍 NODE_ENV: {env}")
-print(f"📦 Config Class Used: {ProductionConfig.__name__ if env == 'production' else StagingConfig.__name__ if env == 'staging' else DevConfig.__name__}")
-print(f"🗄️  SQLALCHEMY_DATABASE_URI: {app.config.get('SQLALCHEMY_DATABASE_URI', 'NOT SET!')}")
-print(f"🐛 DEBUG: {app.config.get('DEBUG', 'NOT SET')}")
-print(f"🌐 FLASK_HOST: {app.config.get('FLASK_HOST', 'NOT SET')}")
-print(f"🔗 FRONTEND_URL: {app.config.get('FRONTEND_URL', 'NOT SET')}")
-print(f"🍪 SESSION_COOKIE_SECURE: {app.config.get('SESSION_COOKIE_SECURE', 'NOT SET')}")
-print("="*80)
+# Configuration debug output - only in reloader process to avoid duplication
+if os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+    print("="*80)
+    print("🔧 CONFIGURATION DEBUG")
+    print("="*80)
+    print(f"🌍 NODE_ENV: {env}")
+    print(f"📦 Config Class Used: {ProductionConfig.__name__ if env == 'production' else StagingConfig.__name__ if env == 'staging' else DevConfig.__name__}")
+    print(f"🗄️  SQLALCHEMY_DATABASE_URI: {app.config.get('SQLALCHEMY_DATABASE_URI', 'NOT SET!')}")
+    print(f"🐛 DEBUG: {app.config.get('DEBUG', 'NOT SET')}")
+    print(f"🌐 FLASK_HOST: {app.config.get('FLASK_HOST', 'NOT SET')}")
+    print(f"🔗 FRONTEND_URL: {app.config.get('FRONTEND_URL', 'NOT SET')}")
+    print(f"🍪 SESSION_COOKIE_SECURE: {app.config.get('SESSION_COOKIE_SECURE', 'NOT SET')}")
+    print("="*80)
 
 # Add Flask-Security-Too configuration
 app.config['SECURITY_URL_PREFIX'] = '/api/auth'
