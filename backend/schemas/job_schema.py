@@ -122,6 +122,9 @@ class JobSchema(SQLAlchemyAutoSchema):
     # Add duration_str field
     duration_str = fields.Method('get_duration_str', dump_only=True)
     
+    # Add status_history field for frontend validation
+    status_history = fields.Method('get_status_history', dump_only=True)
+    
     def get_extra_services(self, obj):
         """Get extra_services as JSON data for API response"""
         return obj.extra_services_data
@@ -211,3 +214,30 @@ class JobSchema(SQLAlchemyAutoSchema):
     
     def get_invoice_number(self, obj):
         return ''
+    
+    def get_status_history(self, obj):
+        """Get recent status history for frontend validation"""
+        try:
+            from backend.models.job_audit import JobAudit
+            from sqlalchemy import desc
+            
+            # Get recent audit records for this job
+            recent_audits = JobAudit.query.filter_by(job_id=obj.id)\
+                .filter(JobAudit.new_status.isnot(None))\
+                .order_by(desc(JobAudit.changed_at))\
+                .limit(10)\
+                .all()
+            
+            # Format for frontend
+            status_history = [
+                {
+                    'timestamp': audit.changed_at.isoformat() if audit.changed_at else None,
+                    'status': audit.new_status
+                }
+                for audit in recent_audits
+            ]
+            
+            return status_history
+        except Exception as e:
+            # Return empty array if there's any error
+            return []
