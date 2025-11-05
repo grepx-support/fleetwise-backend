@@ -376,10 +376,9 @@ def get_contractor_pricing_by_vehicle_type(contractor_id):
         else:
             # Get all pricing for the contractor
             all_pricing = ContractorServicePricing.query.filter_by(contractor_id=contractor_id).all()
-            logging.info(f"Found {len(all_pricing)} pricing records for contractor {contractor_id}")  # Debug log
+            logging.debug(f"Found {len(all_pricing)} pricing records for contractor {contractor_id}")
             result = []
             for pricing in all_pricing:
-                logging.info(f"Pricing record: id={pricing.id}, contractor_id={pricing.contractor_id}, service_id={pricing.service_id}, vehicle_type_id={pricing.vehicle_type_id}, cost={pricing.cost}")  # Debug log
                 result.append({
                     'id': pricing.id,
                     'contractor_id': pricing.contractor_id,
@@ -389,7 +388,7 @@ def get_contractor_pricing_by_vehicle_type(contractor_id):
                     'vehicle_type_name': pricing.vehicle_type.name if pricing.vehicle_type else None,
                     'cost': pricing.cost
                 })
-            logging.info(f"Returning {len(result)} pricing records for contractor {contractor_id}")  # Debug log
+            logging.debug(f"Returning {len(result)} pricing records for contractor {contractor_id}")
             return jsonify(result), 200
     except Exception as e:
         logging.error(f"Unhandled error in get_contractor_pricing_by_vehicle_type: {e}", exc_info=True)

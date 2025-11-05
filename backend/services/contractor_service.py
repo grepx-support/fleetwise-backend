@@ -177,8 +177,10 @@ class ContractorService:
             for pricing_item in pricing_data:
                 service_id = pricing_item['service_id']
                 cost = pricing_item['cost']
-                # Get vehicle_type_id from pricing_item, default to 1 (E-Class Sedan) if not provided
-                vehicle_type_id = pricing_item.get('vehicle_type_id', 1)
+                # Get vehicle_type_id from pricing_item, require explicit value
+                vehicle_type_id = pricing_item.get('vehicle_type_id')
+                if vehicle_type_id is None:
+                    raise ServiceError("vehicle_type_id is required for all pricing items")
                 
                 # Use pessimistic locking to prevent race conditions
                 pricing = ContractorServicePricing.query.filter_by(
