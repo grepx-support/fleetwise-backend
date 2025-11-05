@@ -47,7 +47,9 @@ if env == 'production':
 elif env == 'staging':
     app.config.from_object(StagingConfig)
 else:
-    app.config.from_object(DevConfig)
+    # Instantiate DevConfig to trigger __init__ which sets up the database URI
+    dev_config_instance = DevConfig()
+    app.config.from_object(dev_config_instance)
 
 # Configuration debug output
 print("="*80)
