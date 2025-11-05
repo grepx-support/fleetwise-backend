@@ -31,6 +31,8 @@ def upgrade() -> None:
     # Use batch mode for SQLite compatibility
     # First, add vehicle_type_id as nullable
     with op.batch_alter_table('contractor_service_pricing', schema=None) as batch_op:
+        # Remove unused price column if it exists
+        batch_op.drop_column('price')
         batch_op.add_column(sa.Column('vehicle_type_id', sa.Integer(), nullable=True))
         # Add foreign key constraint
         batch_op.create_foreign_key('fk_contractor_service_pricing_vehicle_type_id_vehicle_type', 'vehicle_type', ['vehicle_type_id'], ['id'], ondelete='CASCADE')
@@ -82,3 +84,5 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_contractor_service_pricing_vehicle_type_id'))
         batch_op.drop_constraint('fk_contractor_service_pricing_vehicle_type_id_vehicle_type', type_='foreignkey')
         batch_op.drop_column('vehicle_type_id')
+        # Recreate unused price column if needed for rollback
+        batch_op.add_column(sa.Column('price', sa.Float(), nullable=True))

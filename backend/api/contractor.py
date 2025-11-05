@@ -309,8 +309,10 @@ def update_contractor_pricing(contractor_id):
             
             service_id = data['service_id']
             cost = data['cost']
-            # Get vehicle_type_id from data, default to 1 (E-Class Sedan) if not provided
-            vehicle_type_id = data.get('vehicle_type_id', 1)
+            # Require explicit vehicle_type_id
+            if 'vehicle_type_id' not in data:
+                return jsonify({'error': 'vehicle_type_id is required'}), 400
+            vehicle_type_id = data['vehicle_type_id']
             
             # Validate that cost is non-negative
             if cost < 0:
