@@ -30,6 +30,7 @@ class SqliteDB(BaseDBManager):
         # Fallback to default location if not provided
         if db_path is None:
             # Use same default as config.py for consistency
+            # Path: backend/database/sqlite_db.py -> repos/fleetwise-storage/database
             fallback_path = Path(__file__).resolve().parents[3] / "fleetwise-storage" / "database" / "fleetwise.db"
             db_path = str(fallback_path)
             print(f"WARNING: DB_PATH not set, using fallback default: {db_path}")

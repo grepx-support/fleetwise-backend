@@ -3,7 +3,8 @@ from pathlib import Path
 
 # Set database configuration directly in code
 os.environ['DB_TYPE'] = 'sqlite'
-# Point to fleetwise-storage/database directory (same location as invoice storage)
+# Point to sibling fleetwise-storage/database directory
+# Path structure: repos/fleetwise-backend/backend/config.py -> repos/fleetwise-storage/database
 fleetwise_storage_path = str(Path(__file__).resolve().parents[2] / "fleetwise-storage" / "database")
 os.environ['DB_PATH'] = os.path.join(fleetwise_storage_path, 'fleetwise.db')
 
@@ -110,6 +111,7 @@ class DevConfig(Config):
         except Exception as e:
             # Graceful fallback if DBManager or database module is unavailable
             print(f"WARNING: DBManager unavailable ({e}), using fallback SQLite URI")
+            # Path: backend/config.py -> repos/fleetwise-storage/database
             fallback_path = str(Path(__file__).resolve().parents[2] / "fleetwise-storage" / "database" / "fleetwise.db")
             self.SQLALCHEMY_DATABASE_URI = f"sqlite:///{fallback_path}"
             self.DB_PATH = fallback_path
