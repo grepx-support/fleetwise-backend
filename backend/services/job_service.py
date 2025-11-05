@@ -17,6 +17,32 @@ from datetime import datetime
 from backend.services.push_notification_service import PushNotificationService
 from decimal import Decimal
 
+# Midnight surcharge time range constants (must match frontend JobForm.tsx)
+# Frontend uses: MIDNIGHT_START_MINUTES = 23 * 60 (1380) and MIDNIGHT_END_MINUTES = 6 * 60 + 59 (419)
+MIDNIGHT_SURCHARGE_START = "23:00"
+MIDNIGHT_SURCHARGE_END = "06:59"
+
+
+def is_in_midnight_range(pickup_time_str):
+    """
+    Check if time falls in midnight surcharge range (23:00-06:59).
+    This must match the frontend calculation in JobForm.tsx.
+
+    Args:
+        pickup_time_str: Time string in HH:MM format
+
+    Returns:
+        bool: True if time is in midnight range, False otherwise
+    """
+    try:
+        h, m = map(int, pickup_time_str.split(':'))
+        minutes = h * 60 + m
+        # 23:00 = 1380 minutes, 06:59 = 419 minutes
+        return (minutes >= 23 * 60) or (minutes <= 6 * 60 + 59)
+    except (ValueError, AttributeError):
+        logging.warning(f"Invalid time format for midnight range check: {pickup_time_str}")
+        return False
+
 
 def compare_job_fields(old_job, new_data):
     """
@@ -666,8 +692,149 @@ class JobService:
             logging.error(f"Error deleting job: {e}", exc_info=True)
             raise ServiceError("Could not delete job. Please try again later.")
 
-   
-    
+    @staticmethod
+    def evaluate_ancillary_charges(data: dict, vehicle_type_id=None):
+        """
+        Evaluate which ancillary charges should be applied based on job conditions.
+
+        Args:
+            data: Job data dict containing pickup_time, dropoff locations, etc.
+            vehicle_type_id: Vehicle type ID for pricing lookup
+
+        Returns:
+            tuple: (ancillary_charges_list, total_ancillary_amount)
+            - ancillary_charges_list: List of dicts with {service_id, name, price, condition_type}
+            - total_ancillary_amount: Sum of all ancillary charge prices
+        """
+        try:
+            ancillary_charges = []
+            total_amount = 0.0
+
+            # Get all active ancillary services
+            ancillary_services = Service.query.filter_by(
+                is_ancillary=True,
+                is_deleted=False,
+                status='Active'
+            ).all()
+
+            if not ancillary_services:
+                return [], 0.0
+
+            for service in ancillary_services:
+                should_apply = False
+                price = 0.0
+                occurrence_count = 1  # Default to 1 application
+
+                # Parse condition config
+                condition_config = {}
+                if service.condition_config:
+                    try:
+                        condition_config = json.loads(service.condition_config)
+                    except json.JSONDecodeError:
+                        logging.warning(f"Invalid condition_config JSON for service {service.id}: {service.condition_config}")
+                        continue
+
+                # Evaluate condition based on type
+                if service.condition_type == 'always':
+                    should_apply = True
+
+                elif service.condition_type == 'time_range':
+                    # Check if pickup_time falls within time range
+                    # IMPORTANT: For midnight surcharges, use standardized range (23:00-06:59)
+                    # to match frontend JobForm.tsx calculation
+                    pickup_time = data.get('pickup_time')
+                    if pickup_time:
+                        # Use standardized midnight range instead of condition_config
+                        # This ensures frontend preview matches backend calculation
+                        should_apply = is_in_midnight_range(pickup_time)
+                        if should_apply:
+                            logging.info(f"Midnight surcharge '{service.name}' applied for pickup_time {pickup_time}")
+
+                elif service.condition_type == 'additional_stops':
+                    # Count total dropoff locations
+                    dropoff_count = 0
+                    for i in range(1, 6):
+                        dropoff_field = f'dropoff_loc{i}'
+                        if data.get(dropoff_field):
+                            dropoff_count += 1
+
+                    # Check trigger count
+                    trigger_count = condition_config.get('trigger_count', 1)
+                    if dropoff_count > trigger_count:
+                        should_apply = True
+                        # Calculate occurrence count if per_occurrence is enabled
+                        if service.is_per_occurrence:
+                            occurrence_count = dropoff_count - trigger_count
+
+                # If condition met, get the price with proper fallback chain
+                if should_apply:
+                    price = None
+                    pricing_source = None
+
+                    # Priority 1: Check customer-specific pricing (highest priority)
+                    customer_id = data.get('customer_id')
+                    if customer_id and vehicle_type_id:
+                        csp = CustomerServicePricing.query.filter_by(
+                            cust_id=customer_id,
+                            service_id=service.id,
+                            vehicle_type_id=vehicle_type_id
+                        ).first()
+                        if csp and csp.price is not None:
+                            price = float(csp.price)
+                            pricing_source = 'customer_specific'
+                            logging.info(
+                                f"Using customer-specific pricing for ancillary '{service.name}': "
+                                f"${price} (customer_id={customer_id})"
+                            )
+
+                    # Priority 2: Fallback to vehicle-type-specific pricing
+                    if price is None and vehicle_type_id:
+                        price_obj = ServicesVehicleTypePrice.query.filter_by(
+                            service_id=service.id,
+                            vehicle_type_id=vehicle_type_id
+                        ).first()
+                        if price_obj and price_obj.price is not None:
+                            price = float(price_obj.price)
+                            pricing_source = 'vehicle_type'
+                        else:
+                            # Configuration error: ancillary charge matched but no pricing exists
+                            logging.warning(
+                                f"Ancillary charge '{service.name}' (ID {service.id}) matched condition "
+                                f"but no pricing found for vehicle_type_id={vehicle_type_id}. Skipping charge."
+                            )
+                            continue  # Skip this charge due to missing configuration
+
+                    # If still no pricing found, log error and skip
+                    if price is None:
+                        logging.warning(
+                            f"Ancillary charge '{service.name}' matched condition but no pricing found "
+                            f"(customer_id={customer_id}, vehicle_type_id={vehicle_type_id})"
+                        )
+                        continue
+
+                    # Apply charge (including zero-price policies if explicitly set)
+                    total_charge = price * occurrence_count
+                    ancillary_charges.append({
+                        'service_id': service.id,
+                        'name': service.name,
+                        'price': total_charge,
+                        'unit_price': price,
+                        'quantity': occurrence_count,
+                        'condition_type': service.condition_type
+                    })
+                    total_amount += total_charge
+                    logging.info(
+                        f"Applied ancillary charge: {service.name} (${total_charge}) "
+                        f"[source: {pricing_source}]"
+                    )
+
+            return ancillary_charges, total_amount
+
+        except Exception as e:
+            logging.error(f"Error evaluating ancillary charges: {e}", exc_info=True)
+            return [], 0.0
+
+
     @staticmethod
     def calculate_price(data: dict, vehicle_type_id=None):
         try:
@@ -718,10 +885,27 @@ class JobService:
             final_price += midnight_surcharge
             # Add extra charges (which now includes extra service prices)
             final_price += safe_float(data.get("extra_charges", 0))
+
+            # Evaluate and apply ancillary charges only if vehicle_type_id is present
+            ancillary_charges_list = []
+            ancillary_total = 0.0
+            if vehicle_type_id is not None:
+                ancillary_charges_list, ancillary_total = JobService.evaluate_ancillary_charges(data, vehicle_type_id)
+                final_price += ancillary_total
+            else:
+                # Log warning for missing vehicle_type_id
+                logging.warning(
+                    f"Cannot evaluate ancillary charges: vehicle_type_id is None "
+                    f"(customer_id={data.get('customer_id')}, service_type={data.get('service_type')})"
+                )
+
             # Apply discounts
             final_price -= safe_float(data.get("additional_discount", 0))
-            
-            return {"final_price": round(final_price, 2)}
+
+            return {
+                "final_price": round(final_price, 2),
+                "ancillary_total": round(ancillary_total, 2)
+            }
         except ServiceError as se:
             return {"error": str(se)}
         except Exception as e:

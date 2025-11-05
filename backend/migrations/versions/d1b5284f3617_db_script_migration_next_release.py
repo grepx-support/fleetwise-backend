@@ -27,6 +27,12 @@ def upgrade() -> None:
         # Add unique constraints
         batch_op.create_unique_constraint('uq_user_customer_id', ['customer_id'])
         batch_op.create_unique_constraint('uq_user_driver_id', ['driver_id'])
+        
+    # Add ancillary charge fields to service table
+    op.add_column('service', sa.Column('is_ancillary', sa.Boolean(), nullable=False, server_default=sa.false()))
+    op.add_column('service', sa.Column('condition_type', sa.String(length=64), nullable=True))
+    op.add_column('service', sa.Column('condition_config', sa.Text(), nullable=True))
+    op.add_column('service', sa.Column('is_per_occurrence', sa.Boolean(), nullable=False, server_default=sa.false()))
 
 
 def downgrade() -> None:
@@ -38,3 +44,8 @@ def downgrade() -> None:
         batch_op.drop_constraint('uq_user_driver_id', type_='unique')
         # Remove name column
         batch_op.drop_column('name')
+        # Remove ancillary charge fields from service table
+    op.drop_column('service', 'is_per_occurrence')
+    op.drop_column('service', 'condition_config')
+    op.drop_column('service', 'condition_type')
+    op.drop_column('service', 'is_ancillary')
