@@ -1573,23 +1573,25 @@ def confirm_upload():
         # Debug logging
 
 
-        processed_count = 0
-        errors = []
-        skipped_rows = []
-        created_jobs = []
+        # First pass: Validate all rows and collect validation errors
+        invalid_rows = []
+        valid_jobs_data = []
 
-        # Process only valid rows - each job creation is atomic with its own transaction
-        # Process only valid rows
         for row_data in preview_data['rows']:
             if not row_data.get('is_valid', False):
-                # Track invalid rows that were skipped
-                skipped_rows.append({
-                    'row_number': row_data.get('row_number', 'unknown'),
-                    'reason': row_data.get('error_message', 'Row is invalid')
+                # Track invalid rows that were already marked invalid during preview
+                invalid_rows.append({
+                    'row': row_data.get('row_number', 'unknown'),
+                    'customer': row_data.get('customer', ''),
+                    'service': row_data.get('service', ''),
+                    'errors': [row_data.get('error_message', 'Row is invalid')]
                 })
                 continue
 
-            # Process each row independently
+            # Validate each row and collect errors
+            row_errors = []
+            row_index = row_data.get('row_number', 'unknown')
+
             try:
                 # Get related objects
                 customer = customers.get(row_data['customer'])
@@ -1598,22 +1600,23 @@ def confirm_upload():
                 contractor = contractors.get(row_data.get('contractor', '')) if row_data.get('contractor') else None
                 vehicle_type = vehicle_types.get(row_data.get('vehicle_type', '')) if row_data.get('vehicle_type') else None
 
-                # For customer users: Validate they can only create jobs for their own customer and AG Internal contractor
-                if is_customer_user:
-                    if not customer:
-                        raise Exception(f"Customer '{row_data['customer']}' not found")
-                    if customer.id != customer_user_customer_id:
-                        raise Exception(f"Customer users can only create jobs for their own customer")
-                    # Validate contractor is AG Internal
-                    if contractor and contractor.name not in ['AG', 'AG (Internal)']:
-                        raise Exception("Customer users can only assign jobs to AG Internal contractor")
-                        raise Exception(f"Customer users can only create jobs for their own customer")
+                # Validate customer exists
+                if not customer:
+                    row_errors.append(f"Customer '{row_data['customer']}' not found or not active")
 
-                # Get service by name to ensure proper ID lookup
+                # Get service by name
                 service_name = row_data['service']
                 service = Service.query.filter_by(name=service_name, status='Active').first()
                 if not service:
-                    raise Exception(f"Service '{service_name}' not found or not active")
+                    row_errors.append(f"Service '{service_name}' not found or not active")
+
+                # For customer users: Validate they can only create jobs for their own customer
+                if is_customer_user and customer:
+                    if customer.id != customer_user_customer_id:
+                        row_errors.append(f"Customer users can only create jobs for their own customer")
+                    # Validate contractor is AG Internal
+                    if contractor and contractor.name not in ['AG', 'AG (Internal)']:
+                        row_errors.append("Customer users can only assign jobs to AG Internal contractor")
 
                 # Validate all mandatory fields exist and have non-empty values
                 mandatory_fields = ['customer', 'service', 'pickup_date', 'pickup_time',
@@ -1621,27 +1624,39 @@ def confirm_upload():
                 for field in mandatory_fields:
                     value = str(row_data.get(field, '')).strip()
                     if not value:
-                        raise Exception(f"Missing or empty required field: {field}")
+                        row_errors.append(f"Missing or empty required field: {field}")
 
                 # Validate and parse date/time formats
                 pickup_date = str(row_data.get('pickup_date', '')).strip()
                 pickup_time = str(row_data.get('pickup_time', '')).strip()
 
-                try:
-                    from datetime import datetime
-                    datetime.strptime(pickup_date, '%Y-%m-%d')
-                except ValueError:
-                    raise Exception(f"Invalid pickup_date format: '{pickup_date}'. Expected YYYY-MM-DD")
+                if pickup_date:
+                    try:
+                        from datetime import datetime
+                        datetime.strptime(pickup_date, '%Y-%m-%d')
+                    except ValueError:
+                        row_errors.append(f"Invalid pickup_date format: '{pickup_date}'. Expected YYYY-MM-DD")
 
-                try:
-                    datetime.strptime(pickup_time, '%H:%M')
-                except ValueError:
-                    raise Exception(f"Invalid pickup_time format: '{pickup_time}'. Expected HH:MM (24-hour)")
+                if pickup_time:
+                    try:
+                        from datetime import datetime
+                        datetime.strptime(pickup_time, '%H:%M')
+                    except ValueError:
+                        row_errors.append(f"Invalid pickup_time format: '{pickup_time}'. Expected HH:MM (24-hour)")
+
+                # If there are validation errors, skip this row
+                if row_errors:
+                    invalid_rows.append({
+                        'row': row_index,
+                        'customer': row_data.get('customer', ''),
+                        'service': service_name,
+                        'errors': row_errors
+                    })
+                    continue
 
                 # Determine job status based on available fields
-                # CONFIRMED: When both Driver and Vehicle are assigned AND all mandatory fields filled
-                # PENDING: When ALL mandatory fields are filled but Driver/Vehicle missing
-                # NEW: Default/fallback
+                mandatory_fields = ['customer', 'service', 'pickup_date', 'pickup_time',
+                                  'pickup_location', 'dropoff_location', 'passenger_name']
                 mandatory_filled = all(str(row_data.get(f, '')).strip() for f in mandatory_fields)
 
                 job_status = 'new'
@@ -1650,12 +1665,14 @@ def confirm_upload():
                 elif mandatory_filled:
                     job_status = 'pending'
 
-                # Create job with all data
+                # Collect valid job data for batch processing
                 job_data = {
-                    'customer_id': customer.id if customer else None,
-                    'booking_ref': row_data.get('customer_reference_no', ''),  # Map to booking_ref field
-                    'sub_customer_name': row_data.get('department', ''),  # Map to sub_customer_name field
-                    'service_type': service.name if service else row_data.get('service', ''),
+                    'row_number': row_index,
+                    'customer_id': customer.id,
+                    'booking_ref': row_data.get('customer_reference_no', ''),
+                    'sub_customer_name': row_data.get('department', ''),
+                    'service_type': service.name,
+                    'service_id': service.id,
                     'vehicle_id': vehicle.id if vehicle else None,
                     'driver_id': driver.id if driver else None,
                     'contractor_id': contractor.id if contractor else None,
@@ -1667,11 +1684,43 @@ def confirm_upload():
                     'passenger_name': str(row_data.get('passenger_name', '')).strip(),
                     'passenger_mobile': str(row_data.get('passenger_mobile', '')).strip(),
                     'status': job_status,
-                    'customer_remark': row_data.get('remarks', '')
+                    'customer_remark': row_data.get('remarks', ''),
+                    'original_row_data': row_data  # Keep reference for duplicate check
                 }
+                valid_jobs_data.append(job_data)
 
+            except Exception as validation_error:
+                # Catch any unexpected validation errors
+                logging.error(f"Validation error for row {row_index}: {str(validation_error)}")
+                invalid_rows.append({
+                    'row': row_index,
+                    'customer': row_data.get('customer', ''),
+                    'service': row_data.get('service', ''),
+                    'errors': [str(validation_error)]
+                })
+
+        # Report validation failures before processing any jobs
+        if invalid_rows:
+            logging.warning(f"Bulk upload validation: {len(invalid_rows)} invalid rows out of {len(preview_data['rows'])}")
+            return jsonify({
+                'error': 'Some rows failed validation',
+                'invalid_rows': invalid_rows,
+                'valid_count': len(valid_jobs_data),
+                'invalid_count': len(invalid_rows)
+            }), 422
+
+        # Second pass: Process all valid jobs
+        processed_count = 0
+        errors = []
+        skipped_rows = []
+        created_jobs = []
+
+        for job_data in valid_jobs_data:
+            row_number = job_data.pop('row_number')
+            original_row_data = job_data.pop('original_row_data')
+
+            try:
                 # Check if job already exists (duplicate detection)
-                # Skip duplicate check if allow_duplicates is enabled (for recurring uploads)
                 if not allow_duplicates:
                     existing_job = Job.query.filter_by(
                         customer_id=job_data['customer_id'],
@@ -1685,26 +1734,31 @@ def confirm_upload():
 
                     if existing_job:
                         skipped_rows.append({
-                            'row_number': row_data.get('row_number', 'unknown'),
+                            'row_number': row_number,
                             'reason': f'Duplicate job - already exists as Job #{existing_job.id}'
                         })
-                        logging.warning(f"Skipping duplicate job for row {row_data.get('row_number', 'unknown')}: Job #{existing_job.id}")
+                        logging.warning(f"Skipping duplicate job for row {row_number}: Job #{existing_job.id}")
                         continue
 
-                # Check for driver scheduling conflict for this job
+                # Check for driver scheduling conflict
                 if job_data.get('driver_id') and job_data.get('pickup_date') and job_data.get('pickup_time'):
                     conflict_job = JobService.check_driver_conflict(
                         job_data['driver_id'],
                         job_data['pickup_date'],
                         job_data['pickup_time']
                     )
-                    # For bulk uploads, we'll log conflicts but still create the job
-                    # (This behavior can be modified based on business requirements)
                     if conflict_job:
                         if not current_user.has_role('admin'):
-                            raise Exception(f"Scheduling conflict for driver {job_data['driver_id']} at {job_data['pickup_date']} {job_data['pickup_time']}")
+                            raise Exception(
+                                f"Scheduling conflict for driver {job_data['driver_id']} "
+                                f"at {job_data['pickup_date']} {job_data['pickup_time']}"
+                            )
                         else:
-                            logging.warning(f"Bulk upload: Admin overriding conflict for driver {job_data['driver_id']} at {job_data['pickup_date']} {job_data['pickup_time']}. Conflict with job #{conflict_job.id}")
+                            logging.warning(
+                                f"Bulk upload: Admin overriding conflict for driver {job_data['driver_id']} "
+                                f"at {job_data['pickup_date']} {job_data['pickup_time']}. "
+                                f"Conflict with job #{conflict_job.id}"
+                            )
 
                 # JobService.create handles its own commit/rollback
                 job = JobService.create(job_data)
@@ -1713,14 +1767,14 @@ def confirm_upload():
                 # Track created job details
                 created_jobs.append({
                     'job_id': f"JOB-{job.id}",
-                    'row_number': row_data.get('row_number', 'unknown'),
-                    'customer': row_data.get('customer', ''),
-                    'pickup_date': row_data.get('pickup_date', '')
+                    'row_number': row_number,
+                    'customer': original_row_data.get('customer', ''),
+                    'pickup_date': original_row_data.get('pickup_date', '')
                 })
 
             except Exception as row_error:
                 # Job creation failed for this row, continue with next row
-                error_msg = f"Error processing row {row_data.get('row_number', 'unknown')}: {str(row_error)}"
+                error_msg = f"Error processing row {row_number}: {str(row_error)}"
                 logging.error(error_msg, exc_info=True)
                 errors.append(error_msg)
 

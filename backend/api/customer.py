@@ -10,6 +10,9 @@ customer_bp = Blueprint('customer', __name__)
 schema = CustomerSchema(session=db.session)
 schema_many = CustomerSchema(many=True, session=db.session)
 
+# Valid customer status values (must match frontend CustomerForm.tsx)
+VALID_CUSTOMER_STATUSES = ['Active', 'Inactive']
+
 @customer_bp.route('/customers', methods=['GET'])
 @auth_required()
 def list_customers():
@@ -60,6 +63,16 @@ def get_customer(customer_id):
 def create_customer():
     try:
         data = request.get_json()
+
+        # Validate status field matches frontend enum
+        if 'status' in data and data['status'] not in VALID_CUSTOMER_STATUSES:
+            return jsonify({
+                'error': f"Invalid status. Must be one of: {', '.join(VALID_CUSTOMER_STATUSES)}"
+            }), 400
+
+        # Ensure default is capitalized (matches frontend default)
+        data.setdefault('status', 'Active')
+
         errors = schema.validate(data)
         if errors:
             return jsonify(errors), 400
@@ -76,6 +89,13 @@ def create_customer():
 def update_customer(customer_id):
     try:
         data = request.get_json()
+
+        # Validate status field matches frontend enum
+        if 'status' in data and data['status'] not in VALID_CUSTOMER_STATUSES:
+            return jsonify({
+                'error': f"Invalid status. Must be one of: {', '.join(VALID_CUSTOMER_STATUSES)}"
+            }), 400
+
         errors = schema.validate(data, partial=True)
         if errors:
             return jsonify(errors), 400

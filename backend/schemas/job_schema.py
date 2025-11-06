@@ -128,7 +128,7 @@ class JobSchema(SQLAlchemyAutoSchema):
     def get_extra_services(self, obj):
         """Get extra_services as JSON data for API response"""
         return obj.extra_services_data
-    
+
     def set_extra_services(self, value):
         """Set extra_services from JSON data in API request"""
         if isinstance(value, str):
@@ -140,7 +140,7 @@ class JobSchema(SQLAlchemyAutoSchema):
             return value
         else:
             return []
-    
+
     def get_duration_str(self, obj):
         """Get duration_str from the Job model"""
         return obj.duration_str if obj.duration_str is not None else "0h 0m"

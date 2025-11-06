@@ -8,6 +8,12 @@ class Service(db.Model):
     description = db.Column(db.Text)
     status = db.Column(db.String(32), default='Active', nullable=False)
     is_deleted = db.Column(db.Boolean, default=False, nullable=False, server_default=false())
+
+    # Ancillary charge fields
+    is_ancillary = db.Column(db.Boolean, default=False, nullable=False, server_default=false())
+    condition_type = db.Column(db.String(64))  # 'time_range', 'additional_stops', 'always', None
+    condition_config = db.Column(db.Text)  # JSON string for condition configuration
+    is_per_occurrence = db.Column(db.Boolean, default=False, nullable=False, server_default=false())  # For additional stops: charge per extra stop
     
     # jobs = db.relationship('Job', backref='service_rel', lazy=True, overlaps="service_rel")
     
