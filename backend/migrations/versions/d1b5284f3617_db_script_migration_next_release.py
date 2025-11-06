@@ -27,6 +27,35 @@ def upgrade() -> None:
         # Add unique constraints
         batch_op.create_unique_constraint('uq_user_customer_id', ['customer_id'])
         batch_op.create_unique_constraint('uq_user_driver_id', ['driver_id'])
+        
+    # Add ancillary charge fields to service table
+    op.add_column('service', sa.Column('is_ancillary', sa.Boolean(), nullable=False, server_default=sa.false()))
+    op.add_column('service', sa.Column('condition_type', sa.String(length=64), nullable=True))
+    op.add_column('service', sa.Column('condition_config', sa.Text(), nullable=True))
+    op.add_column('service', sa.Column('is_per_occurrence', sa.Boolean(), nullable=False, server_default=sa.false()))
+
+    
+    # Use batch mode for SQLite compatibility
+    # First, add vehicle_type_id as nullable
+    with op.batch_alter_table('contractor_service_pricing', schema=None) as batch_op:
+        # Remove unused price column if it exists
+        batch_op.drop_column('price')
+        batch_op.add_column(sa.Column('vehicle_type_id', sa.Integer(), nullable=True))
+        # Add foreign key constraint
+        batch_op.create_foreign_key('fk_contractor_service_pricing_vehicle_type_id_vehicle_type', 'vehicle_type', ['vehicle_type_id'], ['id'], ondelete='CASCADE')
+        # Create index
+        batch_op.create_index(batch_op.f('ix_contractor_service_pricing_vehicle_type_id'), ['vehicle_type_id'], unique=False)
+        # Drop old unique constraint
+        batch_op.drop_constraint('unique_contractor_service', type_='unique')
+        # Create new unique constraint including vehicle_type_id
+        batch_op.create_unique_constraint('unique_contractor_service_vehicle', ['contractor_id', 'service_id', 'vehicle_type_id'])
+    
+    # Backfill existing rows with default value (1 for E-Class Sedan)
+    op.execute("UPDATE contractor_service_pricing SET vehicle_type_id = 1 WHERE vehicle_type_id IS NULL")
+    
+    # Then alter to non-nullable in new batch operation
+    with op.batch_alter_table('contractor_service_pricing', schema=None) as batch_op:
+        batch_op.alter_column('vehicle_type_id', nullable=False)
 
 
 def downgrade() -> None:
@@ -38,3 +67,34 @@ def downgrade() -> None:
         batch_op.drop_constraint('uq_user_driver_id', type_='unique')
         # Remove name column
         batch_op.drop_column('name')
+        # Remove ancillary charge fields from service table
+    op.drop_column('service', 'is_per_occurrence')
+    op.drop_column('service', 'condition_config')
+    op.drop_column('service', 'condition_type')
+    op.drop_column('service', 'is_ancillary')
+    
+    # Use batch mode for SQLite compatibility
+    with op.batch_alter_table('contractor_service_pricing', schema=None) as batch_op:
+        # Drop new unique constraint
+        batch_op.drop_constraint('unique_contractor_service_vehicle', type_='unique')
+    
+    # Before recreating old constraint, remove duplicates by keeping only one row per contractor_id/service_id combination
+    op.execute("""
+        DELETE FROM contractor_service_pricing 
+        WHERE id NOT IN (
+            SELECT MIN(id) 
+            FROM contractor_service_pricing 
+            GROUP BY contractor_id, service_id
+        )
+    """)
+    
+    # Use batch mode for SQLite compatibility
+    with op.batch_alter_table('contractor_service_pricing', schema=None) as batch_op:
+        # Recreate old unique constraint
+        batch_op.create_unique_constraint('unique_contractor_service', ['contractor_id', 'service_id'])
+        # Drop added columns
+        batch_op.drop_index(batch_op.f('ix_contractor_service_pricing_vehicle_type_id'))
+        batch_op.drop_constraint('fk_contractor_service_pricing_vehicle_type_id_vehicle_type', type_='foreignkey')
+        batch_op.drop_column('vehicle_type_id')
+        # Recreate unused price column if needed for rollback
+        batch_op.add_column(sa.Column('price', sa.Float(), nullable=True))
