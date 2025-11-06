@@ -115,12 +115,14 @@ class ContractorService:
             raise ServiceError("Could not fetch contractor pricing. Please try again later.")
 
     @staticmethod
-    def update_contractor_pricing(contractor_id, service_id, cost):
+    def update_contractor_pricing(contractor_id, service_id, vehicle_type_id, cost):
         try:
+            # Use pessimistic locking to prevent race conditions
             pricing = ContractorServicePricing.query.filter_by(
                 contractor_id=contractor_id, 
-                service_id=service_id
-            ).first()
+                service_id=service_id,
+                vehicle_type_id=vehicle_type_id
+            ).with_for_update().first()
             
             if pricing:
                 pricing.cost = cost
@@ -128,6 +130,7 @@ class ContractorService:
                 pricing = ContractorServicePricing()
                 pricing.contractor_id = contractor_id
                 pricing.service_id = service_id
+                pricing.vehicle_type_id = vehicle_type_id
                 pricing.cost = cost
                 db.session.add(pricing)
             
@@ -164,15 +167,27 @@ class ContractorService:
     @staticmethod
     def bulk_update_contractor_pricing(contractor_id, pricing_data):
         try:
+            # Detect if vehicle-type-specific pricing by checking ALL items
+            has_vehicle_type = all('vehicle_type_id' in item for item in pricing_data)
+            missing_vehicle_type = any('vehicle_type_id' not in item for item in pricing_data)
+            if has_vehicle_type and missing_vehicle_type:
+                raise ServiceError("All pricing items must consistently include or exclude vehicle_type_id")
+            
             updated_pricing = []
             for pricing_item in pricing_data:
                 service_id = pricing_item['service_id']
                 cost = pricing_item['cost']
+                # Get vehicle_type_id from pricing_item, require explicit value
+                vehicle_type_id = pricing_item.get('vehicle_type_id')
+                if vehicle_type_id is None:
+                    raise ServiceError("vehicle_type_id is required for all pricing items")
                 
+                # Use pessimistic locking to prevent race conditions
                 pricing = ContractorServicePricing.query.filter_by(
                     contractor_id=contractor_id, 
-                    service_id=service_id
-                ).first()
+                    service_id=service_id,
+                    vehicle_type_id=vehicle_type_id
+                ).with_for_update().first()
                 
                 if pricing:
                     pricing.cost = cost
@@ -180,6 +195,7 @@ class ContractorService:
                     pricing = ContractorServicePricing()
                     pricing.contractor_id = contractor_id
                     pricing.service_id = service_id
+                    pricing.vehicle_type_id = vehicle_type_id
                     pricing.cost = cost
                     db.session.add(pricing)
                 

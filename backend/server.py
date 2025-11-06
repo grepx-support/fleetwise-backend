@@ -8,7 +8,8 @@ from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask import jsonify
-from flask_security import auth_required, current_user
+from flask_security.decorators import auth_required
+from flask_security.utils import current_user
 # Load environment variables from .env file
 load_dotenv()
 
@@ -17,6 +18,7 @@ env = os.environ.get('NODE_ENV', 'development')
 from backend.config import DevConfig, StagingConfig, ProductionConfig
 from backend.extensions import db, mail
 from flask import Flask, jsonify, request, send_from_directory, abort
+
 
 # Enhanced logging setup
 BASEDIR = os.path.dirname(os.path.abspath(__file__))
@@ -504,3 +506,5 @@ if __name__ == '__main__':
     
     logger.info(f"Starting Flask app on {host}:{port} (debug={debug})")
     app.run(host=host, port=port, debug=debug)
+
+   

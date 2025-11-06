@@ -5,9 +5,17 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__) + '/../..'))
 
 # Set environment variables directly to avoid circular import dependency on config.py
 # This ensures migrations are self-contained and don't depend on side effects
+from backend.utils.paths import get_storage_db_path
+
 os.environ.setdefault('DB_TYPE', 'sqlite')
-storage_path = str(Path(__file__).resolve().parents[2] / "fleetwise-storage" / "database")
-os.environ.setdefault('DB_PATH', os.path.join(storage_path, 'fleetwise.db'))
+
+# Use centralized path resolution for consistency across all execution contexts
+try:
+    db_path = get_storage_db_path()
+    os.environ.setdefault('DB_PATH', str(db_path))
+except RuntimeError as e:
+    print(f"ERROR: Failed to resolve database path: {e}")
+    raise
 
 from logging.config import fileConfig
 
