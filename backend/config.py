@@ -2,11 +2,16 @@ import os
 from pathlib import Path
 
 # Set database configuration directly in code
+from backend.utils.paths import get_storage_db_path
+
 os.environ['DB_TYPE'] = 'sqlite'
-# Point to sibling fleetwise-storage/database directory
-# Path structure: repos/fleetwise-backend/backend/config.py -> repos/fleetwise-storage/database
-fleetwise_storage_path = str(Path(__file__).resolve().parents[2] / "fleetwise-storage" / "database")
-os.environ['DB_PATH'] = os.path.join(fleetwise_storage_path, 'fleetwise.db')
+try:
+    # Use centralized path resolution for consistency across the application
+    db_path = get_storage_db_path()
+    os.environ['DB_PATH'] = str(db_path)
+except RuntimeError as e:
+    print(f"WARNING: Failed to resolve database path: {e}")
+    print("Database initialization may fail. Ensure fleetwise-storage sibling directory exists.")
 
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key')
@@ -111,11 +116,15 @@ class DevConfig(Config):
         except Exception as e:
             # Graceful fallback if DBManager or database module is unavailable
             print(f"WARNING: DBManager unavailable ({e}), using fallback SQLite URI")
-            # Path: backend/config.py -> repos/fleetwise-storage/database
-            fallback_path = str(Path(__file__).resolve().parents[2] / "fleetwise-storage" / "database" / "fleetwise.db")
-            self.SQLALCHEMY_DATABASE_URI = f"sqlite:///{fallback_path}"
-            self.DB_PATH = fallback_path
-            print(f"Fallback database path: {self.DB_PATH}")
+            try:
+                # Use centralized path utility as fallback
+                fallback_path = str(get_storage_db_path())
+                self.SQLALCHEMY_DATABASE_URI = f"sqlite:///{fallback_path}"
+                self.DB_PATH = fallback_path
+                print(f"Fallback database path: {self.DB_PATH}")
+            except Exception as fallback_error:
+                print(f"ERROR: Could not determine database path: {fallback_error}")
+                raise
 
 class StagingConfig(Config):
     SESSION_COOKIE_SAMESITE = 'None'

@@ -5,6 +5,7 @@ import sqlite3
 import os
 from pathlib import Path
 from .base import BaseDBManager
+from backend.utils.paths import get_storage_db_path
 
 
 class SqliteDB(BaseDBManager):
@@ -16,24 +17,30 @@ class SqliteDB(BaseDBManager):
     def __init__(self, db_path=None):
         """
         Initialize SQLite database manager.
-        
+
         Args:
-            db_path: Optional database path. 
-                     If None, uses DB_PATH environment variable or default location.
+            db_path: Optional database path.
+                     If None, uses DB_PATH environment variable or computes from repository structure.
+
+        Raises:
+            ValueError: If DB_PATH is not set and cannot be computed from repository structure.
         """
         super().__init__()
 
-        # Get database path from parameter, environment variable, or fallback default
+        # Get database path from parameter or environment variable
         if db_path is None:
             db_path = os.environ.get('DB_PATH')
 
-        # Fallback to default location if not provided
+        # If still not provided, compute from repository structure
         if db_path is None:
-            # Use same default as config.py for consistency
-            # Path: backend/database/sqlite_db.py -> repos/fleetwise-storage/database
-            fallback_path = Path(__file__).resolve().parents[3] / "fleetwise-storage" / "database" / "fleetwise.db"
-            db_path = str(fallback_path)
-            print(f"WARNING: DB_PATH not set, using fallback default: {db_path}")
+            try:
+                db_path = str(get_storage_db_path())
+            except RuntimeError as e:
+                raise ValueError(
+                    f"DB_PATH environment variable not set and could not be computed from repository structure. "
+                    f"Error: {e}\n"
+                    f"Set DB_PATH explicitly in configuration or ensure fleetwise-storage sibling directory exists."
+                ) from e
 
         self.db_path = db_path
 
