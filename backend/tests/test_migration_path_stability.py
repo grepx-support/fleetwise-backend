@@ -234,3 +234,68 @@ class TestEnsureStorageDirectoryExists:
         assert (
             db_path.parent.exists()
         ), f"Storage directory was not created: {db_path.parent}"
+
+
+class TestDatabaseFileWriteability:
+    """Test that the resolved database location is writable."""
+
+    def test_database_file_writable(self):
+        """Test that a database file can be created and written at the resolved path."""
+        import sqlite3
+        from backend.utils.paths import get_storage_db_path, ensure_storage_directory_exists
+
+        # Ensure storage directory exists
+        ensure_storage_directory_exists()
+
+        db_path = get_storage_db_path()
+        test_db = db_path.parent / f"test_write_{os.getpid()}.db"
+
+        try:
+            # Attempt to create and write to a test database
+            # This verifies write permissions and filesystem accessibility
+            conn = sqlite3.connect(str(test_db))
+            conn.execute("CREATE TABLE test_table (id INTEGER PRIMARY KEY, value TEXT)")
+            conn.execute("INSERT INTO test_table (value) VALUES ('test_data')")
+            conn.commit()
+
+            # Verify data was written
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM test_table WHERE id = 1")
+            result = cursor.fetchone()
+            conn.close()
+
+            assert result is not None, "Failed to read back test data from database"
+            assert (
+                result[0] == "test_data"
+            ), f"Test data mismatch: expected 'test_data', got '{result[0]}'"
+            assert test_db.exists(), f"Test database file not created at {test_db}"
+
+        except sqlite3.OperationalError as e:
+            pytest.fail(
+                f"Database write test failed at {test_db}. "
+                f"The storage directory may have permission issues or be on a read-only filesystem. "
+                f"Error: {e}"
+            )
+        finally:
+            # Clean up test file
+            if test_db.exists():
+                try:
+                    test_db.unlink()
+                except Exception as cleanup_error:
+                    print(f"Warning: Could not clean up test database {test_db}: {cleanup_error}")
+
+    def test_storage_directory_not_read_only(self):
+        """Test that the storage directory is not mounted as read-only."""
+        from backend.utils.paths import get_storage_db_path, ensure_storage_directory_exists
+
+        # Ensure storage directory exists
+        ensure_storage_directory_exists()
+
+        db_path = get_storage_db_path()
+        storage_dir = db_path.parent
+
+        # Check write permission on the directory
+        assert os.access(str(storage_dir), os.W_OK), (
+            f"Storage directory is not writable: {storage_dir}. "
+            f"Check filesystem permissions and mount status."
+        )

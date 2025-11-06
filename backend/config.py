@@ -5,13 +5,10 @@ from pathlib import Path
 from backend.utils.paths import get_storage_db_path
 
 os.environ['DB_TYPE'] = 'sqlite'
-try:
-    # Use centralized path resolution for consistency across the application
-    db_path = get_storage_db_path()
-    os.environ['DB_PATH'] = str(db_path)
-except RuntimeError as e:
-    print(f"WARNING: Failed to resolve database path: {e}")
-    print("Database initialization may fail. Ensure fleetwise-storage sibling directory exists.")
+# Use centralized path resolution for consistency across the application
+# Fail fast if storage directory is missing - don't defer the error to runtime
+db_path = get_storage_db_path()
+os.environ['DB_PATH'] = str(db_path)
 
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key')
@@ -116,15 +113,11 @@ class DevConfig(Config):
         except Exception as e:
             # Graceful fallback if DBManager or database module is unavailable
             print(f"WARNING: DBManager unavailable ({e}), using fallback SQLite URI")
-            try:
-                # Use centralized path utility as fallback
-                fallback_path = str(get_storage_db_path())
-                self.SQLALCHEMY_DATABASE_URI = f"sqlite:///{fallback_path}"
-                self.DB_PATH = fallback_path
-                print(f"Fallback database path: {self.DB_PATH}")
-            except Exception as fallback_error:
-                print(f"ERROR: Could not determine database path: {fallback_error}")
-                raise
+            # Let get_storage_db_path() raise its own detailed exception if configuration is invalid
+            fallback_path = str(get_storage_db_path())
+            self.SQLALCHEMY_DATABASE_URI = f"sqlite:///{fallback_path}"
+            self.DB_PATH = fallback_path
+            print(f"Fallback database path: {self.DB_PATH}")
 
 class StagingConfig(Config):
     SESSION_COOKIE_SAMESITE = 'None'
