@@ -1,0 +1,26 @@
+image: atlassian/default-image:4
+
+definitions:
+  steps:
+    - step: &mirror-to-github
+        name: Mirror to GitHub
+        script:
+          - git remote add github git@github.com:growwithgrepx/fleetwise-backend.git || true
+          - git fetch --unshallow || true
+          - git push github $BITBUCKET_BRANCH --force
+          - |
+            if [[ "$BITBUCKET_TAG" != "" ]]; then
+              git push github $BITBUCKET_TAG --force
+            fi
+        size: 1x
+
+pipelines:
+  branches:
+    main:
+      - step: *mirror-to-github
+    develop:
+      - step: *mirror-to-github
+  
+  tags:
+    'v*':
+      - step: *mirror-to-github
