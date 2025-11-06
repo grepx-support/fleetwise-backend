@@ -8,7 +8,8 @@ from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask import jsonify
-from flask_security import auth_required, current_user
+from flask_security.decorators import auth_required
+from flask_security.utils import current_user
 # Load environment variables from .env file
 load_dotenv()
 
@@ -68,7 +69,7 @@ except ImportError:
 from flask import Flask, jsonify, request, send_from_directory, abort
 try:
     from flask_security.decorators import auth_required
-    from flask_security.utils import current_user
+    from flask_security import current_user
 except ImportError:
     # Fallback for flask_security
     def auth_required():
@@ -639,3 +640,5 @@ if __name__ == '__main__':
     
     logger.info(f"Starting Flask app on {host}:{port} (debug={debug})")
     app.run(host=host, port=port, debug=debug)
+
+   
