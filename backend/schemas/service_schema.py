@@ -11,3 +11,7 @@ class ServiceSchema(SQLAlchemyAutoSchema):
     description = auto_field()
     status = auto_field(required=True)
     is_deleted = auto_field()
+    is_ancillary = auto_field()
+    condition_type = auto_field()
+    condition_config = auto_field()
+    is_per_occurrence = auto_field()
