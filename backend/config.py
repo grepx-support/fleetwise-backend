@@ -71,6 +71,12 @@ class Config:
     "INVOICE_STORAGE_ROOT",
     str(Path(__file__).resolve().parents[2] / "fleetwise-storage")
 )
+
+    # Job photo storage backup (organized by date: YYYY/MM/DD)
+    PHOTO_STORAGE_ROOT = os.getenv(
+    "PHOTO_STORAGE_ROOT",
+    str(Path(__file__).resolve().parents[2] / "fleetwise-storage" / "images")
+)
  
 class DevConfig(Config):
     SESSION_COOKIE_SAMESITE = 'Lax'  # Use Lax for development

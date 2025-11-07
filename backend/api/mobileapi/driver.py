@@ -1,4 +1,5 @@
 from backend.services.driver_service import DriverService
+from backend.services.photo_backup_service import PhotoBackupService
 from flask import Blueprint, request, jsonify, url_for, current_app, send_from_directory
 from flask_security.decorators import roles_accepted, auth_required
 from flask_security.utils import current_user
@@ -478,33 +479,67 @@ def upload_job_photo():
         return jsonify({'error': 'File with same name already exists'}), 400
 
     try:
+        # Step 1: Save to temporary folder first
         with open(file_path, 'wb') as f:
             f.write(img_io.getbuffer())
 
-        job_photo = JobPhoto(
-            job_id=job_id,
-            driver_id=driver_id,
-            stage=stage,
-            file_path=file_path,
-            file_size=os.path.getsize(file_path) // 1024,
-            file_hash=file_hash,   # store hash in DB
-            filename=filename      # store filename for indexed lookups
-        )
-        db.session.add(job_photo)
-        db.session.commit()
+        logging.info(f"Photo saved to temporary location: {file_path}")
+
+        # Step 2: Backup photo to fleetwise-storage
+        try:
+            photo_storage_root = current_app.config.get('PHOTO_STORAGE_ROOT')
+            if not photo_storage_root:
+                raise Exception("PHOTO_STORAGE_ROOT configuration not set")
+
+            backup_service = PhotoBackupService(photo_storage_root)
+            success, backup_path, error_msg = backup_service.backup_photo(file_path, filename)
+
+            if not success:
+                logging.error(f"Photo backup failed: {error_msg}")
+                db.session.rollback()
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                return jsonify({'error': f'Photo backup failed: {error_msg}'}), 500
+
+            logging.info(f"Photo backed up successfully: {backup_path}")
+
+            # Step 3: Use backup path in database (relative to storage root)
+            job_photo = JobPhoto(
+                job_id=job_id,
+                driver_id=driver_id,
+                stage=stage,
+                file_path=backup_path,  # Store relative path from fleetwise-storage
+                file_size=os.path.getsize(file_path) // 1024,
+                file_hash=file_hash,   # store hash in DB
+                filename=filename      # store filename for indexed lookups
+            )
+            db.session.add(job_photo)
+            db.session.commit()
+
+            # Step 4: Cleanup temporary file
+            backup_service.cleanup_temporary_file(file_path)
+            logging.info(f"Photo upload completed: job_id={job_id}, backup_path={backup_path}")
+
+        except Exception as backup_error:
+            db.session.rollback()
+            logging.error(f"Backup service error: {str(backup_error)}")
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            return jsonify({'error': f'Photo backup service error: {str(backup_error)}'}), 500
 
     except Exception as e:
         db.session.rollback()
+        logging.error(f"Upload failed: {str(e)}")
         if os.path.exists(file_path):
             os.remove(file_path)  # cleanup orphan file
         return jsonify({'error': f'Upload failed: {str(e)}'}), 500
 
-    # Return file URL
+    # Return file URL using the relative path
     file_url = url_for('uploaded_file', filename=filename, _external=True)
     return jsonify({
         'message': 'Photo uploaded successfully',
         'photo_id': job_photo.id,
-        'file_path': file_path,
+        'file_path': backup_path,  # Return the backup path
         'file_url': file_url
     }), 201
 

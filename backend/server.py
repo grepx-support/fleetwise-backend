@@ -562,14 +562,17 @@ def ratelimit_handler(e):
 def uploaded_file(filename):
     """
     Secure and optimized photo access endpoint that addresses TOCTOU vulnerabilities and performance issues.
-    
-    This endpoint uses a single atomic query with eager loading to verify all relationships 
-    simultaneously, eliminating the TOCTOU gap and reducing database round-trips.
+
+    This endpoint:
+    - Uses a single atomic query with eager loading to verify all relationships
+    - Eliminates the TOCTOU gap and reduces database round-trips
+    - Supports both old paths (temporary uploads) and new paths (fleetwise-storage)
+    - Automatically serves photos from their stored location
     """
     # All photo access requires authentication
     if not current_user or not hasattr(current_user, 'has_role'):
         abort(403)
-        
+
     try:
         # Parse filename to get job_id (format: job_id_driver_id_stage_timestamp.jpg)
         parts = filename.split('_')
@@ -577,7 +580,7 @@ def uploaded_file(filename):
             abort(404)
         job_id = int(parts[0])
         # Note: We don't trust the driver_id from filename for authorization checks
-        
+
         # Admins and managers can access all photos
         if current_user.has_role('admin') or current_user.has_role('manager'):
             # Single atomic query with eager-loaded relationship for admins/managers
@@ -588,7 +591,7 @@ def uploaded_file(filename):
                 JobPhoto.job_id == job_id,
                 JobPhoto.filename == filename  # Use exact matching instead of endswith for better performance
             ).first()
-            
+
             # Atomically verify photo exists and job relationship is valid
             if not photo or not photo.job:
                 abort(404)
@@ -603,7 +606,7 @@ def uploaded_file(filename):
                 JobPhoto.driver_id == current_user.driver_id,
                 JobPhoto.filename == filename  # Use exact matching instead of endswith for better performance
             ).first()
-            
+
             # Atomically verify photo exists and job relationship is valid
             if not photo or not photo.job or photo.job.driver_id != current_user.driver_id:
                 abort(403)
@@ -612,7 +615,7 @@ def uploaded_file(filename):
             user_driver_id = getattr(current_user, 'driver_id', None)
             if not user_driver_id:
                 abort(403)
-                
+
             # Single atomic query with eager-loaded relationship
             from sqlalchemy.orm import joinedload
             photo = JobPhoto.query.options(
@@ -622,15 +625,47 @@ def uploaded_file(filename):
                 JobPhoto.driver_id == user_driver_id,
                 JobPhoto.filename == filename  # Use exact matching instead of endswith for better performance
             ).first()
-            
+
             # Atomically verify photo exists and job relationship is valid
             if not photo or not photo.job or photo.job.driver_id != user_driver_id:
                 abort(403)
-                
+
     except (ValueError, IndexError):
         abort(404)
- 
-    return send_from_directory(app.config['JOB_PHOTO_UPLOAD_FOLDER'], filename)
+
+    # Determine photo location: from file_path in database
+    # file_path can be:
+    # - Old format: absolute path to temp folder (backward compatibility)
+    # - New format: relative path like "images/2025/11/07/filename.jpg" (fleetwise-storage root)
+    if photo.file_path:
+        file_path = photo.file_path
+
+        # Check if it's a relative path (new format from fleetwise-storage)
+        if not os.path.isabs(file_path):
+            # Relative path - construct full path from fleetwise-storage root (parent of PHOTO_STORAGE_ROOT)
+            photo_storage_root = app.config.get('PHOTO_STORAGE_ROOT')
+            if photo_storage_root:
+                # PHOTO_STORAGE_ROOT points to "fleetwise-storage/images"
+                # file_path is relative to "fleetwise-storage" (includes "images/2025/...")
+                # So we get parent of PHOTO_STORAGE_ROOT to get fleetwise-storage root
+                fleetwise_storage_root = os.path.dirname(photo_storage_root)
+                full_path = os.path.join(fleetwise_storage_root, file_path)
+
+                if os.path.exists(full_path):
+                    return send_from_directory(os.path.dirname(full_path), os.path.basename(full_path))
+        else:
+            # Absolute path - check if it exists
+            if os.path.exists(file_path):
+                return send_from_directory(os.path.dirname(file_path), os.path.basename(file_path))
+
+    # Fallback to old upload folder for backward compatibility
+    upload_folder = app.config.get('JOB_PHOTO_UPLOAD_FOLDER')
+    if upload_folder and os.path.exists(os.path.join(upload_folder, filename)):
+        return send_from_directory(upload_folder, filename)
+
+    # Photo file not found
+    logger.warning(f"Photo file not found for job_id={job_id}, filename={filename}")
+    abort(404)
 
 
 if __name__ == '__main__':
