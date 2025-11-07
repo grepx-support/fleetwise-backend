@@ -681,7 +681,9 @@ def download_job_template():
             if customer_id:
                 customers = Customer.query.filter_by(id=customer_id, status='Active').all()
             else:
+                # If customer_id not set, show empty (user must have a customer_id)
                 customers = []
+                logging.warning(f"Customer user {current_user.email} has no customer_id set")
 
             # For Customer users: Empty vehicles and drivers (no values in dropdown)
             vehicles = []
@@ -1411,7 +1413,9 @@ def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=
 
             if missing_fields:
                 row_data['is_valid'] = False
-                row_data['error_message'] = f"Missing required fields: {', '.join(missing_fields)}"
+                # Format each missing field as a separate error message
+                missing_field_errors = [f"{field} is required" for field in missing_fields]
+                row_data['error_message'] = '; '.join(missing_field_errors)
                 error_count += 1
                 preview_rows.append(row_data)
                 continue
