@@ -478,70 +478,90 @@ def upload_job_photo():
     if os.path.exists(file_path):
         return jsonify({'error': 'File with same name already exists'}), 400
 
+    temp_file_path = None
+    job_photo = None
+
     try:
-        # Step 1: Save to temporary folder first
+        # Step 1: Save to temporary folder
         with open(file_path, 'wb') as f:
             f.write(img_io.getbuffer())
 
+        temp_file_path = file_path  # Track for cleanup
         logging.info(f"Photo saved to temporary location: {file_path}")
 
         # Step 2: Backup photo to fleetwise-storage
+        photo_storage_root = current_app.config.get('PHOTO_STORAGE_ROOT')
+        if not photo_storage_root:
+            raise Exception("PHOTO_STORAGE_ROOT configuration not set")
+
+        backup_service = PhotoBackupService(photo_storage_root)
+        success, backup_path, error_msg = backup_service.backup_photo(file_path, filename)
+
+        if not success:
+            logging.error(f"Photo backup failed: {error_msg}")
+            return jsonify({'error': f'Photo backup failed: {error_msg}'}), 500
+
+        logging.info(f"Photo backed up successfully: {backup_path}")
+
+        # Step 3: Database transaction - create and commit in single atomic transaction
+        # This ensures database consistency: either photo record exists with valid file_path,
+        # or no record exists at all (no partial/inconsistent state)
         try:
-            photo_storage_root = current_app.config.get('PHOTO_STORAGE_ROOT')
-            if not photo_storage_root:
-                raise Exception("PHOTO_STORAGE_ROOT configuration not set")
-
-            backup_service = PhotoBackupService(photo_storage_root)
-            success, backup_path, error_msg = backup_service.backup_photo(file_path, filename)
-
-            if not success:
-                logging.error(f"Photo backup failed: {error_msg}")
-                db.session.rollback()
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-                return jsonify({'error': f'Photo backup failed: {error_msg}'}), 500
-
-            logging.info(f"Photo backed up successfully: {backup_path}")
-
-            # Step 3: Use backup path in database (relative to storage root)
             job_photo = JobPhoto(
                 job_id=job_id,
                 driver_id=driver_id,
                 stage=stage,
                 file_path=backup_path,  # Store relative path from fleetwise-storage
                 file_size=os.path.getsize(file_path) // 1024,
-                file_hash=file_hash,   # store hash in DB
-                filename=filename      # store filename for indexed lookups
+                file_hash=file_hash,    # store hash in DB
+                filename=filename       # store filename for indexed lookups
             )
             db.session.add(job_photo)
             db.session.commit()
+            logging.info(f"Photo record created in database: photo_id={job_photo.id}")
 
-            # Step 4: Cleanup temporary file
-            backup_service.cleanup_temporary_file(file_path)
-            logging.info(f"Photo upload completed: job_id={job_id}, backup_path={backup_path}")
-
-        except Exception as backup_error:
+        except Exception as db_error:
+            # Rollback database changes if commit failed
             db.session.rollback()
-            logging.error(f"Backup service error: {str(backup_error)}")
-            if os.path.exists(file_path):
-                os.remove(file_path)
-            return jsonify({'error': f'Photo backup service error: {str(backup_error)}'}), 500
+            logging.error(f"Database error: {str(db_error)}")
+            raise Exception(f"Failed to save photo record: {str(db_error)}")
+
+        # Step 4: Cleanup temporary file after successful database commit
+        # Only cleanup after we're certain database transaction succeeded
+        try:
+            backup_service.cleanup_temporary_file(temp_file_path)
+            logging.info(f"Cleaned up temporary file: {temp_file_path}")
+        except Exception as cleanup_error:
+            logging.warning(f"Failed to cleanup temp file {temp_file_path}: {cleanup_error}")
+            # Don't fail the upload if cleanup fails - photo is already safe in fleetwise-storage
+
+        logging.info(f"Photo upload completed: job_id={job_id}, backup_path={backup_path}")
+
+        # Return file URL using the relative path
+        file_url = url_for('uploaded_file', filename=filename, _external=True)
+        return jsonify({
+            'message': 'Photo uploaded successfully',
+            'photo_id': job_photo.id,
+            'file_path': backup_path,  # Return the backup path
+            'file_url': file_url
+        }), 201
 
     except Exception as e:
-        db.session.rollback()
+        # Comprehensive error handling with proper cleanup
         logging.error(f"Upload failed: {str(e)}")
-        if os.path.exists(file_path):
-            os.remove(file_path)  # cleanup orphan file
-        return jsonify({'error': f'Upload failed: {str(e)}'}), 500
 
-    # Return file URL using the relative path
-    file_url = url_for('uploaded_file', filename=filename, _external=True)
-    return jsonify({
-        'message': 'Photo uploaded successfully',
-        'photo_id': job_photo.id,
-        'file_path': backup_path,  # Return the backup path
-        'file_url': file_url
-    }), 201
+        # Rollback any pending database transaction
+        db.session.rollback()
+
+        # Cleanup temporary file on any failure
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+                logging.info(f"Cleaned up temp file on error: {temp_file_path}")
+            except Exception as cleanup_error:
+                logging.warning(f"Failed to cleanup temp file {temp_file_path} on error: {cleanup_error}")
+
+        return jsonify({'error': f'Upload failed: {str(e)}'}), 500
 
 
 # ---------------- GET JOB PHOTOS ----------------
@@ -571,8 +591,10 @@ def get_job_photos():
     # Format response
     photo_list = []
     for photo in photos:
-        filename = os.path.basename(photo.file_path)
-        file_url = url_for('uploaded_file', filename=filename, _external=True)
+        # Use original filename (stored in photo.filename), NOT the hash-based storage name
+        # photo.filename = "54_2_OTS_1762528397.jpg" (for URL)
+        # photo.file_path = "images/2025/11/07/4c3cbc9b6eee6be6.jpg" (for storage)
+        file_url = url_for('uploaded_file', filename=photo.filename, _external=True)
         photo_list.append({
             'photo_id': photo.id,
             'stage': photo.stage,
