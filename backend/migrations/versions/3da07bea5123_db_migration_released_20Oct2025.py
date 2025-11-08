@@ -1,4 +1,4 @@
-"""modification_after_20Oct25
+"""db migration released on 20Oct2025
 
 Revision ID: 3da07bea5123
 Revises: 08560d317e5a
