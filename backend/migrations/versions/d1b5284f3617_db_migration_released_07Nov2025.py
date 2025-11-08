@@ -1,4 +1,4 @@
-"""add unique contraint in user table to customer and driver id 
+"""db migration released on 07Nov2025
 
 Revision ID: d1b5284f3617
 Revises: 3da07bea5123
