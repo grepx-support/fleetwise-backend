@@ -15,92 +15,22 @@ load_dotenv()
 
 env = os.environ.get('NODE_ENV', 'development')
 
-# Add the current directory to Python path to fix import issues
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-
-# Try different import paths for config
-try:
-    from backend.config import DevConfig, StagingConfig, ProductionConfig
-except ImportError:
-    try:
-        from config import DevConfig, StagingConfig, ProductionConfig
-    except ImportError:
-        # Fallback config
-        # Note: Get database configuration from DBManager (single source of truth)
-        class DevConfig:
-            SECRET_KEY = 'dev-secret-key'
-            SQLALCHEMY_TRACK_MODIFICATIONS = False
-            DEBUG = True
-            BASEDIR = os.path.dirname(os.path.abspath(__file__))
-            JOB_PHOTO_UPLOAD_FOLDER = os.path.join(BASEDIR, 'static', 'uploads')
-            
-            def __init__(self):
-                # Import DBManager to get database configuration
-                # No fallback - DBManager must be available
-                from backend.database import DBManager
-                
-                # Get database configuration from DBManager (single source of truth)
-                # Use static methods - no need to instantiate for URI
-                self.SQLALCHEMY_DATABASE_URI = DBManager.get_sqlalchemy_uri()
-                
-                # For SQLite, also set DB_PATH for backwards compatibility
-                db_instance = DBManager()
-                if db_instance.is_sqlite():
-                    self.DB_PATH = db_instance.get_db_path()
-
-# Try different import paths for extensions
-try:
-    from backend.extensions import db, mail
-except ImportError:
-    try:
-        from extensions import db, mail
-    except ImportError:
-        # Fallback: create db instance directly
-        try:
-            from flask_sqlalchemy import SQLAlchemy
-            from flask_mail import Mail
-            db = SQLAlchemy()
-            mail = Mail()
-        except:
-            db = None
-            mail = None
-
+from backend.config import DevConfig, StagingConfig, ProductionConfig
+from backend.extensions import db, mail
 from flask import Flask, jsonify, request, send_from_directory, abort
-try:
-    from flask_security.decorators import auth_required
-    from flask_security import current_user
-except ImportError:
-    # Fallback for flask_security
-    def auth_required():
-        def decorator(f):
-            return f
-        return decorator
-    current_user = None
+
+
 # Enhanced logging setup
 BASEDIR = os.path.dirname(os.path.abspath(__file__))
 LOGS_DIR = os.path.join(BASEDIR, 'logs')
 if not os.path.exists(LOGS_DIR):
     os.makedirs(LOGS_DIR)
 
-
-# Import JobPhoto and Job models for secure photo access
-try:
-    from backend.models.job_photo import JobPhoto
-    from backend.models.job import Job
-except ImportError:
-    try:
-        from models.job_photo import JobPhoto
-        from models.job import Job
-    except ImportError:
-        JobPhoto = None
-        Job = None
+# Import models - will be used later in app context
+from backend.models.job_photo import JobPhoto
+from backend.models.job import Job
 
 # Logging setup
-BASEDIR = os.path.dirname(os.path.abspath(__file__))
-LOGS_DIR = os.path.join(BASEDIR, 'logs')
-if not os.path.exists(LOGS_DIR):
-    os.makedirs(LOGS_DIR)
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s %(levelname)s %(name)s: %(message)s',
@@ -123,6 +53,20 @@ else:
     dev_config_instance = DevConfig()
     app.config.from_object(dev_config_instance)
 
+# Configuration debug output - only in reloader process to avoid duplication
+if os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+    print("="*80)
+    print("🔧 CONFIGURATION DEBUG")
+    print("="*80)
+    print(f"🌍 NODE_ENV: {env}")
+    print(f"📦 Config Class Used: {ProductionConfig.__name__ if env == 'production' else StagingConfig.__name__ if env == 'staging' else DevConfig.__name__}")
+    print(f"🗄️  SQLALCHEMY_DATABASE_URI: {app.config.get('SQLALCHEMY_DATABASE_URI', 'NOT SET!')}")
+    print(f"🐛 DEBUG: {app.config.get('DEBUG', 'NOT SET')}")
+    print(f"🌐 FLASK_HOST: {app.config.get('FLASK_HOST', 'NOT SET')}")
+    print(f"🔗 FRONTEND_URL: {app.config.get('FRONTEND_URL', 'NOT SET')}")
+    print(f"🍪 SESSION_COOKIE_SECURE: {app.config.get('SESSION_COOKIE_SECURE', 'NOT SET')}")
+    print("="*80)
+
 # Add Flask-Security-Too configuration
 app.config['SECURITY_URL_PREFIX'] = '/api/auth'
 app.config['SECURITY_POST_LOGIN_VIEW'] = '/dashboard'  # Changed from '/api/auth/me' to prevent redirect loop
@@ -137,13 +81,8 @@ limiter = Limiter(
 )
 
 # Debug: Print database configuration
-# print(f"App working directory: {os.getcwd()}")
-# print(f"Database URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
-
-# Debug: Print database configuration
 logger.info(f"App working directory: {os.getcwd()}")
 logger.info("Database connected: %s", "sqlite" if "sqlite" in app.config.get("SQLALCHEMY_DATABASE_URI","") else "non-sqlite")
-
 
 # Ensure folders exist
 try:
@@ -152,25 +91,24 @@ try:
 except Exception as e:
     logger.error(f"Failed to create upload folder: {e}")
 
-if db:
-    try:
-        db.init_app(app)
-        logger.info("Database initialized successfully")
-    except Exception as e:
-        logger.error(f"Warning: Could not initialize database: {e}")
+# Initialize extensions with proper error handling
+try:
+    db.init_app(app)
+    logger.info("Database initialized successfully")
+except Exception as e:
+    logger.error(f"CRITICAL: Failed to initialize database: {e}")
+    logger.error(traceback.format_exc())
+    raise  # Stop the app - don't continue with broken DB
 
-
-if mail:
-    try:
-        mail.init_app(app)
-        logger.info("Mail initialized successfully")
-    except Exception as e:
-        logger.error(f"Warning: Could not initialize mail: {e}")
+try:
+    mail.init_app(app)
+    logger.info("Mail initialized successfully")
+except Exception as e:
+    logger.error(f"WARNING: Failed to initialize mail: {e}")
+    logger.error("App will continue, but password reset emails won't work")
+    # Don't raise for mail - app can work without it
 
 # Configure CORS for better proxy support
-# CORS(app, supports_credentials=True, resources={r"/api/*": {"origins": "*"}})
-#CORS(app, supports_credentials=True, resources={r"/api/*": {"origins": ["https://localhost","http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001", "http://127.0.0.1:3001", "http://localhost:5000", "http://127.0.0.1:5000", "http://localhost:8100", "http://127.0.0.1:8100","https://test.grepx.sg","capacitor://localhost","ionic://localhost"]}})
-
 CORS(app, supports_credentials=True, resources={r"/api/*": {"origins": [
     "https://localhost",
     "http://localhost:3000",
@@ -186,7 +124,7 @@ CORS(app, supports_credentials=True, resources={r"/api/*": {"origins": [
     "capacitor://localhost",
     "ionic://localhost",
     "http://ec2-47-130-215-5.ap-southeast-1.compute.amazonaws.com:3000",
-    "http://ec2-52-76-147-189.ap-southeast-1.compute.amazonaws.com:3000"  # Add this!
+    "http://ec2-52-76-147-189.ap-southeast-1.compute.amazonaws.com:3000"
 ]}})
 
 @app.after_request
@@ -230,77 +168,46 @@ def log_authentication_details(email, provided_password, user_obj=None):
 
 # Import models and Flask-Security-Too setup after app/db are ready
 with app.app_context():
-    
-    # Try different import paths
+    # Import all models with clear error handling
     try:
-        # Import models module to ensure proper relationship setup
-        # Only import modules that exist and are needed for the application
-        from backend.models import user, role, customer, sub_customer, vehicle, driver, job, invoice, password_reset_token, contractor, contractor_service_pricing
-        logger.info("Models imported successfully from backend.models")
-        
-        try:
-            from flask_security.core import Security
-            from flask_security.datastore import SQLAlchemyUserDatastore
-            from backend.models.user import User
-            from backend.models.role import Role
-            if db is not None:
-                user_datastore = SQLAlchemyUserDatastore(db, User, Role)
-                security = Security(app, user_datastore)
-                logger.info("Flask-Security initialized successfully")
-                # Monkey patch the user datastore to add logging
-                original_find_user = user_datastore.find_user
-                def logged_find_user(*args, **kwargs):
-                    result = original_find_user(*args, **kwargs)
-                    if 'email' in kwargs:
-                        email = kwargs['email']
-                        logger.info(f"[SEARCH] User lookup for email: '{email}' -> {'Found' if result else 'Not Found'}")
-                    return result
-                user_datastore.find_user = logged_find_user
-        except Exception as e:
-            logger.error(f"Warning: Could not initialize Flask-Security: {e}")
-            logger.error(traceback.format_exc())
+        from backend.models import (
+            user, role, customer, sub_customer, vehicle, driver, 
+            job, invoice, password_reset_token, contractor, 
+            contractor_service_pricing
+        )
+        logger.info("Models imported successfully")
     except ImportError as e:
-        logger.warning(f"Failed to import from backend.models: {e}")
-        try:
-            # Fallback: import from models package
-            from models.user import User
-            from models.role import Role
-            from models.customer import Customer
-            from models.sub_customer import SubCustomer
-            from models.vehicle import Vehicle
-            from models.driver import Driver
-            from models.job import Job
-            from models.invoice import Invoice
-            from models.password_reset_token import PasswordResetToken
-            from models.contractor import Contractor
-            from models.contractor_service_pricing import ContractorServicePricing
-            logger.info("Models imported successfully from models")
-            
-            try:
-                from flask_security.core import Security
-                from flask_security.datastore import SQLAlchemyUserDatastore
-                if db is not None:
-                    user_datastore = SQLAlchemyUserDatastore(db, User, Role)
-                    security = Security(app, user_datastore)
-                    logger.info("Flask-Security initialized successfully")
+        logger.error(f"CRITICAL: Failed to import models: {e}")
+        logger.error(traceback.format_exc())
+        raise  # Stop the app - can't work without models
+    
+    # Initialize Flask-Security with clear error handling
+    try:
+        from flask_security.core import Security
+        from flask_security.datastore import SQLAlchemyUserDatastore
+        from backend.models.user import User
+        from backend.models.role import Role
+        
+        user_datastore = SQLAlchemyUserDatastore(db, User, Role)
+        security = Security(app, user_datastore)
+        logger.info("Flask-Security initialized successfully")
+        
+        # Logging patch
+        original_find_user = user_datastore.find_user
+        def logged_find_user(*args, **kwargs):
+            result = original_find_user(*args, **kwargs)
+            if 'email' in kwargs:
+                email = kwargs['email']
+                logger.info(f"[SEARCH] User lookup for email: '{email}' -> {'Found' if result else 'Not Found'}")
+            return result
+        user_datastore.find_user = logged_find_user
+        
+    except Exception as e:
+        logger.error(f"CRITICAL: Failed to initialize Flask-Security: {e}")
+        logger.error(traceback.format_exc())
+        raise  # Stop the app - can't work without security
 
-                    # Monkey patch the user datastore to add logging
-                    original_find_user = user_datastore.find_user
-                    def logged_find_user(*args, **kwargs):
-                        result = original_find_user(*args, **kwargs)
-                        if 'email' in kwargs:
-                            email = kwargs['email']
-                            logger.info(f"[SEARCH] User lookup for email: '{email}' -> {'Found' if result else 'Not Found'}")
-                        return result
-                    user_datastore.find_user = logged_find_user
-            except Exception as e:
-                logger.error(f"Warning: Could not initialize Flask-Security: {e}")
-                logger.error(traceback.format_exc())
-        except ImportError as e:
-            logger.error(f"Warning: Could not import all models: {e}")
-            
-
-# Register blueprints with fallback import handling
+# Register blueprints
 blueprints = [
     ('example', '/api'),
     ('customer', '/api'),
@@ -329,24 +236,15 @@ for blueprint_name, prefix in blueprints:
         blueprint = getattr(module, f'{blueprint_name}_bp')
         app.register_blueprint(blueprint, url_prefix=prefix)
         logger.info(f"Registered blueprint: {blueprint_name} with prefix: {prefix}")
-        #print(f"Registered blueprint: {blueprint_name} with prefix: {prefix}")
+        
         # Initialize limiter for all blueprints that have init_app function
         if hasattr(module, 'init_app'):
             module.init_app(app)
-            print(f"Initialized rate limiter for blueprint: {blueprint_name}")
-    except ImportError as e:
-        logger.warning(f"Failed to import from backend.api.{blueprint_name}: {e}")
-        try:
-            module = __import__(f'api.{blueprint_name}', fromlist=[f'{blueprint_name}_bp'])
-            blueprint = getattr(module, f'{blueprint_name}_bp')
-            app.register_blueprint(blueprint, url_prefix=prefix)
-            logger.info(f"Registered blueprint: {blueprint_name} with prefix: {prefix}")
-            # Initialize limiter for all blueprints that have init_app function
-            if hasattr(module, 'init_app'):
-                module.init_app(app)
-                print(f"Initialized rate limiter for blueprint: {blueprint_name}")
-        except ImportError as e:
-            logger.error(f"Warning: Could not import {blueprint_name} blueprint: {e}")
+            logger.info(f"Initialized rate limiter for blueprint: {blueprint_name}")
+    except (ImportError, AttributeError) as e:
+        logger.error(f"Could not import {blueprint_name} blueprint: {e}")
+
+# Register mobile driver blueprint
 try:
     # Import module and initialize limiter BEFORE blueprint import
     import backend.api.mobileapi.driver as mobile_driver_module
@@ -357,16 +255,11 @@ try:
     # Now import and register blueprint safely
     from backend.api.mobileapi.driver import mobile_driver_bp
     app.register_blueprint(mobile_driver_bp, url_prefix='/api/mobile')
-    logging.info("Mobile driver blueprint registered successfully with rate limiting")
-except ImportError as e:
-    logging.error(f"Failed to import mobile driver blueprint: {e}", exc_info=True)
-    logger.error(traceback.format_exc())
+    logger.info("Mobile driver blueprint registered successfully with rate limiting")
 except Exception as e:
-    logging.error(f"Unexpected error while registering mobile driver blueprint: {e}", exc_info=True)
-    logger.error(traceback.format_exc())
+    logger.error(f"Error while registering mobile driver blueprint: {e}", exc_info=True)
 
-# Add request logging middleware
-
+# Request logging middleware
 @app.before_request
 def log_request_info():
     logger.debug(f"Request: {request.method} {request.url}")
@@ -378,21 +271,14 @@ def log_request_info():
         # Special handling for login requests - log authentication details
         if (request.endpoint and 'login' in str(request.endpoint).lower() and
             request_data and 'email' in request_data and 'password' in request_data):
-
             email = request_data.get('email')
             password = request_data.get('password')
 
             # Find user in database for detailed comparison
             try:
-                # Import User model
-                try:
-                    from backend.models.user import User
-                except ImportError:
-                    from models.user import User
-
+                from backend.models.user import User
                 user_obj = User.query.filter_by(email=email).first()
                 log_authentication_details(email, password, user_obj)
-
             except Exception as e:
                 logger.error(f"Error during authentication logging: {e}")
                 logger.error(traceback.format_exc())
@@ -401,23 +287,15 @@ def log_request_info():
         form_data = dict(request.form)
         logger.debug(f"Form data: {form_data}")
 
-        # Handle form-based login too
         if (request.endpoint and 'login' in str(request.endpoint).lower() and
             'email' in form_data and 'password' in form_data):
-
             email = form_data.get('email')
             password = form_data.get('password')
 
             try:
-                # Import User model
-                try:
-                    from backend.models.user import User
-                except ImportError:
-                    from models.user import User
-
+                from backend.models.user import User
                 user_obj = User.query.filter_by(email=email).first()
                 log_authentication_details(email, password, user_obj)
-
             except Exception as e:
                 logger.error(f"Error during authentication logging: {e}")
                 logger.error(traceback.format_exc())
@@ -444,17 +322,13 @@ def log_response_info(response):
             logger.error(f"Response data: {response.get_data(as_text=True)}")
     return response
 
-
-from flask import request
 @app.before_request
 def log_request_origin():
     origin = request.headers.get("Origin")
     if origin:
-        print(f"[CORS DEBUG] Incoming request Origin: {origin}")
-        logging.info(f"[CORS DEBUG] Incoming request Origin: {origin}")
+        logger.info(f"[CORS DEBUG] Incoming request Origin: {origin}")
     else:
-        print("[CORS DEBUG] No Origin header present in request")
-        logging.info("[CORS DEBUG] No Origin header present in request")
+        logger.info("[CORS DEBUG] No Origin header present in request")
 
 
 @app.route('/')
@@ -505,18 +379,10 @@ def auth_me():
 def favicon():
     return '', 204
 
-@app.errorhandler(404)
-def not_found(error):
-    logger.error(f"404 error for path: {request.path}")
-    if request.path.startswith('/api/'):
-        return jsonify({'error': 'API endpoint not found', 'path': request.path}), 404
-    return jsonify({'error': 'Page not found', 'path': request.path}), 404
-
 @app.errorhandler(Exception)
 def handle_exception(e):
     logger.error(f"Unhandled exception for {request.method} {request.url}: {e}")
     logger.error(traceback.format_exc())
-    #logging.error(f"Unhandled exception: {e}", exc_info=True)
     return jsonify({'error': 'Internal server error'}), 500
 
 @app.errorhandler(400)
@@ -562,14 +428,17 @@ def ratelimit_handler(e):
 def uploaded_file(filename):
     """
     Secure and optimized photo access endpoint that addresses TOCTOU vulnerabilities and performance issues.
-    
-    This endpoint uses a single atomic query with eager loading to verify all relationships 
-    simultaneously, eliminating the TOCTOU gap and reducing database round-trips.
+
+    This endpoint:
+    - Uses a single atomic query with eager loading to verify all relationships
+    - Eliminates the TOCTOU gap and reduces database round-trips
+    - Supports both old paths (temporary uploads) and new paths (fleetwise-storage)
+    - Automatically serves photos from their stored location
     """
     # All photo access requires authentication
     if not current_user or not hasattr(current_user, 'has_role'):
         abort(403)
-        
+
     try:
         # Parse filename to get job_id (format: job_id_driver_id_stage_timestamp.jpg)
         parts = filename.split('_')
@@ -577,7 +446,7 @@ def uploaded_file(filename):
             abort(404)
         job_id = int(parts[0])
         # Note: We don't trust the driver_id from filename for authorization checks
-        
+
         # Admins and managers can access all photos
         if current_user.has_role('admin') or current_user.has_role('manager'):
             # Single atomic query with eager-loaded relationship for admins/managers
@@ -588,7 +457,7 @@ def uploaded_file(filename):
                 JobPhoto.job_id == job_id,
                 JobPhoto.filename == filename  # Use exact matching instead of endswith for better performance
             ).first()
-            
+
             # Atomically verify photo exists and job relationship is valid
             if not photo or not photo.job:
                 abort(404)
@@ -603,7 +472,7 @@ def uploaded_file(filename):
                 JobPhoto.driver_id == current_user.driver_id,
                 JobPhoto.filename == filename  # Use exact matching instead of endswith for better performance
             ).first()
-            
+
             # Atomically verify photo exists and job relationship is valid
             if not photo or not photo.job or photo.job.driver_id != current_user.driver_id:
                 abort(403)
@@ -612,7 +481,7 @@ def uploaded_file(filename):
             user_driver_id = getattr(current_user, 'driver_id', None)
             if not user_driver_id:
                 abort(403)
-                
+
             # Single atomic query with eager-loaded relationship
             from sqlalchemy.orm import joinedload
             photo = JobPhoto.query.options(
@@ -622,15 +491,47 @@ def uploaded_file(filename):
                 JobPhoto.driver_id == user_driver_id,
                 JobPhoto.filename == filename  # Use exact matching instead of endswith for better performance
             ).first()
-            
+
             # Atomically verify photo exists and job relationship is valid
             if not photo or not photo.job or photo.job.driver_id != user_driver_id:
                 abort(403)
-                
+
     except (ValueError, IndexError):
         abort(404)
- 
-    return send_from_directory(app.config['JOB_PHOTO_UPLOAD_FOLDER'], filename)
+
+    # Determine photo location: from file_path in database
+    # file_path can be:
+    # - Old format: absolute path to temp folder (backward compatibility)
+    # - New format: relative path like "images/2025/11/07/filename.jpg" (fleetwise-storage root)
+    if photo.file_path:
+        file_path = photo.file_path
+
+        # Check if it's a relative path (new format from fleetwise-storage)
+        if not os.path.isabs(file_path):
+            # Relative path - construct full path from fleetwise-storage root (parent of PHOTO_STORAGE_ROOT)
+            photo_storage_root = app.config.get('PHOTO_STORAGE_ROOT')
+            if photo_storage_root:
+                # PHOTO_STORAGE_ROOT points to "fleetwise-storage/images"
+                # file_path is relative to "fleetwise-storage" (includes "images/2025/...")
+                # So we get parent of PHOTO_STORAGE_ROOT to get fleetwise-storage root
+                fleetwise_storage_root = os.path.dirname(photo_storage_root)
+                full_path = os.path.join(fleetwise_storage_root, file_path)
+
+                if os.path.exists(full_path):
+                    return send_from_directory(os.path.dirname(full_path), os.path.basename(full_path))
+        else:
+            # Absolute path - check if it exists
+            if os.path.exists(file_path):
+                return send_from_directory(os.path.dirname(file_path), os.path.basename(file_path))
+
+    # Fallback to old upload folder for backward compatibility
+    upload_folder = app.config.get('JOB_PHOTO_UPLOAD_FOLDER')
+    if upload_folder and os.path.exists(os.path.join(upload_folder, filename)):
+        return send_from_directory(upload_folder, filename)
+
+    # Photo file not found
+    logger.warning(f"Photo file not found for job_id={job_id}, filename={filename}")
+    abort(404)
 
 
 if __name__ == '__main__':
