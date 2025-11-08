@@ -678,12 +678,18 @@ def download_job_template():
         if is_customer_user:
             # For Customer users: Only show their own customer
             customer_id = getattr(current_user, 'customer_id', None)
-            if customer_id:
-                customers = Customer.query.filter_by(id=customer_id, status='Active').all()
-            else:
-                # If customer_id not set, show empty (user must have a customer_id)
-                customers = []
-                logging.warning(f"Customer user {current_user.email} has no customer_id set")
+            if not customer_id:
+                logging.error(f"Customer user {current_user.email} has no customer_id configured")
+                return jsonify({
+                    'error': 'Your account is not properly configured. Please contact your administrator to set up your customer association.'
+                }), 400
+
+            customers = Customer.query.filter_by(id=customer_id, status='Active').all()
+            if not customers:
+                logging.error(f"Customer user {current_user.email} has invalid customer_id: {customer_id}")
+                return jsonify({
+                    'error': 'Your associated customer account is not found or inactive. Please contact your administrator.'
+                }), 400
 
             # For Customer users: Empty vehicles and drivers (no values in dropdown)
             vehicles = []
@@ -1413,9 +1419,13 @@ def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=
 
             if missing_fields:
                 row_data['is_valid'] = False
-                # Format each missing field as a separate error message
-                missing_field_errors = [f"{field} is required" for field in missing_fields]
-                row_data['error_message'] = '; '.join(missing_field_errors)
+                # Format missing fields consistently with other validation errors
+                # Use semicolon separator to allow frontend to split and display individually
+                if len(missing_fields) == 1:
+                    row_data['error_message'] = f"{missing_fields[0]} is required"
+                else:
+                    missing_field_errors = [f"{field} is required" for field in missing_fields]
+                    row_data['error_message'] = '; '.join(missing_field_errors)
                 error_count += 1
                 preview_rows.append(row_data)
                 continue
