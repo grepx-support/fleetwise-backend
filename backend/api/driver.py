@@ -14,7 +14,7 @@ from sqlalchemy.exc import OperationalError
 MAX_RETRIES = 3
 RETRY_DELAY = 0.2 
 @driver_bp.route('/drivers', methods=['GET'])
-@roles_accepted('admin', 'manager', 'accountant')
+@roles_accepted('admin', 'manager', 'accountant', 'customer')
 def list_drivers():
     try:
         drivers = DriverService.get_all()
@@ -33,7 +33,7 @@ def get_driver(driver_id):
         if not driver:
             return jsonify({'error': 'Driver not found'}), 404
         # Only allow access if admin/manager or the driver themselves
-        if current_user.has_role('admin') or current_user.has_role('manager') or current_user.id == driver_id:
+        if current_user.has_role('admin') or current_user.has_role('manager') or current_user.has_role('accountant') or current_user.has_role('customer') or current_user.id == driver_id:
             return jsonify(schema.dump(driver)), 200
         return jsonify({'error': 'Forbidden'}), 403
     except ServiceError as se:

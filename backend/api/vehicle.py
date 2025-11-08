@@ -11,7 +11,7 @@ schema = VehicleSchema(session=db.session)
 schema_many = VehicleSchema(many=True, session=db.session)
 
 @vehicle_bp.route('/vehicles', methods=['GET'])
-@roles_accepted('admin', 'manager', 'accountant')
+@roles_accepted('admin', 'manager', 'accountant', 'customer')
 def list_vehicles():
     try:
         vehicles = VehicleService.get_all()

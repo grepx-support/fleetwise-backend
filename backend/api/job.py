@@ -105,14 +105,15 @@ def apply_safe_filter(query, column, value):
 def scoped_jobs_query(q):
     """
     Restrict the Job query based on the current_user role.
-    Admin/Manager: see all (no extra filter)
-    Driver: only jobs for current_user.driver_id
-    Customer: only jobs for current_user.customer_id
-    Others: raise 403 by aborting
+    Admin/Manager/Accountant: see all (no filter)
+    Driver: only jobs for driver_id
+    Customer: only jobs for customer_id
     """
-    from flask import abort
+    print("[DEBUG] executing job.py from:", __file__)
+    print("[DEBUG] current_user:", current_user)
+    print("[DEBUG] is_authenticated:", getattr(current_user, "is_authenticated", None))
 
-    # Allow admins/managers to see all
+    # Admins, managers, accountants see all
     if current_user.has_role('admin') or current_user.has_role('manager') or current_user.has_role('accountant'):
         return q
 
@@ -130,7 +131,8 @@ def scoped_jobs_query(q):
             abort(403, description='Customer profile missing')
         return q.filter(Job.customer_id == customer_id)
 
-    abort(403)
+    abort(403, description='Access forbidden')
+
 # --- end helper ---
 
 @job_bp.route('/jobs', methods=['GET'])
@@ -264,7 +266,7 @@ def create_job():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @job_bp.route('/jobs/<int:job_id>', methods=['PUT'])
-@roles_accepted('admin', 'manager', 'accountant')
+@roles_accepted('admin', 'manager', 'accountant', 'customer')
 def update_job(job_id):
     try:
         data = request.get_json()
@@ -296,6 +298,25 @@ def update_job(job_id):
             return jsonify({'error': 'Job not found'}), 404
             
         old_status = job_before_update.status
+        status = (job_before_update.status or "").lower()
+
+        if current_user.has_role("customer") and status in ["confirmed", "otw", "ots", "pob"]:
+            # Allow only remarks/customer_remark field updates
+            allowed_fields = {"remarks", "customer_remark"}
+            ignore_for_diff = {"extra_services"}
+            changed_fields = {k for k, v in data.items() if k not in ignore_for_diff and getattr(job_before_update, k, None) != v}
+            disallowed_fields = [f for f in changed_fields if f not in allowed_fields]
+            if disallowed_fields:
+                return jsonify({
+                    "error": "Permission denied",
+                    "message": f"Customers can only edit remarks in '{status}' status.",
+                    "disallowed_fields": disallowed_fields
+                }), 403
+        if current_user.has_role("customer") and status in ["jc", "sd", "canceled"]:
+            return jsonify({
+                "error": "Permission denied",
+                "message": f"Customers cannot edit jobs once status is '{status}'."
+            }), 403
             
         # Check for driver scheduling conflict
         driver_id = filtered_data.get('driver_id')
@@ -334,11 +355,13 @@ def update_job(job_id):
         job = JobService.update(job_id, filtered_data)
         if not job:
             return jsonify({'error': 'Job not found'}), 404
+        
             
         # Audit logging is now handled in JobService.update to prevent duplicate audit records.
             
         # Prepare response
         job_data = schema.dump(job)
+        
         
         # Include conflict warning for admin users
         if conflict_job and current_user.has_role('admin'):
