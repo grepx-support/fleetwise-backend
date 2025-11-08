@@ -3066,6 +3066,9 @@ def update_job_status(job_id):
         # Get optional remark
         remark = data.get('remark')
         
+        # Get optional changed_at timestamp from frontend
+        changed_at_timestamp = data.get('changed_at')
+        
         # Get the job with row-level locking to prevent race conditions
         # This is now done AFTER validation to minimize lock time
         job = Job.query.with_for_update().get(job_id)
@@ -3091,6 +3094,80 @@ def update_job_status(job_id):
             new_status=new_status,
             reason=remark
         )
+        
+        # Set custom timestamp if provided by frontend
+        if changed_at_timestamp:
+            try:
+                from datetime import datetime, timezone
+                if isinstance(changed_at_timestamp, str):
+                    # Try to parse as ISO format
+                    try:
+                        custom_timestamp = datetime.fromisoformat(changed_at_timestamp)
+                    except ValueError:
+                        # Try with Z suffix if original parsing fails
+                        custom_timestamp = datetime.fromisoformat(changed_at_timestamp.replace('Z', '+00:00'))
+                else:
+                    # Assume it's already a datetime object
+                    custom_timestamp = changed_at_timestamp
+                
+                # Handle timezone-naive timestamps by assuming local timezone
+                if custom_timestamp.tzinfo is None:
+                    # For naive timestamps, we'll do a more lenient comparison
+                    # Get current time in local timezone
+                    now_local = datetime.now()
+                    # If the timestamp is reasonably close to now (within 24 hours), allow it
+                    # This handles cases where frontend sends local time without timezone info
+                    time_diff = now_local - custom_timestamp
+                    if time_diff.total_seconds() < -86400:  # More than 24 hours in the future
+                        return jsonify({
+                            'success': False,
+                            'message': 'Cannot set future timestamp for status change'
+                        }), 400
+                    # If it's not clearly in the future, treat it as valid
+                else:
+                    # For timezone-aware timestamps, do strict comparison
+                    now = datetime.now(timezone.utc)
+                    if custom_timestamp > now:
+                        return jsonify({
+                            'success': False,
+                            'message': 'Cannot set future timestamp for status change'
+                        }), 400
+                
+                # Validate chronological order with existing audit records
+                last_audit = JobAudit.query.filter_by(job_id=job_id)\
+                    .order_by(JobAudit.changed_at.desc())\
+                    .first()
+                if last_audit and last_audit.changed_at:
+                    # Ensure last_audit.changed_at is timezone-aware
+                    last_audit_timestamp = last_audit.changed_at
+                    if last_audit_timestamp.tzinfo is None:
+                        # If database timestamp is naive, assume it's UTC
+                        last_audit_timestamp = last_audit_timestamp.replace(tzinfo=timezone.utc)
+                    
+                    # Ensure both timestamps are using the same timezone-aware format for comparison
+                    if custom_timestamp.tzinfo is None:
+                        # This shouldn't happen with our earlier conversion, but just in case
+                        custom_timestamp = custom_timestamp.replace(tzinfo=timezone.utc)
+                    
+                    # Convert both to UTC for comparison if they have different timezones
+                    if custom_timestamp.tzinfo != last_audit_timestamp.tzinfo:
+                        custom_timestamp = custom_timestamp.astimezone(timezone.utc)
+                        last_audit_timestamp = last_audit_timestamp.astimezone(timezone.utc)
+                    
+                    if custom_timestamp <= last_audit_timestamp:
+                        return jsonify({
+                            'success': False,
+                            'message': f'Timestamp must be after last status change at {last_audit.changed_at.isoformat()}'
+                        }), 400
+                
+                # Set the changed_at field directly
+                audit_record.changed_at = custom_timestamp
+            except ValueError as e:
+                logging.warning(f"Invalid changed_at timestamp format: {changed_at_timestamp}, error: {e}")
+                return jsonify({
+                    'success': False,
+                    'message': 'Invalid timestamp format. Use ISO 8601 format (YYYY-MM-DDTHH:MM:SS)'
+                }), 400
         
         # Update job status
         job.status = new_status

@@ -57,10 +57,16 @@ class Config:
     JOB_PHOTO_UPLOAD_FOLDER = os.path.join(BASE_DIR, 'static', 'uploads')
     # invoice storage backup
     INVOICE_STORAGE_ROOT = os.getenv(
-        "INVOICE_STORAGE_ROOT",
-        str(Path(__file__).resolve().parents[2] / "fleetwise-storage")
-    )
+    "INVOICE_STORAGE_ROOT",
+    str(Path(__file__).resolve().parents[2] / "fleetwise-storage")
+)
 
+    # Job photo storage backup (organized by date: YYYY/MM/DD)
+    PHOTO_STORAGE_ROOT = os.getenv(
+    "PHOTO_STORAGE_ROOT",
+    str(Path(__file__).resolve().parents[2] / "fleetwise-storage" / "images")
+)
+ 
 class DevConfig(Config):
     """Development configuration"""
     DEBUG = True
