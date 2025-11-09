@@ -10,7 +10,7 @@ schema = ServicesVehicleTypePriceSchema(session=db.session)
 schema_many = ServicesVehicleTypePriceSchema(many=True, session=db.session)
 
 @services_vehicle_type_price_bp.route('/services-vehicle-type-prices', methods=['GET'])
-@roles_accepted('admin', 'manager', 'accountant', 'customer')
+@roles_accepted('admin', 'manager', 'accountant')
 def list_services_vehicle_type_prices():
     try:
         # Check if service_id parameter is provided
