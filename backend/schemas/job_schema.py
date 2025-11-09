@@ -111,6 +111,9 @@ class JobSchema(SQLAlchemyAutoSchema):
     # Contractor computed fields
     contractor_name = fields.Method('get_contractor_name', dump_only=True)
     
+    # Customer computed fields
+    customer_name = fields.Method('get_customer_name', dump_only=True)
+    
     # Additional fields for frontend compatibility (not in Job model)
     payment_mode = fields.Method('get_payment_mode', dump_only=True)
     message = fields.Method('get_message', dump_only=True)

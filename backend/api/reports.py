@@ -44,9 +44,11 @@ def driver_job_history():
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         page = max(1, int(request.args.get('page', 1)))
-        page_size = min(max(1, int(request.args.get('page_size', 50))), 100)
-        
-        # Validate required parameters
+        page_size = max(1, int(request.args.get('page_size', 50)))
+        # Set a reasonable upper limit for exports while preventing abuse
+        page_size = min(page_size, 5000)
+    
+    # Validate required parameters
         if not driver_id:
             return jsonify({'error': 'driver_id is required'}), 400
             
@@ -64,22 +66,42 @@ def driver_job_history():
         # Apply customer name filter
         if customer_name:
             query = query.join(Customer, Job.customer_id == Customer.id)
-            query = query.filter(Customer.name.ilike(f'%{customer_name}%'))
+            # Escape special characters for LIKE patterns to prevent SQL injection
+            safe_customer_name = customer_name.replace('%', '\\%').replace('_', '\\_')
+            query = query.filter(Customer.name.ilike(f'%{safe_customer_name}%', escape='\\'))
         
         # Apply contractor name filter
         if contractor_name:
             # Only apply contractor filter if contractor_name is provided
-            query = query.filter(Contractor.name.ilike(f'%{contractor_name}%'))
+            # Escape special characters for LIKE patterns to prevent SQL injection
+            safe_contractor_name = contractor_name.replace('%', '\\%').replace('_', '\\_')
+            query = query.filter(Contractor.name.ilike(f'%{safe_contractor_name}%', escape='\\'))
         
-        # Apply driver name filter (in case we want to search by driver name even when driver_id is specified)
-        if driver_name_filter:
-            query = query.filter(Driver.name.ilike(f'%{driver_name_filter}%'))
+        # Apply driver name filter only when driver_id is not provided
+        # This prevents conflicts between driver_id and driver_name filters
+        if driver_name_filter and not driver_id:
+            # Escape special characters for LIKE patterns to prevent SQL injection
+            safe_driver_name = driver_name_filter.replace('%', '\\%').replace('_', '\\_')
+            query = query.filter(Driver.name.ilike(f'%{safe_driver_name}%', escape='\\'))
+        # Log warning if both driver_id and driver_name are provided
+        elif driver_name_filter and driver_id:
+            logging.warning(f"Both driver_id ({driver_id}) and driver_name ('{driver_name_filter}') provided; driver_name filter ignored to prevent conflicts")
         
-        # Apply date filters only if provided
+        # Apply date filters only if provided with proper validation
         if start_date:
-            query = query.filter(Job.pickup_date >= start_date)
+            try:
+                from datetime import datetime
+                start_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
+                query = query.filter(Job.pickup_date >= start_dt)
+            except ValueError:
+                return jsonify({'error': 'Invalid start_date format. Use YYYY-MM-DD'}), 400
         if end_date:
-            query = query.filter(Job.pickup_date <= end_date)
+            try:
+                from datetime import datetime
+                end_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
+                query = query.filter(Job.pickup_date <= end_dt)
+            except ValueError:
+                return jsonify({'error': 'Invalid end_date format. Use YYYY-MM-DD'}), 400
             
         # Get total count
         total = query.count()
