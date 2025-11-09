@@ -106,6 +106,10 @@ class JobSchema(SQLAlchemyAutoSchema):
     
     # Driver computed fields
     driver_contact = fields.Method('get_driver_contact', dump_only=True)
+    driver_name = fields.Method('get_driver_name', dump_only=True)
+    
+    # Contractor computed fields
+    contractor_name = fields.Method('get_contractor_name', dump_only=True)
     
     # Additional fields for frontend compatibility (not in Job model)
     payment_mode = fields.Method('get_payment_mode', dump_only=True)
@@ -183,6 +187,12 @@ class JobSchema(SQLAlchemyAutoSchema):
     
     def get_driver_contact(self, obj):
         return obj.driver.mobile if obj.driver else None
+    
+    def get_driver_name(self, obj):
+        return obj.driver.name if obj.driver else None
+    
+    def get_contractor_name(self, obj):
+        return obj.contractor.name if obj.contractor else None
     
     def get_type_of_service(self, obj):
         return obj.service_type

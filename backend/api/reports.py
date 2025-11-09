@@ -50,8 +50,10 @@ def driver_job_history():
         if not driver_id:
             return jsonify({'error': 'driver_id is required'}), 400
             
-        # Build query
+        # Build query - Always left join contractor and driver tables to get their names
         query = Job.query.filter_by(driver_id=driver_id, is_deleted=False)
+        query = query.outerjoin(Contractor, Job.contractor_id == Contractor.id)
+        query = query.outerjoin(Driver, Job.driver_id == Driver.id)
         
         # Apply job IDs filter
         if job_ids:
@@ -66,12 +68,11 @@ def driver_job_history():
         
         # Apply contractor name filter
         if contractor_name:
-            query = query.join(Contractor, Job.contractor_id == Contractor.id)
+            # Only apply contractor filter if contractor_name is provided
             query = query.filter(Contractor.name.ilike(f'%{contractor_name}%'))
         
         # Apply driver name filter (in case we want to search by driver name even when driver_id is specified)
         if driver_name_filter:
-            query = query.join(Driver, Job.driver_id == Driver.id)
             query = query.filter(Driver.name.ilike(f'%{driver_name_filter}%'))
         
         # Apply date filters only if provided
@@ -85,7 +86,11 @@ def driver_job_history():
         
         # Apply pagination
         jobs = (
-            query.order_by(Job.pickup_date.desc(), Job.pickup_time.desc())
+            query.options(
+                db.joinedload(Job.contractor),
+                db.joinedload(Job.driver)
+            )
+            .order_by(Job.pickup_date.desc(), Job.pickup_time.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)
             .all()
