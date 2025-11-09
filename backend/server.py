@@ -227,7 +227,8 @@ blueprints = [
     ('db_export', '/api'),
     ('contractor', '/api'),
     ('services_vehicle_type_price', '/api'),
-    ('bill', '/api')
+    ('bill', '/api'),
+    ('reports', '/api')
 ]
 
 for blueprint_name, prefix in blueprints:
