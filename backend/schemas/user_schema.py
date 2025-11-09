@@ -13,5 +13,6 @@ class UserSchema(Schema):
     roles = fields.List(fields.Nested(lambda: RoleSchema(exclude=("users",))), dump_only=True)
     role_names = fields.List(fields.Str(), load_only=True)  # For deserializing role names
     driver = ma_fields.Nested('DriverSchema', dump_only=True)
+    customer = ma_fields.Nested('CustomerSchema', dump_only=True)
     
 from backend.schemas.role_schema import RoleSchema  # Avoid circular import
