@@ -308,11 +308,14 @@ def update_job(job_id):
                     "error": "Permission denied",
                     "message": f"Customers cannot edit jobs in '{status}' status."
                 }), 403
-
             # Partial permission: remarks only
             if status in limited_edit_statuses:
-                allowed_fields = {"remarks"}
-                changed_fields = {k for k, v in data.items() if getattr(job_before_update, k, None) != v}
+                allowed_fields = {"remarks","customer_remark"}
+                def normalize(val):
+                    if val in (None, "", [], {}):
+                        return None
+                    return val
+                changed_fields = {k for k, v in data.items() if normalize(getattr(job_before_update, k, None)) != normalize(v)}
                 disallowed_fields = [f for f in changed_fields if f not in allowed_fields]
 
                 if disallowed_fields:
@@ -321,7 +324,6 @@ def update_job(job_id):
                         "message": f"Customers can only edit remarks in '{status}' status.",
                         "disallowed_fields": disallowed_fields
                     }), 403
-            
         # Check for driver scheduling conflict
         driver_id = filtered_data.get('driver_id')
         pickup_date = filtered_data.get('pickup_date')
