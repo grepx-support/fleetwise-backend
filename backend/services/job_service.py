@@ -98,6 +98,26 @@ class ServiceError(Exception):
 
 class JobService:
     @staticmethod
+    def _validate_driver_vehicle_assignment(driver_id, vehicle_id):
+        """
+        Validate driver-vehicle assignment with authenticated user override.
+        
+        Args:
+            driver_id: ID of the driver
+            vehicle_id: ID of the vehicle
+            
+        Raises:
+            ServiceError: If driver is not assigned to vehicle and user is not authenticated
+        """
+        if driver_id and vehicle_id:
+            driver = Driver.query.get(driver_id)
+            if driver and driver.vehicle_id != vehicle_id:
+                # Allow authenticated users to override driver-vehicle assignment validation
+                if not (hasattr(current_user, 'is_authenticated') and current_user.is_authenticated):
+                    raise ServiceError("Selected driver is not assigned to the selected vehicle")
+                else:
+                    logging.warning(f"User {getattr(current_user, 'email', 'unknown')} is overriding driver-vehicle assignment for driver_id={driver_id}, vehicle_id={vehicle_id}")
+    @staticmethod
     def check_driver_conflict(driver_id, pickup_date, pickup_time, job_id=None, time_buffer_minutes=60):
         """
         Check if a driver already has a job scheduled at the same date and time with a configurable buffer.
@@ -233,14 +253,8 @@ class JobService:
             vehicle_id = data.get('vehicle_id')
             contractor_id = data.get('contractor_id')
 
-            if driver_id and vehicle_id:
-                driver = Driver.query.get(driver_id)
-                if driver and driver.vehicle_id != vehicle_id:
-                    # Allow authenticated users to override driver-vehicle assignment validation
-                    if not (hasattr(current_user, 'is_authenticated') and current_user.is_authenticated):
-                        raise ServiceError("Selected driver is not assigned to the selected vehicle")
-                    else:
-                        logging.warning(f"User {getattr(current_user, 'email', 'unknown')} is overriding driver-vehicle assignment for driver_id={driver_id}, vehicle_id={vehicle_id}")
+            # Use the shared validation method
+            JobService._validate_driver_vehicle_assignment(driver_id, vehicle_id)
 
             # Enforce contractor requirement for confirmed status
             if not contractor_id:
@@ -478,14 +492,8 @@ class JobService:
             vehicle_id = data.get('vehicle_id')
             contractor_id = data.get('contractor_id')
 
-            if driver_id and vehicle_id:
-                driver = Driver.query.get(driver_id)
-                if driver and driver.vehicle_id != vehicle_id:
-                    # Allow authenticated users to override driver-vehicle assignment validation
-                    if not (hasattr(current_user, 'is_authenticated') and current_user.is_authenticated):
-                        raise ServiceError("Selected driver is not assigned to the selected vehicle")
-                    else:
-                        logging.warning(f"User {getattr(current_user, 'email', 'unknown')} is overriding driver-vehicle assignment for driver_id={driver_id}, vehicle_id={vehicle_id}")
+            # Use the shared validation method
+            JobService._validate_driver_vehicle_assignment(driver_id, vehicle_id)
 
             # Enforce contractor requirement for confirmed status
             if not contractor_id:
