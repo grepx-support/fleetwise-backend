@@ -16,6 +16,7 @@ from backend.models.vehicle_type import VehicleType
 from datetime import datetime
 from backend.services.push_notification_service import PushNotificationService
 from decimal import Decimal
+from flask_security import current_user
 
 # Midnight surcharge time range constants (must match frontend JobForm.tsx)
 # Frontend uses: MIDNIGHT_START_MINUTES = 23 * 60 (1380) and MIDNIGHT_END_MINUTES = 6 * 60 + 59 (419)
@@ -235,7 +236,11 @@ class JobService:
             if driver_id and vehicle_id:
                 driver = Driver.query.get(driver_id)
                 if driver and driver.vehicle_id != vehicle_id:
-                    raise ServiceError("Selected driver is not assigned to the selected vehicle")
+                    # Allow authenticated users to override driver-vehicle assignment validation
+                    if not (hasattr(current_user, 'is_authenticated') and current_user.is_authenticated):
+                        raise ServiceError("Selected driver is not assigned to the selected vehicle")
+                    else:
+                        logging.warning(f"User {getattr(current_user, 'email', 'unknown')} is overriding driver-vehicle assignment for driver_id={driver_id}, vehicle_id={vehicle_id}")
 
             # Enforce contractor requirement for confirmed status
             if not contractor_id:
@@ -432,7 +437,6 @@ class JobService:
                     try:
                         from backend.models.job_audit import JobAudit
                         from datetime import datetime
-                        from flask_security import current_user
                         
                         def convert_dt(obj):
                             if isinstance(obj, dict):
@@ -477,7 +481,11 @@ class JobService:
             if driver_id and vehicle_id:
                 driver = Driver.query.get(driver_id)
                 if driver and driver.vehicle_id != vehicle_id:
-                    raise ServiceError("Selected driver is not assigned to the selected vehicle")
+                    # Allow authenticated users to override driver-vehicle assignment validation
+                    if not (hasattr(current_user, 'is_authenticated') and current_user.is_authenticated):
+                        raise ServiceError("Selected driver is not assigned to the selected vehicle")
+                    else:
+                        logging.warning(f"User {getattr(current_user, 'email', 'unknown')} is overriding driver-vehicle assignment for driver_id={driver_id}, vehicle_id={vehicle_id}")
 
             # Enforce contractor requirement for confirmed status
             if not contractor_id:
