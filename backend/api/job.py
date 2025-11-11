@@ -37,6 +37,7 @@ from backend.models.user import User
 from backend.models.contractor import Contractor
 from backend.models.vehicle_type import VehicleType
 from backend.extensions import db
+from decimal import Decimal
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -312,10 +313,14 @@ def update_job(job_id):
             if status in limited_edit_statuses:
                 allowed_fields = {"remarks","customer_remark"}
                 def normalize(val):
-                    if val in (None, "", [], {}):
-                        return None
-                    return val
-                changed_fields = {k for k, v in data.items() if normalize(getattr(job_before_update, k, None)) != normalize(v)}
+                    if val in (None, "", [], {}, 0, 0.0, Decimal("0")):
+                        return 0
+                    if isinstance(val, (int, float, Decimal)):
+                        return round(float(val), 2)
+                    if isinstance(val, (list, dict)):
+                        return json.dumps(val, sort_keys=True)
+                    return str(val)
+                changed_fields = { k for k, v in data.items() if normalize(getattr(job_before_update, k, None)) != normalize(v)}
                 disallowed_fields = [f for f in changed_fields if f not in allowed_fields]
 
                 if disallowed_fields:
