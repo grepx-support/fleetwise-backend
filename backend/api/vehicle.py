@@ -11,10 +11,21 @@ schema = VehicleSchema(session=db.session)
 schema_many = VehicleSchema(many=True, session=db.session)
 
 @vehicle_bp.route('/vehicles', methods=['GET'])
-@roles_accepted('admin', 'manager', 'accountant')
+@roles_accepted('admin', 'manager', 'accountant', 'customer')
 def list_vehicles():
     try:
         vehicles = VehicleService.get_all()
+        if current_user.has_role('customer'):
+            vehicle_types = [
+                {
+                    'id': v.id,
+                    'type': getattr(v, 'type', None),
+                    'number': getattr(v, 'number', None),
+                    'name': getattr(v, 'name', None)
+                }
+                for v in vehicles
+            ]
+            return jsonify(vehicle_types), 200
         return jsonify(schema_many.dump(vehicles)), 200
     except ServiceError as se:
         return jsonify({'error': se.message}), 400
