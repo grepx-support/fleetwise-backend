@@ -46,9 +46,16 @@ class UserService:
     @staticmethod
     def create(data):
         try:
-            # Map username to name if provided
-            if 'username' in data and 'name' not in data:
-                data['name'] = data['username']
+            # Validate and sanitize name field
+            if 'name' in data:
+                name = data['name']
+                if name is not None:
+                    if not isinstance(name, str):
+                        raise ServiceError("Name must be a string")
+                    name = name.strip()
+                    if len(name) > 255:
+                        raise ServiceError("Name cannot exceed 255 characters")
+                    data['name'] = name if name else None
             
             password = data.pop('password', None)
             if password:
@@ -110,10 +117,17 @@ class UserService:
             user = User.query.get(user_id)
             if not user:
                 return None
-            
-            # Map username to name if provided
-            if 'username' in data and 'name' not in data:
-                data['name'] = data['username']
+                
+            # Validate and sanitize name field
+            if 'name' in data:
+                name = data['name']
+                if name is not None:
+                    if not isinstance(name, str):
+                        raise ServiceError("Name must be a string")
+                    name = name.strip()
+                    if len(name) > 255:
+                        raise ServiceError("Name cannot exceed 255 characters")
+                    data['name'] = name if name else None
                 
             password = data.pop('password', None)
             if password:
@@ -204,7 +218,7 @@ class UserService:
     @staticmethod
     def get_unassigned_customers():
         """
-        Fetch customers not assigned to any user
+        Fetch all active customers (allows multiple user assignments)
         """
         try:
             # Since we're allowing multiple users per customer, 
