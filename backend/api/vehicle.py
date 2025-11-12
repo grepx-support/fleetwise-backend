@@ -11,21 +11,10 @@ schema = VehicleSchema(session=db.session)
 schema_many = VehicleSchema(many=True, session=db.session)
 
 @vehicle_bp.route('/vehicles', methods=['GET'])
-@roles_accepted('admin', 'manager', 'accountant', 'customer')
+@roles_accepted('admin', 'manager', 'accountant')
 def list_vehicles():
     try:
         vehicles = VehicleService.get_all()
-        if current_user.has_role('customer'):
-            vehicle_types = [
-                {
-                    'id': v.id,
-                    'type': getattr(v, 'type', None),
-                    'number': getattr(v, 'number', None),
-                    'name': getattr(v, 'name', None)
-                }
-                for v in vehicles
-            ]
-            return jsonify(vehicle_types), 200
         return jsonify(schema_many.dump(vehicles)), 200
     except ServiceError as se:
         return jsonify({'error': se.message}), 400
@@ -41,6 +30,13 @@ def get_vehicle(vehicle_id):
         if not vehicle:
             return jsonify({'error': 'Vehicle not found'}), 404
         # Only allow access if admin/manager or the driver assigned to this vehicle
+        if current_user.has_role('customer'):
+            vehicle_data = {
+                'id': vehicle.id,
+                'number': vehicle.number,
+                'name': vehicle.name,
+            }
+            return jsonify(vehicle_data), 200
         if current_user.has_role('admin') or current_user.has_role('manager') or getattr(current_user, 'vehicle_id', None) == vehicle_id:
             return jsonify(schema.dump(vehicle)), 200
         return jsonify({'error': 'Forbidden'}), 403

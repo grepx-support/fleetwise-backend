@@ -37,6 +37,7 @@ from backend.models.user import User
 from backend.models.contractor import Contractor
 from backend.models.vehicle_type import VehicleType
 from backend.extensions import db
+from decimal import Decimal
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -195,21 +196,10 @@ def create_job():
                 driver = db.session.query(Driver).filter(Driver.id == driver_id).with_for_update().one()
             
             conflict_job = JobService.check_driver_conflict(driver_id, pickup_date, pickup_time, None, time_buffer_minutes)
+            # Completely override scheduling conflict validation
+            # Allow all authenticated users to create jobs even with scheduling conflicts
             if conflict_job:
-                if not current_user.has_role('admin'):
-                    return jsonify({
-                        'error': 'Scheduling conflict detected',
-                        'message': f'Driver already has a job scheduled at {conflict_job.pickup_date} {conflict_job.pickup_time} (Job #{conflict_job.id} - {conflict_job.status}). Please select a different date or time.',
-                        'conflict_details': {
-                            'conflict_job_id': conflict_job.id,
-                            'pickup_date': conflict_job.pickup_date,
-                            'pickup_time': conflict_job.pickup_time,
-                            'status': conflict_job.status
-                        }
-                    }), 409
-                else:
-                    # For admin users, we still create/update but include a warning
-                    logging.warning(f"Admin user {current_user.email} is creating a job that conflicts with job #{conflict_job.id}")
+                logging.warning(f"Authenticated user {current_user.email} is creating a job that conflicts with job #{conflict_job.id} - OVERRIDE ENABLED")
         
         job = JobService.create(data)
         
@@ -308,11 +298,18 @@ def update_job(job_id):
                     "error": "Permission denied",
                     "message": f"Customers cannot edit jobs in '{status}' status."
                 }), 403
-
             # Partial permission: remarks only
             if status in limited_edit_statuses:
-                allowed_fields = {"remarks"}
-                changed_fields = {k for k, v in data.items() if getattr(job_before_update, k, None) != v}
+                allowed_fields = {"remarks","customer_remark"}
+                def normalize(val):
+                    if val in (None, "", [], {}, 0, 0.0, Decimal("0")):
+                        return 0
+                    if isinstance(val, (int, float, Decimal)):
+                        return round(float(val), 2)
+                    if isinstance(val, (list, dict)):
+                        return json.dumps(val, sort_keys=True)
+                    return str(val)
+                changed_fields = { k for k, v in data.items() if normalize(getattr(job_before_update, k, None)) != normalize(v)}
                 disallowed_fields = [f for f in changed_fields if f not in allowed_fields]
 
                 if disallowed_fields:
@@ -321,7 +318,6 @@ def update_job(job_id):
                         "message": f"Customers can only edit remarks in '{status}' status.",
                         "disallowed_fields": disallowed_fields
                     }), 403
-            
         # Check for driver scheduling conflict
         driver_id = filtered_data.get('driver_id')
         pickup_date = filtered_data.get('pickup_date')
@@ -340,21 +336,10 @@ def update_job(job_id):
                 driver = db.session.query(Driver).filter(Driver.id == driver_id).with_for_update().one()
             
             conflict_job = JobService.check_driver_conflict(driver_id, pickup_date, pickup_time, job_id, time_buffer_minutes)
+            # Completely override scheduling conflict validation
+            # Allow all authenticated users to update jobs even with scheduling conflicts
             if conflict_job:
-                if not current_user.has_role('admin'):
-                    return jsonify({
-                        'error': 'Scheduling conflict detected',
-                        'message': f'Driver already has a job scheduled at {conflict_job.pickup_date} {conflict_job.pickup_time} (Job #{conflict_job.id} - {conflict_job.status}). Please select a different date or time.',
-                        'conflict_details': {
-                            'conflict_job_id': conflict_job.id,
-                            'pickup_date': conflict_job.pickup_date,
-                            'pickup_time': conflict_job.pickup_time,
-                            'status': conflict_job.status
-                        }
-                    }), 409
-                else:
-                    # For admin users, we still create/update but include a warning
-                    logging.warning(f"Admin user {current_user.email} is updating a job that conflicts with job #{conflict_job.id}")
+                logging.warning(f"Authenticated user {current_user.email} is updating a job that conflicts with job #{conflict_job.id} - OVERRIDE ENABLED")
         
         job = JobService.update(job_id, filtered_data)
         if not job:
