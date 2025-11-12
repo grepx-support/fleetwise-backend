@@ -1,7 +1,3 @@
-"""
-Invoice model
-"""
-
 from datetime import date as Date
 from decimal import Decimal
 from typing import List, Optional
@@ -23,6 +19,7 @@ class Invoice(BaseModel):
     from_mobile: constr(pattern=r'^\+?[0-9\s\-]{7,15}$')
     to_company: str
     to_address: str
+    customer_contact: Optional[str] = None
     
     items: List[InvoiceItem] = Field(min_length=1)
     notes: Optional[str] = None
@@ -31,6 +28,7 @@ class Invoice(BaseModel):
     gst_amount: Decimal
     cash_collect_total: Decimal = Field(ge=0, decimal_places=2)
     total_amount: Decimal = Field(gt=0, decimal_places=2)
+    balance_amount: Decimal = Field(ge=0, decimal_places=2)
 
     email: EmailStr
     company_address: str 
@@ -42,5 +40,3 @@ class Invoice(BaseModel):
     @property
     def total(self) -> Decimal:
         return self.total_amount - self.cash_collect_total
-
-    

@@ -1,19 +1,29 @@
 <div class="header">
-    <div class="company-info">
-        {% if logo_path %}
-      <img src="file://{{ logo_path | urlencode }}" alt="Company Logo" class="company-logo" />
-        {% endif %}
-        <div class="company-details">
-            <p>{{ from_company }}</p>
-            <p class="email">{{ from_email }}</p>
-            <p class="mobile">{{  from_mobile   }}</p>
+    <div class="header-top">
+        <div class="company-info">
+            {% if logo_path %}
+            <img src="file://{{ logo_path | urlencode }}" alt="Company Logo" class="company-logo" />
+            {% endif %}
+            <div class="company-details">
+                <p class="company-name"><b>AVANT-GARDE SERVICES PTE LTD</b></p>
+            </div>
         </div>
-     
+        <p class="invoice-title"><b>INVOICE</b></p>
     </div>
-    <div class="invoice-info">
-        <p><b>INVOICE</b></p>
-        <p class="invoice-date">Date: {{ date | date_format('%B %d, %Y') }}</p>
-        <p class="term">Term: C.O.D</p>
-        <p class="invoice-number">Inv. No: {{ number }}</p>
+    <div class="header-bottom">
+        <div class="customer-info">
+            <p>{{ to_company }}</p>
+            {% if to_address %}
+            <p>{{ to_address | nl2br }}</p>
+            {% endif %}
+            {% if customer_contact %}
+            <p>{{ customer_contact }}</p>
+            {% endif %}
+        </div>
+        <div class="invoice-details">
+            <p class="invoice-date">Date : {{ date | date_format('%d-%b-%Y') }}</p>
+            <p class="term">Term : 14 Days</p>
+            <p class="invoice-number">Inv. No : {{ number }}</p>
+        </div>
     </div>
 </div>

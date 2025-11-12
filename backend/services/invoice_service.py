@@ -48,6 +48,30 @@ try:
     PDF_AVAILABLE = True
 except ImportError:
     PDF_AVAILABLE = False
+    # Define fallbacks to prevent undefined variable errors
+    from typing import Any
+    SimpleDocTemplate = None
+    getSampleStyleSheet = None
+    ParagraphStyle = None
+    Paragraph = None
+    Spacer = None
+    Table = None
+    TableStyle = None
+    colors = None
+
+# WeasyPrint imports for PDF generation
+try:
+    # Add the py-doc-generator to the path
+    import sys
+    import os
+    py_doc_generator_path = os.path.join(os.path.dirname(__file__), '..', 'libs', 'py-doc-generator')
+    if py_doc_generator_path not in sys.path:
+        sys.path.append(py_doc_generator_path)
+    from py_doc_generator.core.invoice_generator import InvoiceGenerator
+    WEASYPRINT_AVAILABLE = True
+except ImportError:
+    WEASYPRINT_AVAILABLE = False
+    InvoiceGenerator = None
 
 class ServiceError(Exception):
     def __init__(self, message):
@@ -55,7 +79,7 @@ class ServiceError(Exception):
         self.message = message
 
 class InvoicePDFError(Exception):
-    def __init__(self, message: str, invoice_id: str = None):
+    def __init__(self, message: str, invoice_id = None):
         super().__init__(message)
         self.invoice_id = invoice_id
 
@@ -147,12 +171,11 @@ class InvoiceService:
                 return {'error': 'Provided customer_id does not match job data.'}
 
             total_amount = sum(job.final_price or 0 for job in jobs)
-            invoice = Invoice(
-                customer_id=customer_id,
-                date=datetime.utcnow(),
-                status='Unpaid',
-                total_amount=total_amount
-            )
+            invoice = Invoice()
+            invoice.customer_id = customer_id
+            invoice.date = datetime.utcnow()
+            invoice.status = 'Unpaid'
+            invoice.total_amount = total_amount
             db.session.add(invoice)
             db.session.flush()
             for job in jobs:
@@ -215,12 +238,16 @@ class InvoiceService:
                     Job.is_deleted.is_(False)
                 )
                 if customer_name:
-                    pattern = '%' + sanitize_filter_value(customer_name) + '%'
-                    jobs_query = jobs_query.join(Job.customer).filter(Customer.name.ilike(pattern))
+                    sanitized_name = sanitize_filter_value(customer_name)
+                    if sanitized_name:
+                        pattern = '%' + sanitized_name + '%'
+                        jobs_query = jobs_query.join(Customer, Job.customer_id == Customer.id).filter(Customer.name.ilike(pattern))
 
                 if service_type:
-                    pattern = '%' + sanitize_filter_value(service_type) + '%'
-                    jobs_query = jobs_query.filter(Job.service_type.ilike(pattern))
+                    sanitized_service = sanitize_filter_value(service_type)
+                    if sanitized_service:
+                        pattern = '%' + sanitized_service + '%'
+                        jobs_query = jobs_query.filter(Job.service_type.ilike(pattern))
 
                 invoice_jobs = jobs_query.all()
                 invoice.jobs = invoice_jobs
@@ -315,8 +342,8 @@ class InvoiceService:
             logging.error("PDF generation not available. Install PDF dependencies: pip install -r requirements-pdf.txt")
             raise ServiceError("PDF generation is not available. Please install PDF dependencies with: pip install -r requirements-pdf.txt.")
 
-        jobs = Job.query.filter(Job.invoice_id == invoice.id, Job.is_deleted.is_(False)).all()
-        total = 0
+        # Load jobs with vehicle_type relationship eagerly loaded
+        jobs = Job.query.options(db.joinedload(Job.vehicle_type)).filter(Job.invoice_id == invoice.id, Job.is_deleted.is_(False)).all()
         
         output_folder = os.path.join(current_app.root_path, 'billing_invoices')
         os.makedirs(output_folder, exist_ok=True)
@@ -325,91 +352,274 @@ class InvoiceService:
         pdf_path = os.path.join(output_folder, filename)
 
         # Create the PDF document
-        doc = SimpleDocTemplate(pdf_path, pagesize=A4)
+        doc = SimpleDocTemplate(pdf_path, pagesize=A4, topMargin=72, bottomMargin=72)
         styles = getSampleStyleSheet()
         story = []
 
-        # Title
+        # Custom styles
         title_style = ParagraphStyle(
             'CustomTitle',
             parent=styles['Heading1'],
-            fontSize=16,
+            fontSize=14,
             spaceAfter=20,
-            alignment=1  # Center alignment
+            alignment=1,  # Center alignment
+            fontName='Helvetica-Bold'
         )
-        title = Paragraph("Fleet Wise Services Pte Ltd - INVOICE", title_style)
-        story.append(title)
+        
+        normal_style = ParagraphStyle(
+            'Normal',
+            parent=styles['Normal'],
+            fontSize=10,
+            fontName='Helvetica'
+        )
+        
+        right_style = ParagraphStyle(
+            'Right',
+            parent=normal_style,
+            alignment=2  # Right alignment
+        )
+
+        # Get QR code path from user settings
+        user_settings = UserSettings.query.first()
+        prefs = user_settings.preferences or {} if user_settings else {}
+        billing_settings = prefs.get("billing_settings", {})
+        qr_path = Logo.safe_logo_path(billing_settings.get("billing_qr_code_image", ""))
+        company_logo = billing_settings.get("company_logo", "")
+        logo_path = Logo.safe_logo_path(company_logo)
+        
+        # Header - Company info and Invoice info
+        header_content = []
+        
+        # Create a single row with company info (logo + name) on left and INVOICE on right
+        company_cell_content = []
+        
+        # Add company logo if available
+        if logo_path and os.path.exists(logo_path):
+            try:
+                # Add logo image
+                logo_image = Image(logo_path, width=100, height=30)  # Adjust size to match requirements
+                company_cell_content.append(logo_image)
+            except:
+                # Fallback to text if logo fails to load
+                company_cell_content.append(Paragraph("<b>AVANT-GARDE SERVICES PTE LTD</b>", normal_style))
+        else:
+            # Fallback to text if no logo or logo doesn't exist
+            company_cell_content.append(Paragraph("<b>AVANT-GARDE SERVICES PTE LTD</b>", normal_style))
+            
+        header_content.append([company_cell_content, Paragraph("<b>INVOICE</b>", normal_style)])
+        
+        header_table = Table(header_content, colWidths=[4*inch, 2*inch])
+        header_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (0, 0), 'LEFT'),
+            ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 14),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ]))
+        story.append(header_table)
+        story.append(Spacer(1, 12))
+
+        # Customer and invoice details
+        customer = Customer.query.get(invoice.customer_id)
+        
+        # Build customer contact info
+        customer_contact = ""
+        if customer.mobile:
+            customer_contact = customer.mobile
+        elif customer.email:
+            customer_contact = customer.email
+        
+        customer_info = [
+            Paragraph(f"<b>{customer.name}</b>", normal_style),
+            Paragraph(customer.address or "", normal_style),
+        ]
+        
+        # Add customer contact if available
+        if customer_contact:
+            customer_info.append(Paragraph(customer_contact, normal_style))
+        
+        invoice_info = [
+            Paragraph(f"Date : {datetime.utcnow().strftime('%d-%b-%Y')}", right_style),
+            Paragraph("Term : 14 Days", right_style),
+            Paragraph(f"Inv. No : {invoice.id}", right_style),
+        ]
+        
+        details_table = Table([[customer_info, invoice_info]], colWidths=[4*inch, 2*inch])
+        details_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (0, 0), 'LEFT'),
+            ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ]))
+        story.append(details_table)
         story.append(Spacer(1, 20))
 
-        # Invoice details
-        invoice_info = [
-            f"Invoice No: {invoice.id}",
-            f"Date: {datetime.utcnow().strftime('%d-%b-%Y')}"
-        ]
-        for info in invoice_info:
-            story.append(Paragraph(info, styles['Normal']))
-        story.append(Spacer(1, 20))
+        # Calculate totals
+        # If invoice.total_amount is None, calculate it from jobs
+        if invoice.total_amount is None:
+            sub_total = sum(job.final_price or 0 for job in jobs)
+        else:
+            sub_total = invoice.total_amount
+            
+        # Ensure sub_total is a Decimal
+        if not isinstance(sub_total, Decimal):
+            sub_total = Decimal(str(sub_total))
+        gst_amount = sub_total * Decimal("0.09")  # 9% GST
+        gst_amount = gst_amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        total_amount = sub_total + gst_amount
+        cash_collect_total = sum(job.cash_to_collect or 0 for job in jobs)
+        # Ensure cash_collect_total is a Decimal
+        if not isinstance(cash_collect_total, Decimal):
+            cash_collect_total = Decimal(str(cash_collect_total))
 
         # Table data
-        table_data = [['Date', 'Time', 'Service Type', 'Route', 'Passenger', 'Amount (SGD)']]
+        table_data = [['Date & Time', 'Cust Ref', 'Job ID', 'Particulars', 'Vehicle Type', 'Cash Collected', 'Amount']]
         
         for job in jobs:
-            total += job.final_price
-            passenger_info = f"{job.passenger_name or '-'}"
-            if job.passenger_mobile:
-                passenger_info += f"<br/>{job.passenger_mobile}"
+            # Get vehicle type name from job's vehicle_type relationship
+            vehicle_type_name = ""
+            if hasattr(job, 'vehicle_type') and job.vehicle_type:
+                vehicle_type_name = job.vehicle_type.name
+            elif hasattr(job, 'vehicle_type_id') and job.vehicle_type_id:
+                # If we have vehicle_type_id but not the relationship, we can fetch it
+                from backend.models.vehicle_type import VehicleType
+                vehicle_type = VehicleType.query.get(job.vehicle_type_id)
+                if vehicle_type:
+                    vehicle_type_name = vehicle_type.name
+            
+            # Get customer reference from sub_customer_name field
+            customer_reference = getattr(job, 'sub_customer_name', '') or ''
+            
+            # Build particulars
+            particulars = InvoiceService.build_particulars(job)
             
             table_data.append([
-                str(job.pickup_date),
-                job.pickup_time or '-',
-                job.service_type,
-                f"{job.pickup_location} → {job.dropoff_location}",
-                passenger_info,
-                f"${job.final_price:.2f}"
+                f"{job.pickup_date} {job.pickup_time or '-'}",
+                customer_reference,
+                f"#{job.id}",
+                particulars,
+                vehicle_type_name,
+                f"{float(job.cash_to_collect or 0):.2f}",
+                f"{job.final_price:.2f}"
             ])
 
-        # Add total row
-        table_data.append(['', '', '', '', 'Total', f"${total:.2f}"])
-
-        # Create table
-        table = Table(table_data, colWidths=[1*inch, 0.8*inch, 1.2*inch, 2*inch, 1.5*inch, 1*inch])
+        # Create table with adjusted column widths
+        table = Table(table_data, colWidths=[1.2*inch, 1.0*inch, 0.8*inch, 2.0*inch, 1.2*inch, 1.1*inch, 1.1*inch])
         table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#20A7DB")),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#0056b3")),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 12),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -2), colors.beige),
-            # ('GRID', (0, 0), (-1, -1), 1, colors.black),
             ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 1), (-1, -1), 10),
-            ('ALIGN', (-1, 0), (-1, -1), 'RIGHT'),  # Right align amounts
-            ('BACKGROUND', (0, -1), (-1, -1), colors.lightgrey),  # Total row
-            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('FONTSIZE', (0, 1), (-1, -1), 10),  # Ensure body font size is also 10pt
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.gray),  # Light gray borders
+            ('ALIGN', (5, 0), (6, -1), 'RIGHT'),  # Right align cash collected and amount columns
+            # Alternating row colors
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor("#f2f2f2")]),
         ]))
-        
+        # Enable table header repetition on new pages
+        table.repeatRows = 1
         story.append(table)
         story.append(Spacer(1, 30))
 
+        # Totals section
+        balance_amount = total_amount - cash_collect_total
+        totals_data = [
+            [Paragraph("Sub Total", normal_style), Paragraph(f"{sub_total:.2f}", right_style)],
+            [Paragraph("", normal_style), Paragraph("", right_style)],  # Spacer row
+            [Paragraph("GST (9%)", normal_style), Paragraph(f"{gst_amount:.2f}", right_style)],
+            [Paragraph("", normal_style), Paragraph("", right_style)],  # Spacer row
+            [Paragraph("Total Amount", normal_style), Paragraph(f"{total_amount:.2f}", right_style)],
+            [Paragraph("Cash Collected", normal_style), Paragraph(f"{cash_collect_total:.2f}", right_style)],
+            [Paragraph("", normal_style), Paragraph("", right_style)],  # Spacer row
+            [Paragraph("<b>Balance Amount</b>", normal_style), Paragraph(f"<b>{balance_amount:.2f}</b>", right_style)],
+        ]
+        
+        totals_table = Table(totals_data, colWidths=[2*inch, 1.5*inch])
+        totals_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+            ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+            ('FONTNAME', (0, 0), (-1, -2), 'Helvetica'),
+            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('TOPPADDING', (0, 0), (-1, -1), 2),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+            # Lines
+            ('LINEBELOW', (0, 0), (1, 0), 0.5, colors.black),  # Sub Total line
+            ('LINEBELOW', (0, 2), (1, 2), 0.5, colors.black),  # GST line
+            ('LINEBELOW', (0, 4), (1, 4), 0.5, colors.black),  # Total Amount line
+            ('LINEBELOW', (0, 6), (1, 6), 1, colors.black),    # Balance Amount line (thicker)
+        ]))
+        
+        # Wrap totals in a right-aligned table
+        totals_wrapper = Table([[totals_table]], colWidths=[None, 3.5*inch])
+        totals_wrapper.setStyle(TableStyle([
+            ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+        ]))
+        story.append(totals_wrapper)
+        story.append(Spacer(1, 20))
+
         # Footer information
         footer_text = """
-        This is a computer-generated invoice. No signature is required.<br/><br/>
-        Kindly arrange cheques payable to "Avant-garde Services Pte Ltd" and cross "A/C Payee Only".<br/>
-        <strong>Bank:</strong> UOB (7375) - A/C: 3733169263 - SWIFT: UOVBSGSG<br/>
-        <strong>PayNow:</strong> 201017519Z<br/>
-        <strong>Contact:</strong> 8028 6168 | <strong>Email:</strong> joey@avant-garde.com.sg
+        Kindly arrange all cheques to be made payable to "Avant-garde Services Pte Ltd" and crossed "A/C Payee Only".<br/>
+        Alternatively, for Bank Transfer / Electronic Payment please find our bank details as follows:<br/>
+        UOB Bank (7375)<br/>
+        Current A/C : 3733169263<br/>
+        Bank Swift Code : UOVBSGSG<br/>
+        Corporate PayNow : 201017519Z
         """
-        story.append(Paragraph(footer_text, styles['Normal']))
+        story.append(Paragraph(footer_text, normal_style))
+        story.append(Spacer(1, 20))
+        
+        # Footer with QR code and contact info
+        # Create a table for the footer with QR code on left and contact info on right
+        footer_data = []
+        
+        # Add QR code if available
+        if qr_path and os.path.exists(qr_path):
+            try:
+                # 1.2cm = 34 points (1cm = 28.35 points)
+                qr_image = Image(qr_path, width=34, height=34)
+                footer_data.append([qr_image, ''])
+            except:
+                # If QR code fails to load, just add an empty cell
+                footer_data.append(['', ''])
+        
+        # Add contact info and page number
+        contact_text = "support@avant-garde.com.sg | +65 6666 1234"
+        page_text = f"Page 1 of 1"  # ReportLab doesn't easily support dynamic page numbering
+        # Use Paragraph to properly render HTML tags like <br/>
+        footer_paragraph = Paragraph(f"{contact_text}<br/>{page_text}", normal_style)
+        footer_data.append(['', footer_paragraph])
+        
+        footer_table = Table(footer_data, colWidths=[1.5*inch, 4.5*inch])
+        footer_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+            ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+            ('VALIGN', (0, 0), (-1, -1), 'BOTTOM'),
+            ('TOPPADDING', (0, 0), (-1, -1), 0),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+        ]))
+        story.append(footer_table)
 
         # Build PDF
         doc.build(story)
         
         invoice.file_path = f"/billing_invoices/{filename}"
-        invoice.total_amount = total
+        invoice.total_amount = float(total_amount)
         db.session.commit()
         logging.info(f"Invoice PDF created at: {pdf_path}")
         InvoiceService.cleanup_old_pdfs(output_folder)
+        
+        # Return the PDF file for download
+        return send_file(
+            pdf_path,
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name=filename
+        )
 
     @staticmethod
     def cleanup_old_pdfs(pdf_dir):
@@ -442,27 +652,54 @@ class InvoiceService:
         getattr(job, "dropoff_loc5", None),
     ]
         lines = []
+        # Always use the new format for particulars
         if pickups[0]:
-            lines.append(f"ⓟ{pickups[0]}")
-        for i, loc in enumerate(pickups[1:], start=1):
-            if loc:
-                lines.append(f"<span style='font-size: 13px; color:#444;'> > {loc} (Stop {i})</span>")
-        if dropoffs[0]:
-            lines.append(f"Ⓓ {dropoffs[0]}")
-        for loc in dropoffs[1:]:
-            if loc:
-                lines.append(f"<span style='font-size: 13px; color:#444;'> • {loc}</span>")
-        return "<br>".join(lines)
+            lines.append(f"Airport Transfer - Arrival")
+            lines.append(f"{pickups[0]} → {dropoffs[0] if dropoffs[0] else ''}")
+        else:
+            # Fallback to original format if no pickup location
+            if pickups[0]:
+                lines.append(f"ⓟ{pickups[0]}")
+            for i, loc in enumerate(pickups[1:], start=1):
+                if loc:
+                    lines.append(f" > {loc} (Stop {i})")
+            if dropoffs[0]:
+                lines.append(f"Ⓓ {dropoffs[0]}")
+            for loc in dropoffs[1:]:
+                if loc:
+                    lines.append(f" • {loc}")
+        return "\n".join(lines)
 
 
     def unpaid_invoice_download(invoice_id):
         
         if not isinstance(invoice_id, int) or invoice_id <= 0:
             raise ValueError(f"Invalid invoice_id: {invoice_id}")
+        
+        # Check if WeasyPrint is available and working
+        if not WEASYPRINT_AVAILABLE:
+            # Fallback to ReportLab implementation
+            current_app.logger.warning("WeasyPrint not available, falling back to ReportLab for invoice generation")
+            invoice = Invoice.query.get(invoice_id)
+            if not invoice:
+                raise ValueError(f"Invoice not found: {invoice_id}")
+            return InvoiceService.generate_invoice_pdf(invoice)
+        
+        # Test if WeasyPrint is actually working
+        try:
+            import weasyprint
+        except Exception as weasyprint_error:
+            current_app.logger.warning(f"WeasyPrint import failed: {weasyprint_error}, falling back to ReportLab")
+            invoice = Invoice.query.get(invoice_id)
+            if not invoice:
+                raise ValueError(f"Invoice not found: {invoice_id}")
+            return InvoiceService.generate_invoice_pdf(invoice)
+            
         try:
             invoice = Invoice.query.get(invoice_id)
             customer = Customer.query.get(invoice.customer_id)
-            jobs = Job.query.filter_by(invoice_id=invoice_id).all()
+            # Load jobs with vehicle_type relationship eagerly loaded
+            jobs = Job.query.options(db.joinedload(Job.vehicle_type)).filter_by(invoice_id=invoice_id).all()
 
             service_names = [job.service_type for job in jobs if job.service_type]
             services = Service.query.filter(Service.name.in_(service_names)).all()
@@ -472,15 +709,31 @@ class InvoiceService:
             items = []
             for job in jobs:
                 service = service_map.get(job.service_type)
-                items.append(InvoiceItem(
-                Date=job.pickup_date,
-                Time=job.pickup_time,
-                Job= f"#{job.id}",
-                Particulars=InvoiceService.build_particulars(job),
-                ServiceType=service.name if service else job.service_type,
-                amount=f"{job.final_price:.2f}",
-                cash_collect=Decimal(str(job.cash_to_collect or 0))
-                ))
+                # Get vehicle type name from job's vehicle_type relationship
+                vehicle_type_name = ""
+                if hasattr(job, 'vehicle_type') and job.vehicle_type:
+                    vehicle_type_name = job.vehicle_type.name
+                elif hasattr(job, 'vehicle_type_id') and job.vehicle_type_id:
+                    # If we have vehicle_type_id but not the relationship, we can fetch it
+                    from backend.models.vehicle_type import VehicleType
+                    vehicle_type = VehicleType.query.get(job.vehicle_type_id)
+                    if vehicle_type:
+                        vehicle_type_name = vehicle_type.name
+                    
+                # Get customer reference from sub_customer_name field
+                    customer_reference = getattr(job, 'sub_customer_name', '') or ''
+                    
+                    items.append(InvoiceItem(
+                    Date=job.pickup_date,
+                    Time=job.pickup_time,
+                    Job= f"#{job.id}",
+                    Particulars=InvoiceService.build_particulars(job),
+                    ServiceType=service.name if service else job.service_type,
+                    VehicleType=vehicle_type_name,
+                    CustomerReference=customer_reference,
+                    amount=Decimal(str(job.final_price)),
+                    cash_collect=Decimal(str(job.cash_to_collect or 0))
+                    ))
         
             user_settings = UserSettings.query.first()
             prefs = user_settings.preferences or {} if user_settings else {}
@@ -492,8 +745,17 @@ class InvoiceService:
             raw_gst = billing_settings.get("gst_percent", 0) or 0
             gst_percent = Decimal(str(raw_gst))  
 
-
-            sub_total = Decimal(str(invoice.total_amount))
+            # Sub Total Fallback Logic
+            # If invoice.total_amount is None, calculate it from jobs
+            if invoice.total_amount is None:
+                sub_total = sum(job.final_price or 0 for job in jobs)
+            else:
+                sub_total = invoice.total_amount
+                
+            # Ensure sub_total is a Decimal
+            if not isinstance(sub_total, Decimal):
+                sub_total = Decimal(str(sub_total))
+                
             gst_amount = (sub_total * gst_percent / Decimal("100")).quantize(
                 Decimal("0.01"), rounding=ROUND_HALF_UP
             )
@@ -524,6 +786,18 @@ class InvoiceService:
 
             # Build the py-doc-generator Invoice object
 
+            # Build customer contact info
+            customer_contact = ""
+            if customer.mobile:
+                customer_contact = customer.mobile
+            elif customer.email:
+                customer_contact = customer.email
+            
+            # Pre-calculate balance_amount as per specification
+            balance_amount = (sub_total + gst_amount - cash_collect_total).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            
             doc_invoice = DocInvoice(
             number=f"INV-{invoice.id}",
             date=(invoice.date.date() if hasattr(invoice.date, "date") else invoice.date),
@@ -532,6 +806,7 @@ class InvoiceService:
             from_mobile=customer.mobile or "-",
             to_company=customer.name,
             to_address=customer.address or "",
+            customer_contact=customer_contact,
             items=items,
             notes="Thank you for your business!",
             currency="SGD",
@@ -540,6 +815,7 @@ class InvoiceService:
             gst_amount=gst_amount,
             cash_collect_total=cash_collect_total,
             total_amount=grand_total,
+            balance_amount=balance_amount,
             company_address= company_address,
             email=email,
             contact_number=contact_number,
@@ -622,7 +898,9 @@ class InvoiceService:
                     current_app.logger.error(
                         f"Invoice generation failed for invoice {invoice_id}: {getattr(pdf_result, 'error', 'unknown error')}"
                     )
-                    raise RuntimeError(f"Invoice generation failed or produced empty file: {temp_pdf}")
+                    # Try fallback to ReportLab
+                    current_app.logger.warning("WeasyPrint failed, falling back to ReportLab for invoice generation")
+                    return InvoiceService.generate_invoice_pdf(invoice)
 
                 # Step 3: Atomically move the file into place
                 os.replace(temp_pdf, pdf_final_path)
@@ -634,12 +912,14 @@ class InvoiceService:
                     f"Error during PDF generation or atomic save for invoice {invoice_id}: {e}", 
                     exc_info=True
                 )
-                raise
+                # Try fallback to ReportLab
+                current_app.logger.warning("WeasyPrint failed, falling back to ReportLab for invoice generation")
+                return InvoiceService.generate_invoice_pdf(invoice)
             finally:
                 if temp_pdf and temp_pdf.exists():
                     try:
                         temp_pdf.unlink()
-                        current_app.logger.debug(f"🧹 Cleaned up temp file: {temp_pdf}")
+                        current_app.logger.debug(f"Cleaned up temp file: {temp_pdf}")
                     except Exception as cleanup_err:
                         current_app.logger.warning(f"Failed to delete temp file {temp_pdf}: {cleanup_err}")  
   

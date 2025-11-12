@@ -14,36 +14,26 @@
           <div class="page-inner">
               {{ header }}
           </div>
-                
         </header>
 
-        <footer id="foot-main foot-main--seed">
-          <div class="page-inner">
-              {{ footer }}
-          </div>
-          </footer>
-
         <div class="invoice-container" id="doc-footer">
-            
             <div class="items-section page-inner">
                 {{ items_table }}
             </div>
             {{totals}}
+            
+            <div class="payment-info-main">
+                <div class="payment-para">
+                    <p>{{payment_info}}</p>
+                </div>
+            </div>
+        </div>
+        
+        <footer id="foot-main" class="foot-main--seed">
+          <div class="page-inner">
+              {{ footer }}
           </div>
-
-          <div class="payment-info-main">
-    <div class="payment-para">
-    <p>{{payment_info}}</p>
+        </footer>
     </div>
-    <div>
-    <img src="file://{{ qr_code | urlencode }}" alt="QR Code" class="qr-code" />
-    </div>
-  </div>
-</div>
-       
-       
-
-    </div>
-   
 </body>
 </html>

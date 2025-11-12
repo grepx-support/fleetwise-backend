@@ -1,0 +1,28 @@
+{
+  "name": "modern_invoice",
+  "description": "Modern invoice template with multi-page support",
+  "sections": {
+    "header": "header.html",
+    "items_table": "items_table_multipage.html",
+    "totals": "totals.html",
+    "footer": "footer.html"
+  },
+  "layout": "modern_invoice_layout.html",
+  "styles": "styles.css",
+  "settings": {
+    "items_per_page": 18,
+    "enable_page_numbers": true,
+    "repeat_header_on_pages": true,
+    "repeat_footer_on_pages": true,
+    "table_header_repeat": true
+  },
+  "pdf_options": {
+    "page_size": "A4",
+    "margin_top": "20mm",
+    "margin_bottom": "25mm",
+    "margin_left": "10mm",
+    "margin_right": "10mm",
+    "header_spacing": "0.2in",
+    "footer_spacing": "0.2in"
+  }
+}
