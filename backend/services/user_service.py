@@ -18,10 +18,14 @@ class ServiceError(Exception):
 class UserService:
     @staticmethod
     def _validate_entity_not_assigned(user_type, entity_id, exclude_user_id=None):
-        filter_field = 'driver_id' if user_type == 'driver' else 'customer_id'
-        existing = User.query.filter_by(**{filter_field: entity_id}).first()
-        if existing and (exclude_user_id is None or existing.id != exclude_user_id):
-            raise ServiceError(f"{user_type.capitalize()} is already assigned to another user")
+        # Allow multiple users to be assigned to the same customer
+        # but keep restriction for drivers
+        if user_type == 'driver':
+            filter_field = 'driver_id'
+            existing = User.query.filter_by(**{filter_field: entity_id}).first()
+            if existing and (exclude_user_id is None or existing.id != exclude_user_id):
+                raise ServiceError(f"{user_type.capitalize()} is already assigned to another user")
+        # For customers, we allow multiple assignments, so no check is needed
 
     @staticmethod
     def get_all():
@@ -42,6 +46,17 @@ class UserService:
     @staticmethod
     def create(data):
         try:
+            # Validate and sanitize name field
+            if 'name' in data:
+                name = data['name']
+                if name is not None:
+                    if not isinstance(name, str):
+                        raise ServiceError("Name must be a string")
+                    name = name.strip()
+                    if len(name) > 255:
+                        raise ServiceError("Name cannot exceed 255 characters")
+                    data['name'] = name if name else None
+            
             password = data.pop('password', None)
             if password:
                 data['password'] = hash_password(password)
@@ -87,7 +102,7 @@ class UserService:
             return user
         except IntegrityError:
             db.session.rollback()
-            raise ServiceError("Customer or driver is already assigned to another user")
+            raise ServiceError("Driver is already assigned to another user")
         except ServiceError:
             db.session.rollback()
             raise
@@ -102,6 +117,18 @@ class UserService:
             user = User.query.get(user_id)
             if not user:
                 return None
+                
+            # Validate and sanitize name field
+            if 'name' in data:
+                name = data['name']
+                if name is not None:
+                    if not isinstance(name, str):
+                        raise ServiceError("Name must be a string")
+                    name = name.strip()
+                    if len(name) > 255:
+                        raise ServiceError("Name cannot exceed 255 characters")
+                    data['name'] = name if name else None
+                
             password = data.pop('password', None)
             if password:
                 user.password = hash_password(password)
@@ -191,18 +218,16 @@ class UserService:
     @staticmethod
     def get_unassigned_customers():
         """
-        Fetch customers not assigned to any user
+        Fetch all active customers (allows multiple user assignments)
         """
         try:
-            unassigned_customers = Customer.query_active().filter(
-                Customer.id.notin_(
-                    db.session.query(User.customer_id).filter(User.customer_id.isnot(None))
-                )
-            ).all()
-            return unassigned_customers
+            # Since we're allowing multiple users per customer, 
+            # this now returns all active customers
+            all_customers = Customer.query_active().all()
+            return all_customers
         except Exception as e:
-            logging.error(f"Error fetching unassigned customers: {e}", exc_info=True)
-            raise ServiceError("Could not fetch unassigned customers. Please try again later.")
+            logging.error(f"Error fetching customers: {e}", exc_info=True)
+            raise ServiceError("Could not fetch customers. Please try again later.")
 
     @staticmethod
     def get_unassigned_drivers():
@@ -258,7 +283,8 @@ class UserService:
         except IntegrityError:
             db.session.rollback()
             if user_type == "customer":
-                raise ServiceError("Customer is already assigned to another user")
+                # This should not happen anymore since we allow multiple customer assignments
+                raise ServiceError("An unexpected error occurred")
             else:
                 raise ServiceError("Driver is already assigned to another user")
         except ServiceError:
