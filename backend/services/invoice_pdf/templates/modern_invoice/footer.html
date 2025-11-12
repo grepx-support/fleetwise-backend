@@ -1,20 +1,9 @@
 <div class="footer">
-    <div class="payment-info">
-        <p>Kindly arrange all cheques to be made payable to "Avant-garde Services Pte Ltd" and crossed "A/C Payee Only".</p>
-        <p>Alternatively, for Bank Transfer / Electronic Payment please find our bank details as follows:</p>
-        <p>UOB Bank (7375)<br/>
-        Current A/C : 3733169263<br/>
-        Bank Swift Code : UOVBSGSG<br/>
-        Corporate PayNow : 201017519Z</p>
-    </div>
     <div class="footer-content">
-        <div class="qr-section">
-            {% if qr_code %}
-            <img src="file://{{ qr_code | urlencode }}" alt="QR Code" class="qr-code" />
-            {% endif %}
-        </div>
         <div class="contact-info">
-            <p>support@avant-garde.com.sg | +65 6666 1234</p>
+            <p>{{ email }} | {{ contact_number }}</p>
+        </div>
+        <div class="page-number-section">
             <p class="page-number"></p>
         </div>
     </div>

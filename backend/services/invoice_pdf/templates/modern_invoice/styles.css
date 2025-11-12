@@ -1,7 +1,11 @@
 /* General Styles */
 @page {
     size: A4;
-    margin: 15mm 10mm;
+    margin: 10mm 8mm 20mm 8mm;
+    @bottom-left {
+        content: element(page-footer);
+        width: 100%;
+    }
 }
 
 body {
@@ -19,6 +23,7 @@ body {
     position: relative;
     box-sizing: border-box;
     width: 100%;
+    min-height: 100vh;
 }
 
 .page-inner {
@@ -30,26 +35,29 @@ body {
 
 /* Header Styles */
 .header {
-    margin-bottom: 15px;
+    margin-bottom: 8px;
     border-bottom: 1px solid #000;
-    padding-bottom: 8px;
+    padding-bottom: 5px;
 }
 
 .header-top {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 12px;
+    align-items: center;
+    margin-bottom: 6px;
 }
 
 .company-info {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
+    gap: 12px;
 }
 
 .company-logo {
-    max-height: 25px;
-    margin-right: 12px;
+    max-height: 50px;
+    max-width: 250px;
+    object-fit: contain;
+    flex-shrink: 0;
 }
 
 .company-details p {
@@ -57,9 +65,10 @@ body {
 }
 
 .company-name {
-    font-size: 12pt;
+    font-size: 11pt;
     text-transform: uppercase;
     font-weight: bold;
+    white-space: nowrap;
 }
 
 .invoice-title {
@@ -97,13 +106,13 @@ body {
 
 /* Items Table */
 .items-section {
-    margin: 12px 0;
+    margin: 6px 0;
 }
 
 .items-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 9pt;
+    font-size: 8pt;
     margin: 0;
     table-layout: auto;
 }
@@ -113,14 +122,15 @@ body {
     color: white;
     font-weight: bold;
     text-align: left;
-    padding: 6px 5px;
+    padding: 4px 3px;
+    border: 1px solid #0056b3;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
 }
 
 .items-table td {
-    padding: 5px;
-    border-bottom: 0.5pt solid #ccc;
+    padding: 3px;
+    border: 1px solid #ccc;
     vertical-align: top;
 }
 
@@ -139,7 +149,7 @@ body {
 /* Column widths for auto table layout - content-aware sizing */
 .date-and-time {
     width: 100px;
-    white-space: nowrap;
+    max-width: 100px;
 }
 
 .cust-ref {
@@ -176,6 +186,8 @@ body {
 }
 
 /* Text wrapping behavior */
+.items-table td.date-and-time,
+.items-table th.date-and-time,
 .items-table td.particulars,
 .items-table th.particulars,
 .items-table td.cust-ref,
@@ -192,10 +204,8 @@ body {
 
 /* Totals Section */
 .totals-section {
-    width: 50%;
+    width: 40%;
     margin-left: auto;
-    margin-bottom: 12px;
-    margin-right: 0;
 }
 
 .totals-table {
@@ -240,14 +250,21 @@ body {
     font-size: 10pt;
 }
 
+/* Bottom Section - Payment Info and Totals side by side */
+.bottom-section {
+    display: flex;
+    justify-content: flex-start;
+    align-items: flex-start;
+    gap: 15px;
+    margin-top: 8px;
+}
+
 /* Payment Info */
 .payment-info-main {
     display: flex;
-    justify-content: space-between;
     align-items: flex-start;
-    width: 100%;
-    margin-top: 15px;
-    padding: 0;
+    flex: 1;
+    max-width: 50%;
 }
 
 .payment-para {
@@ -256,10 +273,18 @@ body {
     color: #000;
     margin: 0;
     padding-right: 15px;
+    line-height: 1.2;
 }
 
 .payment-para p {
-    margin: 0 0 4px 0;
+    margin: 0;
+    white-space: pre-line;
+}
+
+.payment-para br {
+    display: block;
+    content: "";
+    margin-top: 0;
 }
 
 .qr-code {
@@ -267,6 +292,18 @@ body {
     height: 1.2cm;
     object-fit: contain;
     flex-shrink: 0;
+}
+
+.qr-section-left {
+    margin-right: 15px;
+    flex-shrink: 0;
+}
+
+.qr-code-left {
+    width: 2.5cm;
+    height: 2.5cm;
+    object-fit: contain;
+    display: block;
 }
 
 /* Footer */
@@ -277,7 +314,8 @@ body {
     color: #000;
     border-top: 1px solid #000;
     padding-top: 8px;
-    margin-top: 12px;
+    margin: 0;
+    box-sizing: border-box;
 }
 
 .payment-info {
@@ -289,9 +327,11 @@ body {
 }
 
 .footer-content {
+    width: 100%;
     display: flex;
     justify-content: space-between;
     align-items: flex-end;
+    box-sizing: border-box;
 }
 
 .qr-section {
@@ -299,14 +339,23 @@ body {
 }
 
 .contact-info {
+    text-align: left;
+    flex: 1;
+    line-height: 1.6;
+}
+
+.contact-info p {
+    margin: 0 0 4px 0;
+}
+
+.page-number-section {
     text-align: right;
-    flex-grow: 1;
-    margin-left: 8px;
+    flex: 1;
 }
 
 .page-number {
     text-align: right;
-    margin-top: 4px;
+    margin: 0;
 }
 
 .page-number::after {

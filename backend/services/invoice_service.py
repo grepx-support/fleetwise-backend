@@ -31,7 +31,6 @@ from datetime import date
 from backend.services.invoice_pdf.models.invoice import Invoice as DocInvoice
 from backend.services.invoice_pdf.models.invoice_item import InvoiceItem
 from backend.services.invoice_pdf.models.output_format import OutputFormat
-from py_doc_generator.core.invoice_generator import InvoiceGenerator
 from backend.services.invoice_pdf.utils.logo_path import Logo
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -67,7 +66,7 @@ try:
     py_doc_generator_path = os.path.join(os.path.dirname(__file__), '..', 'libs', 'py-doc-generator')
     if py_doc_generator_path not in sys.path:
         sys.path.append(py_doc_generator_path)
-    from py_doc_generator.core.invoice_generator import InvoiceGenerator
+    from py_doc_generator.core.invoice_generator import InvoiceGenerator  # type: ignore
     WEASYPRINT_AVAILABLE = True
 except ImportError:
     WEASYPRINT_AVAILABLE = False
@@ -737,7 +736,10 @@ class InvoiceService:
         
             user_settings = UserSettings.query.first()
             prefs = user_settings.preferences or {} if user_settings else {}
+
             billing_settings = prefs.get("billing_settings", {})
+            general_settings = prefs.get("general_settings", {})
+
             company_logo = billing_settings.get("company_logo", "")
             logo_path = Logo.safe_logo_path(company_logo)
 
@@ -792,7 +794,7 @@ class InvoiceService:
                 customer_contact = customer.mobile
             elif customer.email:
                 customer_contact = customer.email
-            
+
             # Pre-calculate balance_amount as per specification
             balance_amount = (sub_total + gst_amount - cash_collect_total).quantize(
                 Decimal("0.01"), rounding=ROUND_HALF_UP
@@ -905,7 +907,7 @@ class InvoiceService:
                 # Step 3: Atomically move the file into place
                 os.replace(temp_pdf, pdf_final_path)
                 temp_pdf = None  # Prevent cleanup in finally block
-                current_app.logger.info(f"✅ Invoice PDF saved atomically: {pdf_final_path}")
+                current_app.logger.info(f"Invoice PDF saved atomically: {pdf_final_path}")
 
             except Exception as e:
                 current_app.logger.error(

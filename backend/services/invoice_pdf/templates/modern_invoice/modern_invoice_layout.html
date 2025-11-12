@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Invoice {{ number }}</title>
     <style>
-        {{ styles }}
+        {{ styles | safe }}
     </style>
 </head>
 <body>
@@ -22,12 +22,19 @@
                     {{ items_table }}
                 </div>
             </div>
-            {{totals}}
-            
-            <div class="payment-info-main">
-                <div class="payment-para">
-                    <p>{{payment_info}}</p>
+
+            <div class="bottom-section">
+                <div class="payment-info-main">
+                    {% if qr_code %}
+                    <div class="qr-section-left">
+                        <img src="{{ qr_code | file_url }}" alt="QR Code" class="qr-code-left" />
+                    </div>
+                    {% endif %}
+                    <div class="payment-para">
+                        {{payment_info | nl2br | safe}}
+                    </div>
                 </div>
+                {{totals}}
             </div>
         </div>
         

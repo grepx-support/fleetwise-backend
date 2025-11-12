@@ -19,8 +19,8 @@
                 <td class="job-id">{{ item.Job }}</td>
                 <td class="particulars">{{ item.Particulars | safe}}</td>
                 <td class="vehicle-type">{{ item.VehicleType }}</td>
-                <td class="cash-collected">{{ item.cash_collect }}</td>
-                <td class="amount">{{ item.amount }}</td>
+                <td class="cash-collected">{{ item.cash_collect | round(2) }}</td>
+                <td class="amount">{{ item.amount | round(2)}}</td>
             </tr>
             {% endfor %}
         </tbody>

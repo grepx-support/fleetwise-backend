@@ -2,11 +2,11 @@
     <div class="header-top">
         <div class="company-info">
             {% if logo_path %}
-            <img src="file://{{ logo_path | urlencode }}" alt="Company Logo" class="company-logo" />
+            <img src="{{ logo_path | file_url }}" alt="Company Logo" class="company-logo" />
             {% endif %}
-            <div class="company-details">
+            <!-- <div class="company-details">
                 <p class="company-name"><b>AVANT-GARDE SERVICES PTE LTD</b></p>
-            </div>
+            </div> -->
         </div>
         <p class="invoice-title"><b>INVOICE</b></p>
     </div>
@@ -14,7 +14,7 @@
         <div class="customer-info">
             <p>{{ to_company }}</p>
             {% if to_address %}
-            <p>{{ to_address | nl2br }}</p>
+            <p>{{ to_address | nl2br | safe }}</p>
             {% endif %}
             {% if customer_contact %}
             <p>{{ customer_contact }}</p>
