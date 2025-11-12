@@ -1,21 +1,31 @@
 /* General Styles */
+@page {
+    size: A4;
+    margin: 15mm 10mm;
+}
+
 body {
-    font-family: Arial, sans-serif;
+    font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
     font-size: 9pt;
     line-height: 1.3;
     color: #000;
+    margin: 0;
+    padding: 0;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
 }
 
 .page-shell {
     position: relative;
-    min-height: 100vh;
-    padding: 15mm 10mm;
     box-sizing: border-box;
+    width: 100%;
 }
 
 .page-inner {
     max-width: 100%;
-    margin: 0 auto;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
 }
 
 /* Header Styles */
@@ -93,9 +103,8 @@ body {
 .items-table {
     width: 100%;
     border-collapse: collapse;
-    font-family: Arial, sans-serif;
     font-size: 9pt;
-    margin: 0 5mm;
+    margin: 0;
     table-layout: auto;
 }
 
@@ -105,88 +114,76 @@ body {
     font-weight: bold;
     text-align: left;
     padding: 6px 5px;
-    font-family: Arial, sans-serif;
-    font-size: 9pt;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
 }
 
 .items-table td {
     padding: 5px;
     border-bottom: 0.5pt solid #ccc;
     vertical-align: top;
-    font-family: Arial, sans-serif;
-    font-size: 9pt;
 }
 
 .items-table tr:nth-child(even) {
     background-color: #f2f2f2;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
 }
 
 .items-table tr:nth-child(odd) {
     background-color: #fff;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
 }
 
-/* Column widths to prevent overlapping */
+/* Column widths for auto table layout - content-aware sizing */
 .date-and-time {
-    width: 12%;
-    min-width: 80px;
-}
-
-.cust-ref {
-    width: 10%;
-    min-width: 70px;
-}
-
-.job-id {
-    width: 8%;
-    min-width: 60px;
-}
-
-.particulars {
-    width: 25%;
-    min-width: 120px;
-}
-
-.vehicle-type {
-    width: 12%;
-    min-width: 90px;
-}
-
-.cash-collected {
-    width: 11%;
-    min-width: 80px;
-}
-
-.amount {
-    width: 11%;
-    min-width: 70px;
-}
-
-/* Allow text wrapping for better responsiveness */
-.items-table td,
-.items-table th {
-    white-space: normal;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-    hyphens: auto;
-}
-
-/* For columns that can handle nowrap */
-.items-table td.date-and-time,
-.items-table th.date-and-time,
-.items-table td.cust-ref,
-.items-table th.cust-ref,
-.items-table td.job-id,
-.items-table th.job-id,
-.items-table td.cash-collected,
-.items-table th.cash-collected,
-.items-table td.amount,
-.items-table th.amount {
+    width: 100px;
     white-space: nowrap;
 }
 
-.items-table td.amount,
-.items-table td.cash-collected {
+.cust-ref {
+    width: 80px;
+    max-width: 100px;
+}
+
+.job-id {
+    width: 50px;
+    max-width: 60px;
+    white-space: nowrap;
+}
+
+.particulars {
+    width: auto;
+    min-width: 150px;
+}
+
+.vehicle-type {
+    width: 100px;
+    max-width: 120px;
+}
+
+.cash-collected {
+    width: 90px;
+    white-space: nowrap;
     text-align: right;
+}
+
+.amount {
+    width: 70px;
+    white-space: nowrap;
+    text-align: right;
+}
+
+/* Text wrapping behavior */
+.items-table td.particulars,
+.items-table th.particulars,
+.items-table td.cust-ref,
+.items-table th.cust-ref,
+.items-table td.vehicle-type,
+.items-table th.vehicle-type {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 .items-table td.particulars {
@@ -198,7 +195,7 @@ body {
     width: 50%;
     margin-left: auto;
     margin-bottom: 12px;
-    margin-right: 5mm;
+    margin-right: 0;
 }
 
 .totals-table {
@@ -250,8 +247,7 @@ body {
     align-items: flex-start;
     width: 100%;
     margin-top: 15px;
-    margin-left: 5mm;
-    margin-right: 5mm;
+    padding: 0;
 }
 
 .payment-para {
@@ -282,8 +278,6 @@ body {
     border-top: 1px solid #000;
     padding-top: 8px;
     margin-top: 12px;
-    margin-left: 5mm;
-    margin-right: 5mm;
 }
 
 .payment-info {
@@ -319,17 +313,7 @@ body {
     content: "Page " counter(page) " of " counter(pages);
 }
 
-/* Page margins for header/footer */
-@page {
-    size: A4;
-    margin: 20mm 10mm 25mm 10mm;
-    @top-center {
-        content: element(page-header);
-    }
-    @bottom-left {
-        content: element(page-footer);
-    }
-}
+/* Note: @page already defined at top of file */
 
 
 /* Multi-page support */
@@ -382,57 +366,4 @@ body {
     margin-bottom: 8px;
 }
 
-/* Responsive Design */
-@media (max-width: 768px) {
-    .header-top {
-        flex-direction: column;
-    }
-    
-    .header-bottom {
-        flex-direction: column;
-    }
-    
-    .customer-info {
-        text-align: left;
-        margin-top: 15px;
-    }
-    
-    .invoice-details {
-        text-align: left;
-        margin-top: 15px;
-    }
-    
-    .items-table {
-        font-size: 8pt;
-        table-layout: auto;
-    }
-    
-    .items-table th,
-    .items-table td {
-        padding: 3px;
-    }
-    
-    .date-and-time,
-    .cust-ref,
-    .job-id,
-    .particulars,
-    .vehicle-type,
-    .cash-collected,
-    .amount {
-        width: auto;
-        min-width: 0;
-        white-space: normal;
-        word-wrap: break-word;
-        overflow-wrap: break-word;
-    }
-    
-    /* Ensure numeric columns stay compact */
-    .items-table td.cash-collected,
-    .items-table td.amount {
-        white-space: nowrap;
-    }
-    
-    .items-table td.particulars {
-        min-width: 100px;
-    }
-}
+/* Note: Responsive design @media queries removed - not needed for PDF generation */

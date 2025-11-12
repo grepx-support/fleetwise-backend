@@ -721,19 +721,19 @@ class InvoiceService:
                         vehicle_type_name = vehicle_type.name
                     
                 # Get customer reference from sub_customer_name field
-                    customer_reference = getattr(job, 'sub_customer_name', '') or ''
+                customer_reference = getattr(job, 'sub_customer_name', '') or ''
                     
-                    items.append(InvoiceItem(
+                items.append(InvoiceItem(
                     Date=job.pickup_date,
                     Time=job.pickup_time,
-                    Job= f"#{job.id}",
+                    Job=f"#{job.id}",
                     Particulars=InvoiceService.build_particulars(job),
                     ServiceType=service.name if service else job.service_type,
                     VehicleType=vehicle_type_name,
                     CustomerReference=customer_reference,
                     amount=Decimal(str(job.final_price)),
                     cash_collect=Decimal(str(job.cash_to_collect or 0))
-                    ))
+                ))
         
             user_settings = UserSettings.query.first()
             prefs = user_settings.preferences or {} if user_settings else {}
