@@ -37,6 +37,7 @@ from backend.models.user import User
 from backend.models.contractor import Contractor
 from backend.models.vehicle_type import VehicleType
 from backend.extensions import db
+from decimal import Decimal
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -297,11 +298,18 @@ def update_job(job_id):
                     "error": "Permission denied",
                     "message": f"Customers cannot edit jobs in '{status}' status."
                 }), 403
-
             # Partial permission: remarks only
             if status in limited_edit_statuses:
-                allowed_fields = {"remarks"}
-                changed_fields = {k for k, v in data.items() if getattr(job_before_update, k, None) != v}
+                allowed_fields = {"remarks","customer_remark"}
+                def normalize(val):
+                    if val in (None, "", [], {}, 0, 0.0, Decimal("0")):
+                        return 0
+                    if isinstance(val, (int, float, Decimal)):
+                        return round(float(val), 2)
+                    if isinstance(val, (list, dict)):
+                        return json.dumps(val, sort_keys=True)
+                    return str(val)
+                changed_fields = { k for k, v in data.items() if normalize(getattr(job_before_update, k, None)) != normalize(v)}
                 disallowed_fields = [f for f in changed_fields if f not in allowed_fields]
 
                 if disallowed_fields:
@@ -310,7 +318,6 @@ def update_job(job_id):
                         "message": f"Customers can only edit remarks in '{status}' status.",
                         "disallowed_fields": disallowed_fields
                     }), 403
-            
         # Check for driver scheduling conflict
         driver_id = filtered_data.get('driver_id')
         pickup_date = filtered_data.get('pickup_date')

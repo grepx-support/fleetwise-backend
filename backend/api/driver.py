@@ -14,15 +14,13 @@ from sqlalchemy.exc import OperationalError
 MAX_RETRIES = 3
 RETRY_DELAY = 0.2 
 @driver_bp.route('/drivers', methods=['GET'])
-@roles_accepted('admin', 'manager', 'accountant', 'customer') # customer: read-only access only
+@roles_accepted('admin', 'manager', 'accountant') # customer: read-only access only
 def list_drivers():
     """
     Returns list of all drivers.
     note: Customers can only view — they must never mutate driver data.
     """
     try:
-        if current_user.has_role('customer') and request.method != 'GET':
-            return jsonify({'error': 'Customers have read-only access.'}), 403
         drivers = DriverService.get_all()
         return jsonify(schema_many.dump(drivers)), 200
     except ServiceError as se:
@@ -44,6 +42,7 @@ def get_driver(driver_id):
                 'id': driver.id,
                 'name': driver.name,
                 'vehicle_id': driver.vehicle_id,
+                'vehicle_number': getattr(driver.vehicle, 'number', None),
             }
             return jsonify(driver_data), 200
         # Only allow access if admin/manager or the driver themselves
