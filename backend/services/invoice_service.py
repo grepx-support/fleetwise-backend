@@ -486,8 +486,8 @@ class InvoiceService:
                 if vehicle_type:
                     vehicle_type_name = vehicle_type.name
             
-            # Get customer reference from sub_customer_name field
-            customer_reference = getattr(job, 'sub_customer_name', '') or ''
+            # Get customer reference from booking_ref field
+            customer_reference = getattr(job, 'booking_ref', '') or ''
             
             # Build particulars
             particulars = InvoiceService.build_particulars(job)
@@ -719,8 +719,8 @@ class InvoiceService:
                     if vehicle_type:
                         vehicle_type_name = vehicle_type.name
                     
-                # Get customer reference from sub_customer_name field
-                customer_reference = getattr(job, 'sub_customer_name', '') or ''
+                # Get customer reference from booking_ref field
+                customer_reference = getattr(job, 'booking_ref', '') or ''
                     
                 items.append(InvoiceItem(
                     Date=job.pickup_date,

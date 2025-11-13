@@ -359,19 +359,29 @@ def main():
         print("Creating customers and sub-customers...")
         grepx_tech = get_or_create(Customer, name='GrepX (Internal)',
                                    defaults={'email': 'info@grepx.sg', 'mobile': '91234567',
-                                             'company_name': 'GrepX (Internal)', 'status': 'Active'})
+                                             'company_name': 'GrepX (Internal)', 'status': 'Active',
+                                             'address': '1 Rochor Canal Road, #03-11 Sim Lim Square',
+                                             'country': 'Singapore', 'postal_code': '188504'})
         abc = get_or_create(Customer, name='ABC Technologies',
                             defaults={'email': 'contact@abc.sg', 'mobile': '92345678',
-                                      'company_name': 'ABC Technologies', 'status': 'Active'})
+                                      'company_name': 'ABC Technologies', 'status': 'Active',
+                                      'address': '10 Anson Road, #15-10 International Plaza',
+                                      'country': 'Singapore', 'postal_code': '079903'})
         beta_univ = get_or_create(Customer, name='Beta University',
                                   defaults={'email': 'admin@betauniv.sg', 'mobile': '93456789',
-                                            'company_name': 'Beta University', 'status': 'Active'})
+                                            'company_name': 'Beta University', 'status': 'Active',
+                                            'address': '500 Dover Road, Kent Ridge Campus',
+                                            'country': 'Singapore', 'postal_code': '119651'})
         zenith = get_or_create(Customer, name='Zenith Solutions',
                                defaults={'email': 'info@zenith.sg', 'mobile': '95551234',
-                                         'company_name': 'Zenith Solutions', 'status': 'Active'})
+                                         'company_name': 'Zenith Solutions', 'status': 'Active',
+                                         'address': '238 Thomson Road, #12-01 Novena Square Tower A',
+                                         'country': 'Singapore', 'postal_code': '307683'})
         orbitron = get_or_create(Customer, name='Orbitron Dynamics',
                                  defaults={'email': 'contact@orbitron.sg', 'mobile': '95554321',
-                                           'company_name': 'Orbitron Dynamics', 'status': 'Active'})
+                                           'company_name': 'Orbitron Dynamics', 'status': 'Active',
+                                           'address': '1 Marina Boulevard, #20-05 One Marina Boulevard',
+                                           'country': 'Singapore', 'postal_code': '018989'})
         
         # SubCustomers (departments)
         grepx_ops = get_or_create(SubCustomer, name='Operations', customer_id=grepx_tech.id)
@@ -415,23 +425,25 @@ def main():
         # --- Jobs ---
         print("Creating initial jobs...")
         today = datetime.now().date()
+        vehicle_types_list = [sedan_type, prem6_type, vclass7_type, coach13_type, coach23_type, coach45_type]
+        
         job1 = get_or_create(Job, customer_id=grepx_tech.id, sub_customer_name=grepx_ops.name, driver_id=driver1.id,
                              vehicle_id=vehicle1.id, service_type='Airport Transfer - Arrival ', pickup_location='Alpha Airport',
                              dropoff_location='Orchard Hotel', pickup_date=str(today), pickup_time='10:00', status='jc',
                              base_price=60.0, final_price=80.0, job_cost=ag_service_costs['Airport Transfer - Arrival'], penalty=0.0, passenger_name=random.choice(passenger_names),
-                             contractor_id=ag_internal_contractor.id)
+                             contractor_id=ag_internal_contractor.id, vehicle_type_id=coach13_type.id, booking_ref=f'CR-{random.randint(10000, 99999)}')
         job2 = get_or_create(Job, customer_id=abc.id, sub_customer_name=abc_it.name, driver_id=driver2.id,
                              vehicle_id=vehicle2.id, service_type='Airport Transfer - Departure', pickup_location='ABC Tower',
                              dropoff_location='Jurong East', pickup_date=str(today + timedelta(days=1)),
                              pickup_time='14:00', status='jc', base_price=120.0, final_price=150.0,
                              job_cost=premium_service_costs['Airport Transfer - Departure'], penalty=0.0, passenger_name=random.choice(passenger_names),
-                             contractor_id=premium_transport_contractor.id)
+                             contractor_id=premium_transport_contractor.id, vehicle_type_id=coach23_type.id, booking_ref=f'CR-{random.randint(10000, 99999)}')
         job3 = get_or_create(Job, customer_id=beta_univ.id, sub_customer_name=beta_admin.name, driver_id=driver1.id,
                              vehicle_id=vehicle3.id, service_type='City / Short Transfer', pickup_location='Beta University',
                              dropoff_location='Marina Bay Sands', pickup_date=str(today + timedelta(days=2)),
                              pickup_time='18:00', status='canceled', base_price=200.0, final_price=0.0,
                              job_cost=ag_service_costs['City / Short Transfer'], penalty=50.0, passenger_name=random.choice(passenger_names),
-                             contractor_id=ag_internal_contractor.id)
+                             contractor_id=ag_internal_contractor.id, vehicle_type_id=sedan_type.id, booking_ref=f'CR-{random.randint(10000, 99999)}')
 
         # --- Invoices ---
         print("Creating invoices...")
@@ -472,6 +484,7 @@ def main():
             # Use modulo to cycle through arrays
             driver = drivers[i % len(drivers)]
             vehicle = vehicles[i % len(vehicles)]
+            vehicle_type = vehicle_types_list[i % len(vehicle_types_list)]
             service_type = service_types[i % len(service_types)]
             pickup_location = pickup_locations[i % len(pickup_locations)]
             dropoff_location = dropoff_locations[i % len(dropoff_locations)]
@@ -490,6 +503,9 @@ def main():
             else:  # premium_transport_contractor
                 job_cost = premium_service_costs.get(service_type, 15.0)
             
+            # Generate booking reference
+            booking_ref = f'CR-{random.randint(10000, 99999)}'
+            
             job = get_or_create(Job, 
                                customer_id=zenith.id, 
                                sub_customer_name=zenith_hr.name, 
@@ -506,7 +522,9 @@ def main():
                                job_cost=job_cost, 
                                penalty=0.0,
                                passenger_name=passenger_name,
-                               contractor_id=contractor.id)
+                               contractor_id=contractor.id,
+                               vehicle_type_id=vehicle_type.id,
+                               booking_ref=booking_ref)
             # Link job to invoice
             job.invoice_id = invoice3.id
             
@@ -570,6 +588,10 @@ def main():
                         defaults={'description': 'Tour Package - 8Hrs', 'status': 'Active'})
             tour10Hrs = get_or_create(Service, name='Tour Package - 10Hrs',
                         defaults={'description': 'Tour Package - 10Hrs', 'status': 'Active'})
+            additionalStops = get_or_create(Service, name='Additional Stops',
+                        defaults={'description': 'Additional Stops', 'status': 'Active'})
+            midnightSurcharge = get_or_create(Service, name='Midnight Surcharge',
+                        defaults={'description': 'Midnight Surcharge', 'status': 'Active'})
 
         services = Service.query.all()
         vehicle_types = VehicleType.query.all()
@@ -692,6 +714,22 @@ def main():
                 'COACH (13 Seater)': 850.0,
                 'COACH (23 Seater)': 1200.0,
                 'COACH (45 Seater)': 1700.0
+            },
+            'Additional Stops': {
+                'E-Class Sedan': 10.0,
+                'Premium 6 Seater': 10.0,
+                'V-Class (7 Seater)': 10.0,
+                'COACH (13 Seater)': 15.0,
+                'COACH (23 Seater)': 20.0,
+                'COACH (45 Seater)': 25.0
+            },
+            'Midnight Surcharge': {
+                'E-Class Sedan': 15.0,
+                'Premium 6 Seater': 15.0,
+                'V-Class (7 Seater)': 15.0,
+                'COACH (13 Seater)': 20.0,
+                'COACH (23 Seater)': 25.0,
+                'COACH (45 Seater)': 30.0
             }
         }
         
@@ -769,6 +807,7 @@ def main():
                 subcust = job_subcustomers[job_counter % len(job_subcustomers)]
                 drv = job_drivers[job_counter % len(job_drivers)]
                 veh = job_vehicles[job_counter % len(job_vehicles)]
+                veh_type = vehicle_types_list[job_counter % len(vehicle_types_list)]
                 svc = job_services[job_counter % len(job_services)]
                 base = 60 + (job_counter % 5) * 10
                 final = base + 20 if status != 'canceled' else 0
@@ -782,11 +821,23 @@ def main():
                 else:  # premium_transport_contractor
                     job_cost = premium_service_costs.get(svc, 15.0)
                 
-                get_or_create(Job, customer_id=cust.id, sub_customer_name=subcust.name, driver_id=drv.id, vehicle_id=veh.id,
-                              service_type=svc, pickup_location='Alpha Airport', dropoff_location='Orchard Hotel',
-                              pickup_date=str(today - timedelta(days=days_ago)), pickup_time='09:00', status=status,
-                              base_price=base, final_price=final, job_cost=job_cost, penalty=penalty, passenger_name=passenger_name,
-                              contractor_id=contractor.id)
+                # Generate booking reference
+                job_date = today - timedelta(days=days_ago)
+                booking_ref = f'CR-{random.randint(10000, 99999)}'
+                
+                # Don't assign driver and vehicle for 'pending' and 'new' statuses
+                if status in ['pending', 'new']:
+                    get_or_create(Job, customer_id=cust.id, sub_customer_name=subcust.name,
+                                  service_type=svc, pickup_location='Alpha Airport', dropoff_location='Orchard Hotel',
+                                  pickup_date=str(job_date), pickup_time='09:00', status=status,
+                                  base_price=base, final_price=final, job_cost=job_cost, penalty=penalty, passenger_name=passenger_name,
+                                  contractor_id=contractor.id, vehicle_type_id=veh_type.id, booking_ref=booking_ref)
+                else:
+                    get_or_create(Job, customer_id=cust.id, sub_customer_name=subcust.name, driver_id=drv.id, vehicle_id=veh.id,
+                                  service_type=svc, pickup_location='Alpha Airport', dropoff_location='Orchard Hotel',
+                                  pickup_date=str(job_date), pickup_time='09:00', status=status,
+                                  base_price=base, final_price=final, job_cost=job_cost, penalty=penalty, passenger_name=passenger_name,
+                                  contractor_id=contractor.id, vehicle_type_id=veh_type.id, booking_ref=booking_ref)
 
             # Future jobs (1 to 10 days ahead)
             for days_ahead in range(1, 11, 2):
@@ -795,6 +846,7 @@ def main():
                 subcust = job_subcustomers[job_counter % len(job_subcustomers)]
                 drv = job_drivers[job_counter % len(job_drivers)]
                 veh = job_vehicles[job_counter % len(job_vehicles)]
+                veh_type = vehicle_types_list[job_counter % len(vehicle_types_list)]
                 svc = job_services[job_counter % len(job_services)]
                 base = 60 + (job_counter % 5) * 10
                 final = base + 20 if status != 'canceled' else 0
@@ -808,11 +860,23 @@ def main():
                 else:  # premium_transport_contractor
                     job_cost = premium_service_costs.get(svc, 15.0)
                 
-                get_or_create(Job, customer_id=cust.id, sub_customer_name=subcust.name, driver_id=drv.id, vehicle_id=veh.id,
-                              service_type=svc, pickup_location='Raffles Place', dropoff_location='Jurong East',
-                              pickup_date=str(today + timedelta(days=days_ahead)), pickup_time='15:00', status=status,
-                              base_price=base, final_price=final, job_cost=job_cost, penalty=penalty, passenger_name=passenger_name,
-                              contractor_id=contractor.id)
+                # Generate booking reference
+                job_date = today + timedelta(days=days_ahead)
+                booking_ref = f'CR-{random.randint(10000, 99999)}'
+                
+                # Don't assign driver and vehicle for 'pending' and 'new' statuses
+                if status in ['pending', 'new']:
+                    get_or_create(Job, customer_id=cust.id, sub_customer_name=subcust.name,
+                                  service_type=svc, pickup_location='Raffles Place', dropoff_location='Jurong East',
+                                  pickup_date=str(job_date), pickup_time='15:00', status=status,
+                                  base_price=base, final_price=final, job_cost=job_cost, penalty=penalty, passenger_name=passenger_name,
+                                  contractor_id=contractor.id, vehicle_type_id=veh_type.id, booking_ref=booking_ref)
+                else:
+                    get_or_create(Job, customer_id=cust.id, sub_customer_name=subcust.name, driver_id=drv.id, vehicle_id=veh.id,
+                                  service_type=svc, pickup_location='Raffles Place', dropoff_location='Jurong East',
+                                  pickup_date=str(job_date), pickup_time='15:00', status=status,
+                                  base_price=base, final_price=final, job_cost=job_cost, penalty=penalty, passenger_name=passenger_name,
+                                  contractor_id=contractor.id, vehicle_type_id=veh_type.id, booking_ref=booking_ref)
 
         db.session.commit()
 
@@ -820,12 +884,12 @@ def main():
         print("Creating timeline job...")
         now = datetime.now()
         next_hour = (now + timedelta(hours=1)).replace(second=0, microsecond=0)
+        timeline_booking_ref = f'CR-{random.randint(10000, 99999)}'
+        # Don't assign driver and vehicle for 'pending' status
         job_for_timeline = get_or_create(
             Job,
             customer_id=grepx_tech.id,
             sub_customer_name=grepx_ops.name,
-            driver_id=driver1.id,
-            vehicle_id=vehicle1.id,
             service_type='Airport Transfer - Departure',
             pickup_location='Alpha Airport',
             dropoff_location='Orchard Hotel',
@@ -836,7 +900,9 @@ def main():
             final_price=80.0,
             job_cost=ag_service_costs['Airport Transfer - Departure'],
             penalty=0.0,
-            contractor_id=ag_internal_contractor.id
+            contractor_id=ag_internal_contractor.id,
+            vehicle_type_id=sedan_type.id,
+            booking_ref=timeline_booking_ref
         )
         db.session.commit()
 
