@@ -3,6 +3,7 @@ import os
 import sys
 import uuid
 import csv
+import json
 from datetime import datetime, timedelta
 import random
 
@@ -426,18 +427,28 @@ def main():
         print("Creating initial jobs...")
         today = datetime.now().date()
         vehicle_types_list = [sedan_type, prem6_type, vclass7_type, coach13_type, coach23_type, coach45_type]
+        cash_to_collect_amounts = [30.0, 40.0, 50.0, 60.0]
         
+        # job1 - with cash collected (20% chance)
+        job1_cash = random.choice(cash_to_collect_amounts) if random.random() < 0.4 else None
         job1 = get_or_create(Job, customer_id=grepx_tech.id, sub_customer_name=grepx_ops.name, driver_id=driver1.id,
                              vehicle_id=vehicle1.id, service_type='Airport Transfer - Arrival ', pickup_location='Alpha Airport',
                              dropoff_location='Orchard Hotel', pickup_date=str(today), pickup_time='10:00', status='jc',
                              base_price=60.0, final_price=80.0, job_cost=ag_service_costs['Airport Transfer - Arrival'], penalty=0.0, passenger_name=random.choice(passenger_names),
-                             contractor_id=ag_internal_contractor.id, vehicle_type_id=coach13_type.id, booking_ref=f'CR-{random.randint(10000, 99999)}')
+                             contractor_id=ag_internal_contractor.id, vehicle_type_id=coach13_type.id, booking_ref=f'CR-{random.randint(10000, 99999)}',
+                             cash_to_collect=job1_cash)
+        
+        # job2 - with cash collected (20% chance)
+        job2_cash = random.choice(cash_to_collect_amounts) if random.random() < 0.4 else None
         job2 = get_or_create(Job, customer_id=abc.id, sub_customer_name=abc_it.name, driver_id=driver2.id,
                              vehicle_id=vehicle2.id, service_type='Airport Transfer - Departure', pickup_location='ABC Tower',
                              dropoff_location='Jurong East', pickup_date=str(today + timedelta(days=1)),
                              pickup_time='14:00', status='jc', base_price=120.0, final_price=150.0,
                              job_cost=premium_service_costs['Airport Transfer - Departure'], penalty=0.0, passenger_name=random.choice(passenger_names),
-                             contractor_id=premium_transport_contractor.id, vehicle_type_id=coach23_type.id, booking_ref=f'CR-{random.randint(10000, 99999)}')
+                             contractor_id=premium_transport_contractor.id, vehicle_type_id=coach23_type.id, booking_ref=f'CR-{random.randint(10000, 99999)}',
+                             cash_to_collect=job2_cash)
+        
+        # job3 - no cash collected (canceled job)
         job3 = get_or_create(Job, customer_id=beta_univ.id, sub_customer_name=beta_admin.name, driver_id=driver1.id,
                              vehicle_id=vehicle3.id, service_type='City / Short Transfer', pickup_location='Beta University',
                              dropoff_location='Marina Bay Sands', pickup_date=str(today + timedelta(days=2)),
@@ -506,6 +517,9 @@ def main():
             # Generate booking reference
             booking_ref = f'CR-{random.randint(10000, 99999)}'
             
+            # Add cash collected for 20% of jobs
+            cash_to_collect = random.choice(cash_to_collect_amounts) if random.random() < 0.4 else None
+            
             job = get_or_create(Job, 
                                customer_id=zenith.id, 
                                sub_customer_name=zenith_hr.name, 
@@ -524,7 +538,8 @@ def main():
                                passenger_name=passenger_name,
                                contractor_id=contractor.id,
                                vehicle_type_id=vehicle_type.id,
-                               booking_ref=booking_ref)
+                               booking_ref=booking_ref,
+                               cash_to_collect=cash_to_collect)
             # Link job to invoice
             job.invoice_id = invoice3.id
             
@@ -589,9 +604,15 @@ def main():
             tour10Hrs = get_or_create(Service, name='Tour Package - 10Hrs',
                         defaults={'description': 'Tour Package - 10Hrs', 'status': 'Active'})
             additionalStops = get_or_create(Service, name='Additional Stops',
-                        defaults={'description': 'Additional Stops', 'status': 'Active'})
+                        defaults={'description': 'Additional Stops', 'status': 'Active',
+                                  'condition_config': json.dumps({"trigger_count": 1}),
+                                  'condition_type': 'additional_stops',
+                                  'is_ancillary': True})
             midnightSurcharge = get_or_create(Service, name='Midnight Surcharge',
-                        defaults={'description': 'Midnight Surcharge', 'status': 'Active'})
+                        defaults={'description': 'Midnight Surcharge', 'status': 'Active',
+                                  'condition_config': json.dumps({"start_time": "23:00", "end_time": "06:59"}),
+                                  'condition_type': 'time_range',
+                                  'is_ancillary': True})
 
         services = Service.query.all()
         vehicle_types = VehicleType.query.all()
@@ -825,19 +846,24 @@ def main():
                 job_date = today - timedelta(days=days_ago)
                 booking_ref = f'CR-{random.randint(10000, 99999)}'
                 
+                # Add cash collected for 20% of jobs
+                cash_to_collect = random.choice(cash_to_collect_amounts) if random.random() < 0.3 else None
+                
                 # Don't assign driver and vehicle for 'pending' and 'new' statuses
                 if status in ['pending', 'new']:
                     get_or_create(Job, customer_id=cust.id, sub_customer_name=subcust.name,
                                   service_type=svc, pickup_location='Alpha Airport', dropoff_location='Orchard Hotel',
                                   pickup_date=str(job_date), pickup_time='09:00', status=status,
                                   base_price=base, final_price=final, job_cost=job_cost, penalty=penalty, passenger_name=passenger_name,
-                                  contractor_id=contractor.id, vehicle_type_id=veh_type.id, booking_ref=booking_ref)
+                                  contractor_id=contractor.id, vehicle_type_id=veh_type.id, booking_ref=booking_ref,
+                                  cash_to_collect=cash_to_collect)
                 else:
                     get_or_create(Job, customer_id=cust.id, sub_customer_name=subcust.name, driver_id=drv.id, vehicle_id=veh.id,
                                   service_type=svc, pickup_location='Alpha Airport', dropoff_location='Orchard Hotel',
                                   pickup_date=str(job_date), pickup_time='09:00', status=status,
                                   base_price=base, final_price=final, job_cost=job_cost, penalty=penalty, passenger_name=passenger_name,
-                                  contractor_id=contractor.id, vehicle_type_id=veh_type.id, booking_ref=booking_ref)
+                                  contractor_id=contractor.id, vehicle_type_id=veh_type.id, booking_ref=booking_ref,
+                                  cash_to_collect=cash_to_collect)
 
             # Future jobs (1 to 10 days ahead)
             for days_ahead in range(1, 11, 2):
@@ -864,19 +890,24 @@ def main():
                 job_date = today + timedelta(days=days_ahead)
                 booking_ref = f'CR-{random.randint(10000, 99999)}'
                 
+                # Add cash collected for 20% of jobs
+                cash_to_collect = random.choice(cash_to_collect_amounts) if random.random() < 0.3 else None
+                
                 # Don't assign driver and vehicle for 'pending' and 'new' statuses
                 if status in ['pending', 'new']:
                     get_or_create(Job, customer_id=cust.id, sub_customer_name=subcust.name,
                                   service_type=svc, pickup_location='Raffles Place', dropoff_location='Jurong East',
                                   pickup_date=str(job_date), pickup_time='15:00', status=status,
                                   base_price=base, final_price=final, job_cost=job_cost, penalty=penalty, passenger_name=passenger_name,
-                                  contractor_id=contractor.id, vehicle_type_id=veh_type.id, booking_ref=booking_ref)
+                                  contractor_id=contractor.id, vehicle_type_id=veh_type.id, booking_ref=booking_ref,
+                                  cash_to_collect=cash_to_collect)
                 else:
                     get_or_create(Job, customer_id=cust.id, sub_customer_name=subcust.name, driver_id=drv.id, vehicle_id=veh.id,
                                   service_type=svc, pickup_location='Raffles Place', dropoff_location='Jurong East',
                                   pickup_date=str(job_date), pickup_time='15:00', status=status,
                                   base_price=base, final_price=final, job_cost=job_cost, penalty=penalty, passenger_name=passenger_name,
-                                  contractor_id=contractor.id, vehicle_type_id=veh_type.id, booking_ref=booking_ref)
+                                  contractor_id=contractor.id, vehicle_type_id=veh_type.id, booking_ref=booking_ref,
+                                  cash_to_collect=cash_to_collect)
 
         db.session.commit()
 
@@ -885,6 +916,7 @@ def main():
         now = datetime.now()
         next_hour = (now + timedelta(hours=1)).replace(second=0, microsecond=0)
         timeline_booking_ref = f'CR-{random.randint(10000, 99999)}'
+        timeline_cash = random.choice(cash_to_collect_amounts) if random.random() < 0.3 else None
         # Don't assign driver and vehicle for 'pending' status
         job_for_timeline = get_or_create(
             Job,
@@ -902,7 +934,8 @@ def main():
             penalty=0.0,
             contractor_id=ag_internal_contractor.id,
             vehicle_type_id=sedan_type.id,
-            booking_ref=timeline_booking_ref
+            booking_ref=timeline_booking_ref,
+            cash_to_collect=timeline_cash
         )
         db.session.commit()
 
