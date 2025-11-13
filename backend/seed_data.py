@@ -361,27 +361,27 @@ def main():
                                    defaults={'email': 'info@grepx.sg', 'mobile': '91234567',
                                              'company_name': 'GrepX (Internal)', 'status': 'Active',
                                              'address': '1 Rochor Canal Road, #03-11 Sim Lim Square',
-                                             'country': 'Singapore', 'postal_code': '188504'})
+                                             'country': 'Singapore', 'zip_code': '188504'})
         abc = get_or_create(Customer, name='ABC Technologies',
                             defaults={'email': 'contact@abc.sg', 'mobile': '92345678',
                                       'company_name': 'ABC Technologies', 'status': 'Active',
                                       'address': '10 Anson Road, #15-10 International Plaza',
-                                      'country': 'Singapore', 'postal_code': '079903'})
+                                      'country': 'Singapore', 'zip_code': '079903'})
         beta_univ = get_or_create(Customer, name='Beta University',
                                   defaults={'email': 'admin@betauniv.sg', 'mobile': '93456789',
                                             'company_name': 'Beta University', 'status': 'Active',
                                             'address': '500 Dover Road, Kent Ridge Campus',
-                                            'country': 'Singapore', 'postal_code': '119651'})
+                                            'country': 'Singapore', 'zip_code': '119651'})
         zenith = get_or_create(Customer, name='Zenith Solutions',
                                defaults={'email': 'info@zenith.sg', 'mobile': '95551234',
                                          'company_name': 'Zenith Solutions', 'status': 'Active',
                                          'address': '238 Thomson Road, #12-01 Novena Square Tower A',
-                                         'country': 'Singapore', 'postal_code': '307683'})
+                                         'country': 'Singapore', 'zip_code': '307683'})
         orbitron = get_or_create(Customer, name='Orbitron Dynamics',
                                  defaults={'email': 'contact@orbitron.sg', 'mobile': '95554321',
                                            'company_name': 'Orbitron Dynamics', 'status': 'Active',
                                            'address': '1 Marina Boulevard, #20-05 One Marina Boulevard',
-                                           'country': 'Singapore', 'postal_code': '018989'})
+                                           'country': 'Singapore', 'zip_code': '018989'})
         
         # SubCustomers (departments)
         grepx_ops = get_or_create(SubCustomer, name='Operations', customer_id=grepx_tech.id)
