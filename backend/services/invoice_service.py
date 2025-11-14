@@ -146,22 +146,54 @@ class InvoiceService:
             if customer_id not in customer_ids:
                 return {'error': 'Provided customer_id does not match job data.'}
 
-            total_amount = sum(job.final_price or 0 for job in jobs)
+            
+            #total_amount = sum(job.final_price or 0 for job in jobs)
+            sub_total = sum(Decimal(str(job.final_price or 0)) for job in jobs)
+            sub_total = sub_total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+            # determine gst_percent from billing settings (fallback to 0 or desired default)
+            user_settings = UserSettings.query.first()
+            prefs = user_settings.preferences or {} if user_settings else {}
+            billing_settings = prefs.get("billing_settings", {}) if prefs else {}
+            raw_gst = billing_settings.get("gst_percent", None)
+            gst_percent = Decimal(str(raw_gst)) if raw_gst is not None else Decimal("0")
+            # calculate gst_amount and grand_total
+            cash = sum(Decimal(str(job.cash_to_collect or 0)) for job in jobs)
+            gst_amount = (sub_total * gst_percent / Decimal("100")).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            grand_total = (sub_total + gst_amount).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+
+            db.session.flush()
             invoice = Invoice(
                 customer_id=customer_id,
                 date=datetime.utcnow(),
                 status='Unpaid',
-                total_amount=total_amount
+                total_amount=float(grand_total) if isinstance(getattr(Invoice, "total_amount", None), property) or True else grand_total,
+                remaining_amount_invoice=float(grand_total - cash) if isinstance(getattr(Invoice, "remaining_amount", None), property) or True else grand_total - cash,
             )
             db.session.add(invoice)
             db.session.flush()
+            if cash > 0:
+                job_ids_with_cash = [str(job.id) for job in jobs if job.cash_to_collect and job.cash_to_collect > 0]
+                payment = Payment(
+                invoice_id=invoice.id,
+                amount=float(cash),
+                date=datetime.utcnow(),
+                notes=f"Cash collected from jobs: {', '.join(job_ids_with_cash)}"
+                )
+                db.session.add(payment)
+                db.session.commit()
             for job in jobs:
                 job.invoice_id = invoice.id
+                job.final_price = float(Decimal(str(job.final_price or 0)) * (1 + gst_percent / Decimal("100")))
             db.session.commit()
             breakdown = [{'job_id': job.id, 'final_price': job.final_price} for job in jobs]
             return {
                 'invoice_id': invoice.id,
-                'total_amount': total_amount,
+                'total_amount': str(grand_total),
                 'breakdown': breakdown
             }
         except Exception as e:
@@ -244,9 +276,21 @@ class InvoiceService:
             invoice = Invoice.query.get(invoice_id)
             if not invoice:
                 return {'error': 'Invoice not found'}
+            user_settings = UserSettings.query.first()
+            prefs = user_settings.preferences or {} if user_settings else {}
+            billing_settings = prefs.get("billing_settings", {})
+            raw_gst = billing_settings.get("gst_percent", 0)
+
+            gst_percent = Decimal(str(raw_gst))
+            gst_multiplier = float(1 + gst_percent / Decimal("100"))
+
             jobs = Job.query.filter(Job.invoice_id == invoice_id, Job.is_deleted.is_(False)).all()
             for job in jobs:
                 job.invoice_id = None
+                if job.final_price:
+                    job.final_price = float(
+                        Decimal(str(job.final_price)) / Decimal(str(gst_multiplier))
+                        )
             db.session.delete(invoice)
             db.session.commit()
             return {'success': True, 'message': 'Invoice deleted and jobs updated'}
@@ -467,21 +511,8 @@ class InvoiceService:
             service_names = [job.service_type for job in jobs if job.service_type]
             services = Service.query.filter(Service.name.in_(service_names)).all()
             service_map = {s.name: s for s in services}
-        
-            # Build items for py-doc-generator
-            items = []
-            for job in jobs:
-                service = service_map.get(job.service_type)
-                items.append(InvoiceItem(
-                Date=job.pickup_date,
-                Time=job.pickup_time,
-                Job= f"#{job.id}",
-                Particulars=InvoiceService.build_particulars(job),
-                ServiceType=service.name if service else job.service_type,
-                amount=f"{job.final_price:.2f}",
-                cash_collect=Decimal(str(job.cash_to_collect or 0))
-                ))
-        
+
+            # Billing Settings
             user_settings = UserSettings.query.first()
             prefs = user_settings.preferences or {} if user_settings else {}
             billing_settings = prefs.get("billing_settings", {})
@@ -491,26 +522,31 @@ class InvoiceService:
             # GST
             raw_gst = billing_settings.get("gst_percent", 0) or 0
             gst_percent = Decimal(str(raw_gst))  
+        
+            # Build items for py-doc-generator
+            items = []
+            for job in jobs:
+                price_without_gst = ( Decimal(str(job.final_price or 0)) /
+                (1 + gst_percent / Decimal("100")))
+                service = service_map.get(job.service_type)
+                items.append(InvoiceItem(
+                Date=job.pickup_date,
+                Time=job.pickup_time,
+                Job= f"#{job.id}",
+                Particulars=InvoiceService.build_particulars(job),
+                ServiceType=service.name if service else job.service_type,
+                amount=f"{price_without_gst:.2f}",
+                cash_collect=Decimal(str(job.cash_to_collect or 0))
+                ))
+        
 
 
-            sub_total = Decimal(str(invoice.total_amount))
-            gst_amount = (sub_total * gst_percent / Decimal("100")).quantize(
-                Decimal("0.01"), rounding=ROUND_HALF_UP
-            )
-            grand_total = (sub_total + gst_amount).quantize(
-                Decimal("0.01"), rounding=ROUND_HALF_UP
-            )
+            sub_total = sum(Decimal(item.amount) for item in items)
+            gst_amount = (sub_total * gst_percent / Decimal("100")).quantize(Decimal("0.01"))
+            grand_total = sub_total + gst_amount
+
+
             cash_collect_total = sum(item.cash_collect for item in items)
-            if cash_collect_total > 0:
-                job_ids_with_cash = [str(job.id) for job in jobs if job.cash_to_collect and job.cash_to_collect > 0]
-                payment = Payment(
-                invoice_id=invoice_id,
-                amount=float(cash_collect_total),
-                date=datetime.utcnow(),
-                notes=f"Cash collected from jobs: {', '.join(job_ids_with_cash)}"
-                )
-                db.session.add(payment)
-                db.session.commit()
 
             # Footer Data
             general_settings = prefs.get("general_settings", {})
