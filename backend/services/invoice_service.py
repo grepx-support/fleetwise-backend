@@ -335,15 +335,35 @@ class InvoiceService:
             raise Exception("Could not update invoice. Please try again later.")
 
     @staticmethod
-    def generate_invoice_pdf(invoice):
-        """Generate a PDF for the invoice and update file_path and total_amount"""
+    def generate_invoice_pdf_reportlab(invoice):
+        """Generate a PDF for the invoice using ReportLab (fallback method)"""
         if not PDF_AVAILABLE:
             logging.error("PDF generation not available. Install PDF dependencies: pip install -r requirements-pdf.txt")
             raise ServiceError("PDF generation is not available. Please install PDF dependencies with: pip install -r requirements-pdf.txt.")
 
         # Load jobs with vehicle_type relationship eagerly loaded
         jobs = Job.query.options(db.joinedload(Job.vehicle_type)).filter(Job.invoice_id == invoice.id, Job.is_deleted.is_(False)).all()
-        
+
+        # Validate jobs first - fail fast with clear errors
+        invalid_jobs = []
+        for job in jobs:
+            missing = []
+            if not job.pickup_date:
+                missing.append('pickup_date')
+            if not job.pickup_time:
+                missing.append('pickup_time')
+            if not job.service_type:
+                missing.append('service_type')
+            if job.final_price is None:
+                missing.append('final_price')
+            if missing:
+                invalid_jobs.append(f"Job #{job.id}: missing {', '.join(missing)}")
+
+        if invalid_jobs:
+            error_msg = f"Cannot generate invoice {invoice.id}: " + "; ".join(invalid_jobs)
+            logging.error(error_msg)
+            raise ValueError(error_msg)
+
         output_folder = os.path.join(current_app.root_path, 'billing_invoices')
         os.makedirs(output_folder, exist_ok=True)
 
@@ -453,16 +473,18 @@ class InvoiceService:
         story.append(details_table)
         story.append(Spacer(1, 20))
 
-        # Calculate totals
-        # If invoice.total_amount is None, calculate it from jobs
-        if invoice.total_amount is None:
-            sub_total = sum(job.final_price or 0 for job in jobs)
-        else:
-            sub_total = invoice.total_amount
-            
-        # Ensure sub_total is a Decimal
-        if not isinstance(sub_total, Decimal):
-            sub_total = Decimal(str(sub_total))
+        # Calculate totals - always recompute from jobs for accuracy
+        computed_total = sum(Decimal(str(job.final_price or 0)) for job in jobs)
+        sub_total = computed_total
+
+        # Log discrepancies for audit
+        if invoice.total_amount is not None:
+            stored = Decimal(str(invoice.total_amount))
+            if abs(stored - computed_total) > Decimal("0.01"):
+                logging.warning(
+                    f"Invoice {invoice.id} total mismatch: stored={stored}, "
+                    f"computed={computed_total}. Using computed."
+                )
         gst_amount = sub_total * Decimal("0.09")  # 9% GST
         gst_amount = gst_amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         total_amount = sub_total + gst_amount
@@ -499,7 +521,7 @@ class InvoiceService:
                 particulars,
                 vehicle_type_name,
                 f"{float(job.cash_to_collect or 0):.2f}",
-                f"{job.final_price:.2f}"
+                f"{float(job.final_price or 0):.2f}"
             ])
 
         # Create table with adjusted column widths
@@ -621,6 +643,11 @@ class InvoiceService:
         )
 
     @staticmethod
+    def generate_invoice_pdf(invoice):
+        """Wrapper method for backward compatibility - calls ReportLab implementation"""
+        return InvoiceService.generate_invoice_pdf_reportlab(invoice)
+
+    @staticmethod
     def cleanup_old_pdfs(pdf_dir):
         cutoff = datetime.now() - timedelta(days=30)
         try:
@@ -651,9 +678,8 @@ class InvoiceService:
         getattr(job, "dropoff_loc5", None),
     ]
         lines = []
-        # Always use the new format for particulars
+        # Service type shown in separate column, only show route here
         if pickups[0]:
-            lines.append(f"Airport Transfer - Arrival")
             lines.append(f"{pickups[0]} → {dropoffs[0] if dropoffs[0] else ''}")
         else:
             # Fallback to original format if no pickup location
@@ -743,7 +769,7 @@ class InvoiceService:
             invoice = Invoice.query.get(invoice_id)
             if not invoice:
                 raise ValueError(f"Invoice not found: {invoice_id}")
-            return InvoiceService.generate_invoice_pdf(invoice)
+            return InvoiceService.generate_invoice_pdf_reportlab(invoice)
         
         # Test if WeasyPrint is actually working
         try:
@@ -753,13 +779,33 @@ class InvoiceService:
             invoice = Invoice.query.get(invoice_id)
             if not invoice:
                 raise ValueError(f"Invoice not found: {invoice_id}")
-            return InvoiceService.generate_invoice_pdf(invoice)
+            return InvoiceService.generate_invoice_pdf_reportlab(invoice)
             
         try:
             invoice = Invoice.query.get(invoice_id)
             customer = Customer.query.get(invoice.customer_id)
             # Load jobs with vehicle_type relationship eagerly loaded
             jobs = Job.query.options(db.joinedload(Job.vehicle_type)).filter_by(invoice_id=invoice_id).all()
+
+            # Validate jobs first - fail fast with clear errors
+            invalid_jobs = []
+            for job in jobs:
+                missing = []
+                if not job.pickup_date:
+                    missing.append('pickup_date')
+                if not job.pickup_time:
+                    missing.append('pickup_time')
+                if not job.service_type:
+                    missing.append('service_type')
+                if job.final_price is None:
+                    missing.append('final_price')
+                if missing:
+                    invalid_jobs.append(f"Job #{job.id}: missing {', '.join(missing)}")
+
+            if invalid_jobs:
+                error_msg = f"Cannot generate invoice {invoice_id}: " + "; ".join(invalid_jobs)
+                current_app.logger.error(error_msg)
+                raise ValueError(error_msg)
 
             # Debug: Log which jobs were found
             from flask import current_app
@@ -797,7 +843,7 @@ class InvoiceService:
                     ServiceType=service.name if service else job.service_type,
                     VehicleType=vehicle_type_name,
                     CustomerReference=customer_reference,
-                    amount=Decimal(str(job.final_price)),
+                    amount=Decimal(str(job.final_price or 0)),
                     cash_collect=Decimal(str(job.cash_to_collect or 0))
                 ))
         
@@ -814,16 +860,18 @@ class InvoiceService:
             raw_gst = billing_settings.get("gst_percent", 0) or 0
             gst_percent = Decimal(str(raw_gst))  
 
-            # Sub Total Fallback Logic
-            # If invoice.total_amount is None, calculate it from jobs
-            if invoice.total_amount is None:
-                sub_total = sum(job.final_price or 0 for job in jobs)
-            else:
-                sub_total = invoice.total_amount
-                
-            # Ensure sub_total is a Decimal
-            if not isinstance(sub_total, Decimal):
-                sub_total = Decimal(str(sub_total))
+            # Always recompute from jobs for accuracy
+            computed_total = sum(Decimal(str(job.final_price or 0)) for job in jobs)
+            sub_total = computed_total
+
+            # Log discrepancies for audit
+            if invoice.total_amount is not None:
+                stored = Decimal(str(invoice.total_amount))
+                if abs(stored - computed_total) > Decimal("0.01"):
+                    current_app.logger.warning(
+                        f"Invoice {invoice.id} total mismatch: stored={stored}, "
+                        f"computed={computed_total}. Using computed."
+                    )
                 
             gst_amount = (sub_total * gst_percent / Decimal("100")).quantize(
                 Decimal("0.01"), rounding=ROUND_HALF_UP
@@ -862,17 +910,8 @@ class InvoiceService:
             elif customer.email:
                 customer_contact = customer.email
 
-            # Pre-calculate balance_amount as per specification
-            balance_amount = (sub_total + gst_amount - cash_collect_total).quantize(
-                Decimal("0.01"), rounding=ROUND_HALF_UP
-            )
-
-            # Format customer address - split into multiple lines if it doesn't already have newlines
+            # Use address as-is; template handles wrapping
             customer_address = customer.address or ""
-            if customer_address and '\n' not in customer_address:
-                # Split address by comma and join with newline
-                address_parts = [part.strip() for part in customer_address.split(',')]
-                customer_address = '\n'.join(address_parts)
 
             # Add country and zip code if available
             if customer.country or customer.zip_code:
@@ -903,7 +942,6 @@ class InvoiceService:
             gst_amount=gst_amount,
             cash_collect_total=cash_collect_total,
             total_amount=grand_total,
-            balance_amount=balance_amount,
             company_address= company_address,
             email=email,
             contact_number=contact_number,
@@ -988,7 +1026,7 @@ class InvoiceService:
                     )
                     # Try fallback to ReportLab
                     current_app.logger.warning("WeasyPrint failed, falling back to ReportLab for invoice generation")
-                    return InvoiceService.generate_invoice_pdf(invoice)
+                    return InvoiceService.generate_invoice_pdf_reportlab(invoice)
 
                 # Step 3: Atomically move the file into place
                 os.replace(temp_pdf, pdf_final_path)
@@ -997,12 +1035,12 @@ class InvoiceService:
 
             except Exception as e:
                 current_app.logger.error(
-                    f"Error during PDF generation or atomic save for invoice {invoice_id}: {e}", 
+                    f"Error during PDF generation or atomic save for invoice {invoice_id}: {e}",
                     exc_info=True
                 )
                 # Try fallback to ReportLab
-                current_app.logger.warning("WeasyPrint failed, falling back to ReportLab for invoice generation")
-                return InvoiceService.generate_invoice_pdf(invoice)
+                current_app.logger.warning(f"WeasyPrint failed: {e}, falling back to ReportLab for invoice generation")
+                return InvoiceService.generate_invoice_pdf_reportlab(invoice)
             finally:
                 if temp_pdf and temp_pdf.exists():
                     try:

@@ -849,13 +849,13 @@ def main():
                 # Add cash collected for 20% of jobs
                 cash_to_collect = random.choice(cash_to_collect_amounts) if random.random() < 0.3 else None
                 
-                # Don't assign driver and vehicle for 'pending' and 'new' statuses
+                # Don't assign driver, vehicle, and vehicle_type for 'pending' and 'new' statuses
                 if status in ['pending', 'new']:
                     get_or_create(Job, customer_id=cust.id, sub_customer_name=subcust.name,
                                   service_type=svc, pickup_location='Alpha Airport', dropoff_location='Orchard Hotel',
                                   pickup_date=str(job_date), pickup_time='09:00', status=status,
                                   base_price=base, final_price=final, job_cost=job_cost, penalty=penalty, passenger_name=passenger_name,
-                                  contractor_id=contractor.id, vehicle_type_id=veh_type.id, booking_ref=booking_ref,
+                                  contractor_id=contractor.id, booking_ref=booking_ref,
                                   cash_to_collect=cash_to_collect)
                 else:
                     get_or_create(Job, customer_id=cust.id, sub_customer_name=subcust.name, driver_id=drv.id, vehicle_id=veh.id,
@@ -893,13 +893,13 @@ def main():
                 # Add cash collected for 20% of jobs
                 cash_to_collect = random.choice(cash_to_collect_amounts) if random.random() < 0.3 else None
                 
-                # Don't assign driver and vehicle for 'pending' and 'new' statuses
+                # Don't assign driver, vehicle, and vehicle_type for 'pending' and 'new' statuses
                 if status in ['pending', 'new']:
                     get_or_create(Job, customer_id=cust.id, sub_customer_name=subcust.name,
                                   service_type=svc, pickup_location='Raffles Place', dropoff_location='Jurong East',
                                   pickup_date=str(job_date), pickup_time='15:00', status=status,
                                   base_price=base, final_price=final, job_cost=job_cost, penalty=penalty, passenger_name=passenger_name,
-                                  contractor_id=contractor.id, vehicle_type_id=veh_type.id, booking_ref=booking_ref,
+                                  contractor_id=contractor.id, booking_ref=booking_ref,
                                   cash_to_collect=cash_to_collect)
                 else:
                     get_or_create(Job, customer_id=cust.id, sub_customer_name=subcust.name, driver_id=drv.id, vehicle_id=veh.id,

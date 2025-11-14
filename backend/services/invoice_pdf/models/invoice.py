@@ -28,7 +28,6 @@ class Invoice(BaseModel):
     gst_amount: Decimal
     cash_collect_total: Decimal = Field(ge=0, decimal_places=2)
     total_amount: Decimal = Field(gt=0, decimal_places=2)
-    balance_amount: Decimal = Field(ge=0, decimal_places=2)
 
     email: EmailStr
     company_address: str 
