@@ -204,7 +204,7 @@ body {
 
 /* Totals Section */
 .totals-section {
-    width: 40%;
+    width: 35%;
     margin-left: auto;
 }
 
@@ -264,7 +264,7 @@ body {
     display: flex;
     align-items: flex-start;
     flex: 1;
-    max-width: 50%;
+    max-width: 65%;
 }
 
 .payment-para {
@@ -284,7 +284,8 @@ body {
 .payment-para br {
     display: block;
     content: "";
-    margin-top: 0;
+    margin: 1.5px 0;
+    line-height: 0;
 }
 
 .qr-code {
