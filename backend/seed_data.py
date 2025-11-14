@@ -308,7 +308,7 @@ def main():
                 },
                 "billing_settings": {
                     "company_logo": "/static/uploads/comp_logo_compressed.jpg",
-                    "billing_payment_info": "Kindly arrange all cheques to be made payable to \"GrepX Services Pte Ltd\" and crossed \"A/C Payee Only\".\nAlternatively, for Bank Transfer / Electronic Payment please find our bank details as follows:\nUOB Bank (7375) :  Current A/C : 37****263 \nBank Swift Code : UOVBSGSG\nCorporate Paynow : 2010****9Z",
+                    "billing_payment_info": "Kindly arrange all cheques to be made payable to \"GrepX Services Pte Ltd\" and crossed \"A/C Payee Only\".\nAlternatively, for Bank Transfer / Electronic Payment please find our bank details as follows:\nUOB Bank (7375) \nCurrent A/C : 37****263 \nBank Swift Code : UOVBSGSG\nCorporate Paynow : 2010****9Z",
                     "billing_qr_code_image": "/static/uploads/grepx_qr_compressed.jpg",
                     "gst_percent": 9
                 }

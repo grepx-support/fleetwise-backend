@@ -667,6 +667,67 @@ class InvoiceService:
             for loc in dropoffs[1:]:
                 if loc:
                     lines.append(f" • {loc}")
+
+        # Build 3rd line with extra pickup charges and extra services
+        third_line_parts = []
+
+        # Debug logging
+        from flask import current_app
+        current_app.logger.info(f"[PARTICULARS DEBUG] Job ID: {job.id}")
+
+        # Part 1: Extra Pickup/Dropoff charges (count pickups and dropoffs with price > 0)
+        pickup_prices = [
+            getattr(job, 'pickup_loc1_price', 0) or 0,
+            getattr(job, 'pickup_loc2_price', 0) or 0,
+            getattr(job, 'pickup_loc3_price', 0) or 0,
+            getattr(job, 'pickup_loc4_price', 0) or 0,
+            getattr(job, 'pickup_loc5_price', 0) or 0,
+        ]
+
+        dropoff_prices = [
+            getattr(job, 'dropoff_loc1_price', 0) or 0,
+            getattr(job, 'dropoff_loc2_price', 0) or 0,
+            getattr(job, 'dropoff_loc3_price', 0) or 0,
+            getattr(job, 'dropoff_loc4_price', 0) or 0,
+            getattr(job, 'dropoff_loc5_price', 0) or 0,
+        ]
+
+        current_app.logger.info(f"[PARTICULARS DEBUG] Pickup prices: {pickup_prices}")
+        current_app.logger.info(f"[PARTICULARS DEBUG] Dropoff prices: {dropoff_prices}")
+
+        # Count non-zero pickup and dropoff prices and sum them
+        extra_pickup_count = sum(1 for price in pickup_prices if price > 0)
+        extra_dropoff_count = sum(1 for price in dropoff_prices if price > 0)
+        extra_pickup_total = sum(pickup_prices)
+        extra_dropoff_total = sum(dropoff_prices)
+
+        total_count = extra_pickup_count + extra_dropoff_count
+        total_amount = extra_pickup_total + extra_dropoff_total
+
+        current_app.logger.info(f"[PARTICULARS DEBUG] Extra pickup count: {extra_pickup_count}, Total: {extra_pickup_total}")
+        current_app.logger.info(f"[PARTICULARS DEBUG] Extra dropoff count: {extra_dropoff_count}, Total: {extra_dropoff_total}")
+        current_app.logger.info(f"[PARTICULARS DEBUG] Combined count: {total_count}, Combined total: {total_amount}")
+
+        if total_count > 0:
+            third_line_parts.append(f"Extra Pickup/Dropoff x {total_count} = ${total_amount:.2f}")
+
+        # Part 2: Extra Services from extra_services field
+        extra_services = getattr(job, 'extra_services_data', [])
+        current_app.logger.info(f"[PARTICULARS DEBUG] Extra services: {extra_services}")
+
+        if extra_services:
+            for service in extra_services:
+                if isinstance(service, dict):
+                    price = service.get('price', 0)
+                    current_app.logger.info(f"[PARTICULARS DEBUG] Adding service: Extra Service = ${price}")
+                    third_line_parts.append(f"Extra Service = ${float(price):.2f}")
+
+        current_app.logger.info(f"[PARTICULARS DEBUG] Third line parts: {third_line_parts}")
+
+        # Add the 3rd line if there are any extra charges
+        if third_line_parts:
+            lines.append(" | ".join(third_line_parts))
+
         return "\n".join(lines)
 
 
@@ -699,6 +760,12 @@ class InvoiceService:
             customer = Customer.query.get(invoice.customer_id)
             # Load jobs with vehicle_type relationship eagerly loaded
             jobs = Job.query.options(db.joinedload(Job.vehicle_type)).filter_by(invoice_id=invoice_id).all()
+
+            # Debug: Log which jobs were found
+            from flask import current_app
+            current_app.logger.info(f"[INVOICE JOB DEBUG] Invoice ID: {invoice_id}")
+            current_app.logger.info(f"[INVOICE JOB DEBUG] Jobs found: {[job.id for job in jobs]}")
+            current_app.logger.info(f"[INVOICE JOB DEBUG] Number of jobs: {len(jobs)}")
 
             service_names = [job.service_type for job in jobs if job.service_type]
             services = Service.query.filter(Service.name.in_(service_names)).all()
@@ -799,7 +866,26 @@ class InvoiceService:
             balance_amount = (sub_total + gst_amount - cash_collect_total).quantize(
                 Decimal("0.01"), rounding=ROUND_HALF_UP
             )
-            
+
+            # Format customer address - split into multiple lines if it doesn't already have newlines
+            customer_address = customer.address or ""
+            if customer_address and '\n' not in customer_address:
+                # Split address by comma and join with newline
+                address_parts = [part.strip() for part in customer_address.split(',')]
+                customer_address = '\n'.join(address_parts)
+
+            # Add country and zip code if available
+            if customer.country or customer.zip_code:
+                country_zip_line = ""
+                if customer.country:
+                    country_zip_line = customer.country
+                if customer.zip_code:
+                    country_zip_line += f" - {customer.zip_code}" if country_zip_line else customer.zip_code
+                if customer_address:
+                    customer_address += f"\n{country_zip_line}"
+                else:
+                    customer_address = country_zip_line
+
             doc_invoice = DocInvoice(
             number=f"INV-{invoice.id}",
             date=(invoice.date.date() if hasattr(invoice.date, "date") else invoice.date),
@@ -807,7 +893,7 @@ class InvoiceService:
             from_email=customer.email or "-",
             from_mobile=customer.mobile or "-",
             to_company=customer.name,
-            to_address=customer.address or "",
+            to_address=customer_address,
             customer_contact=customer_contact,
             items=items,
             notes="Thank you for your business!",
