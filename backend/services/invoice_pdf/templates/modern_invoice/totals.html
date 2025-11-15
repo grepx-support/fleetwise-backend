@@ -1,20 +1,33 @@
-<div class="totals-card">
-  <div class="totals-row totals-sub">
-    <span class="label">Sub Total</span>
-    <span class="value">{{ sub_total | round(2) }}</span>
-  </div>
-  <div class="totals-row totals-gst">
-    <span class="label">GST{% if gst_percent is defined %} ({{ gst_percent }}%){% endif %}</span>
-    <span class="value">{{ gst_amount | round(2) }}</span>
-  </div>
-  <div class="totals-row totals-sub">
-    <span class="label">Cash Collected</span>
-    <span class="value">{{ cash_collect_total | round(2) }}</span>
-  </div>
-  
-  <div class="totals-divider"></div>
-  <div class="totals-row totals-grand">
-    <span class="label">Balance Amount</span>
-    <span class="value">{{ total_amount - cash_collect_total | round(2) }}</span>
-  </div>
+<div class="totals-section">
+    <table class="totals-table">
+        <tr class="totals-row">
+            <td class="label">Sub Total</td>
+            <td class="value">{{ cash_collect_total | round(2) }}</td>
+            <td class="value">{{ sub_total | round(2) }}</td>
+        </tr>
+        <tr class="divider-row">
+            <td colspan="3"><hr class="divider"></td>
+        </tr>
+        <tr class="totals-row">
+            <td class="label">GST (9%)</td>
+            <td class="value"></td>
+            <td class="value">{{ gst_amount | round(2) }}</td>
+        </tr>
+        <tr class="divider-row">
+            <td colspan="3"><hr class="divider"></td>
+        </tr>
+        <tr class="totals-row total-amount-row">
+            <td class="label"><b>Total Amount</b></td>
+            <td class="value"></td>
+            <td class="value"><b>{{ total_amount | round(2) }}</b></td>
+        </tr>
+        <tr class="divider-row">
+            <td colspan="3"><hr class="divider"></td>
+        </tr>
+        <tr class="totals-row">
+            <td class="label">Cash Collected</td>
+            <td class="value">{{ cash_collect_total | round(2) }}</td>
+            <td class="value"></td>
+        </tr>
+    </table>
 </div>

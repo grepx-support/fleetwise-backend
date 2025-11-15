@@ -1,0 +1,84 @@
+<!-- Multi-page Items Table Template -->
+{% set items_per_page = items_per_page | default(18) %}
+{% set total_pages = ((items|length - 1) // items_per_page) + 1 if items else 1 %}
+
+<!-- First Page Table -->
+<div class="items-section first-page-items">
+    <table class="items-table">
+        <thead>
+            <tr>
+                <th class="date-and-time">Date & Time</th>
+                <th class="cust-ref">Cust Ref</th>
+                <th class="job-id">Job ID</th>
+                <th class="particulars">Particulars</th>
+                <th class="vehicle-type">Vehicle Type</th>
+                <th class="cash-collected">Cash Collected</th>
+                <th class="amount">Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in items[:items_per_page] %}
+            <tr>
+                <td class="date-and-time">{{ item.Date }} {{item.Time}}</td>
+                <td class="cust-ref">{{ item.CustomerReference }}</td>
+                <td class="job-id">{{ item.Job }}</td>
+                <td class="particulars">{{ item.Particulars | safe}}</td>
+                <td class="vehicle-type">{{ item.VehicleType }}</td>
+                <td class="cash-collected">{{ item.cash_collect }}</td>
+                <td class="amount">{{ item.amount }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    
+    {% if items|length > items_per_page %}
+    <div class="table-continued"></div>
+    {% endif %}
+</div>
+
+<!-- Additional Pages -->
+{% if items|length > items_per_page %}
+    {% set remaining_items = items[items_per_page:] %}
+    {% for page_items in remaining_items | batch(items_per_page) %}
+        {% set page_number = loop.index + 1 %}
+        
+        <div class="page-break"></div>
+        
+        <div class="items-section continuation-items">
+            {% if loop.first %}
+            <div class="table-continuation"></div>
+            {% endif %}
+            
+            <table class="items-table">
+                <thead>
+                    <tr>
+                        <th class="date-and-time">Date & Time</th>
+                        <th class="cust-ref">Cust Ref</th>
+                        <th class="job-id">Job ID</th>
+                        <th class="particulars">Particulars</th>
+                        <th class="vehicle-type">Vehicle Type</th>
+                        <th class="cash-collected">Cash Collected</th>
+                        <th class="amount">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in page_items %}
+                    <tr>
+                        <td class="date-and-time">{{ item.Date }} {{item.Time}}</td>
+                        <td class="cust-ref">{{ item.CustomerReference }}</td>
+                        <td class="job-id">{{ item.Job }}</td>
+                        <td class="particulars">{{ item.Particulars | safe}}</td>
+                        <td class="vehicle-type">{{ item.VehicleType }}</td>
+                        <td class="cash-collected">{{ item.cash_collect }}</td>
+                        <td class="amount">{{ item.amount }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            
+            {% if not loop.last %}
+            <div class="table-continued"></div>
+            {% endif %}
+        </div>
+    {% endfor %}
+{% endif %}

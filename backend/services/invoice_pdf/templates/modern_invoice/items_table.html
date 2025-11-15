@@ -2,25 +2,27 @@
     <table class="items-table">
         <thead>
             <tr>
-                <th>Date & Time</th>
-                <th>Job</th>
-                <th>Particulars</th>
-                <th>Cash Collected</th>
-                <th>Amount</th>
+                <th class="date-and-time">Date & Time</th>
+                <th class="cust-ref">Cust Ref</th>
+                <th class="job-id">Job ID</th>
+                <th class="particulars">Particulars</th>
+                <th class="vehicle-type">Vehicle Type</th>
+                <th class="cash-collected">Cash Collected</th>
+                <th class="amount">Amount</th>
             </tr>
         </thead>
         <tbody>
             {% for item in items %}
             <tr>
-                <td class="date-and-time">{{ item.Date }} {{item.Time}}</td>
+                <td class="date-and-time">{{ item.Date }} {{ item.Time }}</td>
+                <td class="cust-ref">{{ item.CustomerReference }}</td>
                 <td class="job-id">{{ item.Job }}</td>
-                <td class="particulars">{{item.ServiceType}} <br/> {{ item.Particulars | safe}}</td>
-                <td class="total">{{ item.cash_collect }}</td>
-                <td class="total">{{ item.amount }}</td>
+                <td class="particulars">{{ item.Particulars | safe}}</td>
+                <td class="vehicle-type">{{ item.VehicleType }}</td>
+                <td class="cash-collected">{{ item.cash_collect | round(2) }}</td>
+                <td class="amount">{{ item.amount | round(2)}}</td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
-    
-
-  
+</div>
