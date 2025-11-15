@@ -13,6 +13,7 @@ from backend.models.contractor_service_pricing import ContractorServicePricing
 from backend.models.service import Service
 from backend.models.ServicesVehicleTypePrice import ServicesVehicleTypePrice
 from backend.models.vehicle_type import VehicleType
+from backend.models.driver_leave import DriverLeave
 from datetime import datetime
 from backend.services.push_notification_service import PushNotificationService
 from decimal import Decimal
@@ -193,6 +194,32 @@ class JobService:
             return None
 
     @staticmethod
+    def check_driver_on_leave(driver_id, pickup_date):
+        """
+        Check if a driver is on approved leave on the job's pickup date.
+
+        Args:
+            driver_id: ID of the driver to check
+            pickup_date: Date of the job (YYYY-MM-DD format)
+
+        Returns:
+            DriverLeave object if driver is on leave, None otherwise
+        """
+        try:
+            leave = DriverLeave.query.filter(
+                DriverLeave.driver_id == driver_id,
+                DriverLeave.status == 'approved',
+                DriverLeave.start_date <= pickup_date,
+                DriverLeave.end_date >= pickup_date,
+                DriverLeave.is_deleted == False
+            ).first()
+
+            return leave
+        except Exception as e:
+            logging.error(f"Error checking driver leave: {e}", exc_info=True)
+            return None
+
+    @staticmethod
     def get_all():
         try:
             # Load vehicle_type relationship for table view
@@ -247,14 +274,24 @@ class JobService:
     def create(data):
         try:
             logging.info(f"Creating job with data: {data}")
-            
+
             # Validate driver-vehicle relationship if both are provided
             driver_id = data.get('driver_id')
             vehicle_id = data.get('vehicle_id')
             contractor_id = data.get('contractor_id')
+            pickup_date = data.get('pickup_date')
 
             # Use the shared validation method
             JobService._validate_driver_vehicle_assignment(driver_id, vehicle_id)
+
+            # Check if driver is on leave during the job date
+            if driver_id and pickup_date:
+                driver_leave = JobService.check_driver_on_leave(driver_id, pickup_date)
+                if driver_leave:
+                    raise ServiceError(
+                        f"Driver is on {driver_leave.leave_type.replace('_', ' ')} leave from "
+                        f"{driver_leave.start_date} to {driver_leave.end_date}. Please select a different driver."
+                    )
 
             # Enforce contractor requirement for confirmed status
             if not contractor_id:
@@ -494,6 +531,20 @@ class JobService:
 
             # Use the shared validation method
             JobService._validate_driver_vehicle_assignment(driver_id, vehicle_id)
+
+            # Check if driver is on leave during the job date (if driver or pickup_date is being updated)
+            job = Job.query.get(job_id)
+            if job:
+                check_driver_id = driver_id if driver_id is not None else job.driver_id
+                check_pickup_date = data.get('pickup_date') if data.get('pickup_date') is not None else job.pickup_date
+
+                if check_driver_id and check_pickup_date:
+                    driver_leave = JobService.check_driver_on_leave(check_driver_id, check_pickup_date)
+                    if driver_leave:
+                        raise ServiceError(
+                            f"Driver is on {driver_leave.leave_type.replace('_', ' ')} leave from "
+                            f"{driver_leave.start_date} to {driver_leave.end_date}. Please select a different driver."
+                        )
 
             # Enforce contractor requirement for confirmed status
             if not contractor_id:

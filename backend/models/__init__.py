@@ -13,4 +13,6 @@ from backend.models.password_reset_token import PasswordResetToken
 from backend.models.contractor import Contractor
 from backend.models.contractor_service_pricing import ContractorServicePricing
 from backend.models.job_audit import JobAudit
-from backend.models.bill import Bill 
+from backend.models.bill import Bill
+from backend.models.driver_leave import DriverLeave
+from backend.models.job_reassignment import JobReassignment 
