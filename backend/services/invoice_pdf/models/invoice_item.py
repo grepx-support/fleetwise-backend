@@ -1,9 +1,5 @@
-"""
-Invoice item model
-"""
-
 from decimal import Decimal
-from pydantic import BaseModel, Field, ConfigDict, constr
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import date, time
 
 class InvoiceItem(BaseModel):
@@ -12,7 +8,9 @@ class InvoiceItem(BaseModel):
     Time: time
     Job: str
     Particulars: str = Field(min_length=1, max_length=200)
-    ServiceType: str = constr(strip_whitespace=True, min_length=1) 
+    ServiceType: str
+    VehicleType: str
+    CustomerReference: str = ""
     amount: Decimal = Field(gt=0, decimal_places=2)
     cash_collect: Decimal = Field(ge=0, decimal_places=2, default=Decimal("0.00"))
 
@@ -28,4 +26,4 @@ class InvoiceItem(BaseModel):
     
     @property
     def total(self) -> Decimal:
-        return self.subtotal + self.tax_amount 
+        return self.subtotal + self.tax_amount
