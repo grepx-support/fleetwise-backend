@@ -1,5 +1,5 @@
 from backend.extensions import db
-from sqlalchemy import false
+from sqlalchemy import false, Index
 from datetime import datetime
 
 class DriverLeave(db.Model):
@@ -8,8 +8,8 @@ class DriverLeave(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     driver_id = db.Column(db.Integer, db.ForeignKey('driver.id'), nullable=False)
     leave_type = db.Column(db.String(32), nullable=False)  # sick_leave, vacation, personal, emergency
-    start_date = db.Column(db.String(32), nullable=False)  # Format: YYYY-MM-DD
-    end_date = db.Column(db.String(32), nullable=False)    # Format: YYYY-MM-DD
+    start_date = db.Column(db.Date, nullable=False)  # Changed from String to Date
+    end_date = db.Column(db.Date, nullable=False)    # Changed from String to Date
     status = db.Column(db.String(32), default='approved', nullable=False)  # approved, pending, rejected, cancelled
     reason = db.Column(db.String(512), nullable=True)
     created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
@@ -20,6 +20,14 @@ class DriverLeave(db.Model):
     # Relationships
     driver = db.relationship('Driver', backref='leaves', lazy=True)
     created_by_user = db.relationship('User', foreign_keys=[created_by], lazy=True)
+
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_driver_leave_driver_status', 'driver_id', 'status'),
+        Index('idx_driver_leave_dates', 'start_date', 'end_date'),
+        Index('idx_driver_leave_driver_dates', 'driver_id', 'start_date', 'end_date'),
+        Index('idx_driver_leave_status', 'status'),
+    )
 
     @classmethod
     def query_active(cls):

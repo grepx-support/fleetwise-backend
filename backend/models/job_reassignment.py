@@ -1,5 +1,5 @@
 from backend.extensions import db
-from sqlalchemy import false
+from sqlalchemy import false, Index
 from datetime import datetime
 
 class JobReassignment(db.Model):
@@ -32,6 +32,13 @@ class JobReassignment(db.Model):
     original_driver = db.relationship('Driver', foreign_keys=[original_driver_id], lazy=True)
     new_driver = db.relationship('Driver', foreign_keys=[new_driver_id], lazy=True)
     reassigned_by_user = db.relationship('User', foreign_keys=[reassigned_by], lazy=True)
+
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_job_reassignment_job', 'job_id'),
+        Index('idx_job_reassignment_leave', 'driver_leave_id'),
+        Index('idx_job_reassignment_type', 'reassignment_type'),
+    )
 
     @classmethod
     def query_active(cls):

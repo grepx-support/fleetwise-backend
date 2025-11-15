@@ -1,5 +1,6 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
+from typing import Dict, List, Any, Optional, Union
 from backend.extensions import db
 from backend.models.driver_leave import DriverLeave
 from backend.models.job_reassignment import JobReassignment
@@ -21,7 +22,15 @@ class ServiceError(Exception):
 
 class DriverLeaveService:
     @staticmethod
-    def create_leave(driver_id, leave_type, start_date, end_date, reason=None, status='approved', created_by=None):
+    def create_leave(
+        driver_id: int,
+        leave_type: str,
+        start_date: Union[str, date],
+        end_date: Union[str, date],
+        reason: Optional[str] = None,
+        status: str = 'approved',
+        created_by: Optional[int] = None
+    ) -> Dict[str, Any]:
         """
         Create a new driver leave record.
 
@@ -45,12 +54,22 @@ class DriverLeaveService:
         if not driver:
             raise ServiceError(f"Driver with ID {driver_id} not found or is inactive")
 
-        # Validate dates
-        try:
-            start_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
-            end_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
-        except ValueError:
-            raise ServiceError("Invalid date format. Use YYYY-MM-DD")
+        # Convert string dates to date objects if necessary
+        if isinstance(start_date, str):
+            try:
+                start_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
+            except ValueError:
+                raise ServiceError("Invalid start_date format. Use YYYY-MM-DD")
+        else:
+            start_dt = start_date
+
+        if isinstance(end_date, str):
+            try:
+                end_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
+            except ValueError:
+                raise ServiceError("Invalid end_date format. Use YYYY-MM-DD")
+        else:
+            end_dt = end_date
 
         if end_dt < start_dt:
             raise ServiceError("End date cannot be before start date")
@@ -65,40 +84,40 @@ class DriverLeaveService:
         if status not in allowed_statuses:
             raise ServiceError(f"Invalid status. Must be one of: {', '.join(allowed_statuses)}")
 
-        # Check for overlapping leaves
+        # Check for overlapping leaves with row-level locking (prevents race conditions)
         overlapping_leaves = DriverLeave.query_active().filter(
             DriverLeave.driver_id == driver_id,
             DriverLeave.status.in_(['approved', 'pending']),
             db.or_(
                 # New leave starts during existing leave
                 db.and_(
-                    DriverLeave.start_date <= start_date,
-                    DriverLeave.end_date >= start_date
+                    DriverLeave.start_date <= start_dt,
+                    DriverLeave.end_date >= start_dt
                 ),
                 # New leave ends during existing leave
                 db.and_(
-                    DriverLeave.start_date <= end_date,
-                    DriverLeave.end_date >= end_date
+                    DriverLeave.start_date <= end_dt,
+                    DriverLeave.end_date >= end_dt
                 ),
                 # New leave completely contains existing leave
                 db.and_(
-                    DriverLeave.start_date >= start_date,
-                    DriverLeave.end_date <= end_date
+                    DriverLeave.start_date >= start_dt,
+                    DriverLeave.end_date <= end_dt
                 )
             )
-        ).first()
+        ).with_for_update().first()  # Added row-level locking
 
         if overlapping_leaves:
             raise ServiceError(
                 f"Driver already has a leave scheduled from {overlapping_leaves.start_date} to {overlapping_leaves.end_date}"
             )
 
-        # Create leave record
+        # Create leave record with date objects
         leave = DriverLeave(
             driver_id=driver_id,
             leave_type=leave_type,
-            start_date=start_date,
-            end_date=end_date,
+            start_date=start_dt,  # Use date object
+            end_date=end_dt,      # Use date object
             status=status,
             reason=reason,
             created_by=created_by,
@@ -110,11 +129,11 @@ class DriverLeaveService:
         db.session.flush()  # Get the leave ID
 
         # Find affected jobs
-        affected_jobs = DriverLeaveService.get_affected_jobs(driver_id, start_date, end_date)
+        affected_jobs = DriverLeaveService.get_affected_jobs(driver_id, start_dt, end_dt)
 
         db.session.commit()
 
-        logger.info(f"Created leave ID {leave.id} for driver {driver_id} from {start_date} to {end_date}")
+        logger.info(f"Created leave ID {leave.id} for driver {driver_id} from {start_dt} to {end_dt}")
 
         return {
             'leave': leave,
@@ -124,33 +143,50 @@ class DriverLeaveService:
         }
 
     @staticmethod
-    def get_affected_jobs(driver_id, start_date, end_date):
+    def get_affected_jobs(driver_id: int, start_date: Union[str, date], end_date: Union[str, date]) -> List[Job]:
         """
         Get all jobs assigned to a driver during the leave period.
 
         Args:
             driver_id: ID of the driver
-            start_date: Start date in YYYY-MM-DD format
-            end_date: End date in YYYY-MM-DD format
+            start_date: Start date as string (YYYY-MM-DD) or date object
+            end_date: End date as string (YYYY-MM-DD) or date object
 
         Returns:
             list: List of Job objects that need reassignment
         """
+        # Convert to date objects if strings
+        if isinstance(start_date, str):
+            start_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
+        else:
+            start_dt = start_date
+
+        if isinstance(end_date, str):
+            end_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
+        else:
+            end_dt = end_date
+
         active_statuses = ['new', 'pending', 'confirmed', 'otw', 'ots', 'pob']
 
+        # Note: Job.pickup_date might be stored as string, need to handle both
         affected_jobs = Job.query_active().filter(
             Job.driver_id == driver_id,
-            Job.pickup_date >= start_date,
-            Job.pickup_date <= end_date,
+            Job.pickup_date >= start_dt.strftime('%Y-%m-%d'),  # Convert to string for comparison
+            Job.pickup_date <= end_dt.strftime('%Y-%m-%d'),
             Job.status.in_(active_statuses)
         ).order_by(Job.pickup_date, Job.pickup_time).all()
 
         return affected_jobs
 
     @staticmethod
-    def reassign_jobs(leave_id, reassignments, reassigned_by=None):
+    def reassign_jobs(
+        leave_id: int,
+        reassignments: List[Dict[str, Any]],
+        reassigned_by: Optional[int] = None,
+        atomic: bool = True
+    ) -> Dict[str, Any]:
         """
-        Reassign jobs during a driver's leave period.
+        Reassign jobs during a driver's leave period with proper transaction handling.
 
         Args:
             leave_id: ID of the driver leave record
@@ -163,12 +199,14 @@ class DriverLeaveService:
                 - new_contractor_id: (optional) New contractor ID
                 - notes: (optional) Reassignment notes
             reassigned_by: User ID who performed the reassignment
+            atomic: If True (default), rollback all changes if any reassignment fails.
+                   If False, commit successful reassignments even if some fail.
 
         Returns:
-            dict: Summary of reassignment results
+            dict: Summary of reassignment results with success/failed lists
 
         Raises:
-            ServiceError: If validation fails
+            ServiceError: If validation fails or if atomic=True and any reassignment fails
         """
         # Validate leave exists
         leave = DriverLeave.query_active().filter_by(id=leave_id).first()
@@ -181,91 +219,123 @@ class DriverLeaveService:
             'total': len(reassignments)
         }
 
-        for reassignment_data in reassignments:
-            try:
-                # Validate job exists and belongs to the driver on leave
-                job_id = reassignment_data.get('job_id')
-                job = Job.query_active().filter_by(id=job_id).first()
+        # Use savepoint for atomic operations
+        savepoint = None
+        if atomic:
+            savepoint = db.session.begin_nested()
 
-                if not job:
-                    raise ServiceError(f"Job {job_id} not found")
+        try:
+            for reassignment_data in reassignments:
+                try:
+                    # Validate job exists and belongs to the driver on leave
+                    job_id = reassignment_data.get('job_id')
+                    job = Job.query_active().filter_by(id=job_id).first()
 
-                if job.driver_id != leave.driver_id:
-                    raise ServiceError(f"Job {job_id} is not assigned to driver {leave.driver_id}")
+                    if not job:
+                        raise ServiceError(f"Job {job_id} not found")
 
-                # Store original assignment
-                original_driver_id = job.driver_id
-                original_vehicle_id = job.vehicle_id
-                original_contractor_id = job.contractor_id
+                    if job.driver_id != leave.driver_id:
+                        raise ServiceError(f"Job {job_id} is not assigned to driver {leave.driver_id}")
 
-                reassignment_type = reassignment_data.get('reassignment_type')
+                    # Store original assignment
+                    original_driver_id = job.driver_id
+                    original_vehicle_id = job.vehicle_id
+                    original_contractor_id = job.contractor_id
 
-                # Perform reassignment based on type
-                if reassignment_type == 'driver':
-                    DriverLeaveService._reassign_to_driver(
-                        job,
-                        reassignment_data.get('new_driver_id'),
-                        reassignment_data.get('new_vehicle_id'),
-                        leave.start_date,
-                        leave.end_date
+                    reassignment_type = reassignment_data.get('reassignment_type')
+
+                    # Perform reassignment based on type
+                    if reassignment_type == 'driver':
+                        DriverLeaveService._reassign_to_driver(
+                            job,
+                            reassignment_data.get('new_driver_id'),
+                            reassignment_data.get('new_vehicle_id'),
+                            leave.start_date,
+                            leave.end_date
+                        )
+                    elif reassignment_type == 'vehicle':
+                        DriverLeaveService._reassign_to_vehicle(
+                            job,
+                            reassignment_data.get('new_vehicle_id')
+                        )
+                    elif reassignment_type == 'contractor':
+                        DriverLeaveService._reassign_to_contractor(
+                            job,
+                            reassignment_data.get('new_contractor_id')
+                        )
+                    else:
+                        raise ServiceError(f"Invalid reassignment type: {reassignment_type}")
+
+                    # Create reassignment audit record
+                    reassignment = JobReassignment(
+                        job_id=job_id,
+                        driver_leave_id=leave_id,
+                        original_driver_id=original_driver_id,
+                        original_vehicle_id=original_vehicle_id,
+                        original_contractor_id=original_contractor_id,
+                        reassignment_type=reassignment_type,
+                        new_driver_id=job.driver_id,
+                        new_vehicle_id=job.vehicle_id,
+                        new_contractor_id=job.contractor_id,
+                        notes=reassignment_data.get('notes'),
+                        reassigned_by=reassigned_by,
+                        reassigned_at=datetime.utcnow()
                     )
-                elif reassignment_type == 'vehicle':
-                    DriverLeaveService._reassign_to_vehicle(
-                        job,
-                        reassignment_data.get('new_vehicle_id')
-                    )
-                elif reassignment_type == 'contractor':
-                    DriverLeaveService._reassign_to_contractor(
-                        job,
-                        reassignment_data.get('new_contractor_id')
-                    )
-                else:
-                    raise ServiceError(f"Invalid reassignment type: {reassignment_type}")
 
-                # Create reassignment audit record
-                reassignment = JobReassignment(
-                    job_id=job_id,
-                    driver_leave_id=leave_id,
-                    original_driver_id=original_driver_id,
-                    original_vehicle_id=original_vehicle_id,
-                    original_contractor_id=original_contractor_id,
-                    reassignment_type=reassignment_type,
-                    new_driver_id=job.driver_id,
-                    new_vehicle_id=job.vehicle_id,
-                    new_contractor_id=job.contractor_id,
-                    notes=reassignment_data.get('notes'),
-                    reassigned_by=reassigned_by,
-                    reassigned_at=datetime.utcnow()
-                )
+                    db.session.add(reassignment)
 
-                db.session.add(reassignment)
+                    results['success'].append({
+                        'job_id': job_id,
+                        'reassignment_type': reassignment_type,
+                        'message': f"Job {job_id} successfully reassigned"
+                    })
 
-                results['success'].append({
-                    'job_id': job_id,
-                    'reassignment_type': reassignment_type,
-                    'message': f"Job {job_id} successfully reassigned"
-                })
+                    logger.info(f"Job {job_id} reassigned: {reassignment_type}")
 
-                logger.info(f"Job {job_id} reassigned: {reassignment_type}")
+                except ServiceError as e:
+                    results['failed'].append({
+                        'job_id': reassignment_data.get('job_id'),
+                        'error': str(e)
+                    })
+                    logger.error(f"Failed to reassign job {reassignment_data.get('job_id')}: {str(e)}")
 
-            except ServiceError as e:
-                results['failed'].append({
-                    'job_id': reassignment_data.get('job_id'),
-                    'error': str(e)
-                })
-                logger.error(f"Failed to reassign job {reassignment_data.get('job_id')}: {str(e)}")
-                continue
-            except Exception as e:
-                results['failed'].append({
-                    'job_id': reassignment_data.get('job_id'),
-                    'error': str(e)
-                })
-                logger.error(f"Unexpected error reassigning job {reassignment_data.get('job_id')}: {str(e)}")
-                continue
+                    if atomic:
+                        # Rollback entire transaction on first failure
+                        if savepoint:
+                            savepoint.rollback()
+                        raise ServiceError(f"Atomic reassignment failed: {str(e)}. All changes rolled back.")
+                    # If not atomic, continue with next reassignment
+                    continue
 
-        db.session.commit()
+                except Exception as e:
+                    results['failed'].append({
+                        'job_id': reassignment_data.get('job_id'),
+                        'error': str(e)
+                    })
+                    logger.error(f"Unexpected error reassigning job {reassignment_data.get('job_id')}: {str(e)}")
 
-        return results
+                    if atomic:
+                        # Rollback entire transaction on unexpected error
+                        if savepoint:
+                            savepoint.rollback()
+                        raise ServiceError(f"Atomic reassignment failed: {str(e)}. All changes rolled back.")
+                    # If not atomic, continue with next reassignment
+                    continue
+
+            # If we get here and atomic mode is on, commit the nested transaction
+            db.session.commit()
+
+            return results
+
+        except ServiceError:
+            # Re-raise ServiceError (already logged)
+            db.session.rollback()
+            raise
+        except Exception as e:
+            # Unexpected error in outer try block
+            db.session.rollback()
+            logger.error(f"Fatal error in reassign_jobs: {str(e)}", exc_info=True)
+            raise ServiceError(f"Reassignment transaction failed: {str(e)}")
 
     @staticmethod
     def _reassign_to_driver(job, new_driver_id, new_vehicle_id=None, leave_start_date=None, leave_end_date=None):

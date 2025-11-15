@@ -298,7 +298,7 @@ def get_driver_leave_history(driver_id):
 
 
 @driver_leave_bp.route('/drivers/<int:driver_id>/check-leave', methods=['GET'])
-@auth_required()
+@roles_accepted('admin', 'manager', 'accountant', 'driver')
 def check_driver_leave_status(driver_id):
     """
     Check if a driver is on leave for a specific date.
@@ -306,6 +306,13 @@ def check_driver_leave_status(driver_id):
         - date: Date to check in YYYY-MM-DD format (required)
     """
     try:
+        # Authorization check: only allow access if admin/manager/accountant or the driver themselves
+        if not (current_user.has_role('admin') or
+                current_user.has_role('manager') or
+                current_user.has_role('accountant') or
+                (hasattr(current_user, 'driver_id') and current_user.driver_id == driver_id)):
+            return jsonify({'error': 'Forbidden. You can only check your own leave status.'}), 403
+
         date_str = request.args.get('date')
 
         if not date_str:
