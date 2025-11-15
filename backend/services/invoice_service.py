@@ -33,7 +33,7 @@ from backend.services.invoice_pdf.models.invoice_item import InvoiceItem
 from backend.services.invoice_pdf.models.output_format import OutputFormat
 from py_doc_generator.core.invoice_generator import InvoiceGenerator
 from backend.services.invoice_pdf.utils.logo_path import Logo
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 
 # PDF generation imports
 try:
@@ -48,6 +48,8 @@ try:
     PDF_AVAILABLE = True
 except ImportError:
     PDF_AVAILABLE = False
+
+logger = logging.getLogger(__name__)
 
 class ServiceError(Exception):
     def __init__(self, message):
@@ -131,6 +133,24 @@ class InvoiceService:
             db.session.rollback()
             logging.error(f"Error creating invoice: {e}", exc_info=True)
             raise ServiceError("Could not create invoice. Please try again later.")
+    
+    @staticmethod
+    def _get_gst_percent(billing_settings: dict) -> Decimal:
+        """Extract and validate GST percentage from billing settings."""
+        raw_gst = billing_settings.get("gst_percent")
+        if raw_gst is None:
+            return Decimal("0")
+
+        try:
+            gst_percent = Decimal(str(raw_gst))
+            if gst_percent < 0 or gst_percent > 100:
+                logger.warning(f"Invalid GST percent {gst_percent}, using 0")
+                return Decimal("0")
+            return gst_percent
+        except (ValueError, InvalidOperation) as e:
+            logger.error(f"Failed to parse GST percent '{raw_gst}': {e}")
+            return Decimal("0")
+
 
     @staticmethod
     def generate_invoice_for_jobs(job_ids, customer_id):
@@ -152,11 +172,15 @@ class InvoiceService:
             sub_total = sub_total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
             # determine gst_percent from billing settings (fallback to 0 or desired default)
-            user_settings = UserSettings.query.first()
-            prefs = user_settings.preferences or {} if user_settings else {}
+            try:
+                user_settings = UserSettings.query.first()
+                prefs = user_settings.preferences or {} if user_settings else {}
+            except Exception as e:
+                logger.error(f"Failed to fetch UserSettings: {e}")
+                prefs = {}
             billing_settings = prefs.get("billing_settings", {}) if prefs else {}
-            raw_gst = billing_settings.get("gst_percent", None)
-            gst_percent = Decimal(str(raw_gst)) if raw_gst is not None else Decimal("0")
+            gst_percent = InvoiceService._get_gst_percent(billing_settings)
+
             # calculate gst_amount and grand_total
             cash = sum(Decimal(str(job.cash_to_collect or 0)) for job in jobs)
             gst_amount = (sub_total * gst_percent / Decimal("100")).quantize(
@@ -166,13 +190,12 @@ class InvoiceService:
                 Decimal("0.01"), rounding=ROUND_HALF_UP
             )
 
-            db.session.flush()
             invoice = Invoice(
                 customer_id=customer_id,
                 date=datetime.utcnow(),
                 status='Unpaid',
-                total_amount=float(grand_total) if isinstance(getattr(Invoice, "total_amount", None), property) or True else grand_total,
-                remaining_amount_invoice=float(grand_total - cash) if isinstance(getattr(Invoice, "remaining_amount", None), property) or True else grand_total - cash,
+                total_amount=float(grand_total) if not isinstance(Invoice.total_amount, property) else grand_total,
+                remaining_amount_invoice=float(grand_total - cash),
             )
             db.session.add(invoice)
             db.session.flush()
@@ -180,15 +203,13 @@ class InvoiceService:
                 job_ids_with_cash = [str(job.id) for job in jobs if job.cash_to_collect and job.cash_to_collect > 0]
                 payment = Payment(
                 invoice_id=invoice.id,
-                amount=float(cash),
+                amount=float(cash.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)),
                 date=datetime.utcnow(),
                 notes=f"Cash collected from jobs: {', '.join(job_ids_with_cash)}"
                 )
                 db.session.add(payment)
-                db.session.commit()
             for job in jobs:
                 job.invoice_id = invoice.id
-                job.final_price = float(Decimal(str(job.final_price or 0)) * (1 + gst_percent / Decimal("100")))
             db.session.commit()
             breakdown = [{'job_id': job.id, 'final_price': job.final_price} for job in jobs]
             return {
@@ -276,20 +297,23 @@ class InvoiceService:
             invoice = Invoice.query.get(invoice_id)
             if not invoice:
                 return {'error': 'Invoice not found'}
-            user_settings = UserSettings.query.first()
-            prefs = user_settings.preferences or {} if user_settings else {}
+            try:
+                user_settings = UserSettings.query.first()
+                prefs = user_settings.preferences or {} if user_settings else {}
+            except Exception as e:
+                logger.error(f"Failed to fetch UserSettings: {e}")
+                prefs = {}
             billing_settings = prefs.get("billing_settings", {})
-            raw_gst = billing_settings.get("gst_percent", 0)
 
-            gst_percent = Decimal(str(raw_gst))
-            gst_multiplier = float(1 + gst_percent / Decimal("100"))
+            gst_percent = InvoiceService._get_gst_percent(billing_settings)
+            # gst_multiplier = float(1 + gst_percent / Decimal("100"))
 
             jobs = Job.query.filter(Job.invoice_id == invoice_id, Job.is_deleted.is_(False)).all()
             for job in jobs:
                 job.invoice_id = None
                 if job.final_price:
                     job.final_price = float(
-                        Decimal(str(job.final_price)) / Decimal(str(gst_multiplier))
+                        Decimal(str(job.final_price))
                         )
             db.session.delete(invoice)
             db.session.commit()
@@ -513,21 +537,23 @@ class InvoiceService:
             service_map = {s.name: s for s in services}
 
             # Billing Settings
-            user_settings = UserSettings.query.first()
-            prefs = user_settings.preferences or {} if user_settings else {}
+            try:
+                user_settings = UserSettings.query.first()
+                prefs = user_settings.preferences or {} if user_settings else {}
+            except Exception as e:
+                logger.error(f"Failed to fetch UserSettings: {e}")
+                prefs = {}
             billing_settings = prefs.get("billing_settings", {})
             company_logo = billing_settings.get("company_logo", "")
             logo_path = Logo.safe_logo_path(company_logo)
 
             # GST
-            raw_gst = billing_settings.get("gst_percent", 0) or 0
-            gst_percent = Decimal(str(raw_gst))  
+            gst_percent = InvoiceService._get_gst_percent(billing_settings)
         
             # Build items for py-doc-generator
             items = []
             for job in jobs:
-                price_without_gst = ( Decimal(str(job.final_price or 0)) /
-                (1 + gst_percent / Decimal("100")))
+                price_without_gst = Decimal(str(job.final_price or 0)) 
                 service = service_map.get(job.service_type)
                 items.append(InvoiceItem(
                 Date=job.pickup_date,
