@@ -168,6 +168,11 @@ body {
     min-width: 150px;
 }
 
+.service-type {
+    width: 110px;
+    max-width: 130px;
+}
+
 .vehicle-type {
     width: 100px;
     max-width: 120px;
@@ -192,6 +197,8 @@ body {
 .items-table th.particulars,
 .items-table td.cust-ref,
 .items-table th.cust-ref,
+.items-table td.service-type,
+.items-table th.service-type,
 .items-table td.vehicle-type,
 .items-table th.vehicle-type {
     word-wrap: break-word;
