@@ -117,9 +117,16 @@ def upgrade() -> None:
     op.create_index('idx_job_reassignment_leave', 'job_reassignment', ['driver_leave_id'], unique=False)
     op.create_index('idx_job_reassignment_type', 'job_reassignment', ['reassignment_type'], unique=False)
 
+    # Add composite index on job table for driver leave queries
+    # This improves performance when searching for jobs by driver and date range
+    op.create_index('idx_job_driver_pickup_date', 'job', ['driver_id', 'pickup_date'], unique=False)
+
 
 def downgrade() -> None:
     """Downgrade schema."""
+    # Drop composite index on job table
+    op.drop_index('idx_job_driver_pickup_date', table_name='job')
+
     # Drop driver leave management tables and indexes
     # Drop job_reassignment indexes
     op.drop_index('idx_job_reassignment_type', table_name='job_reassignment')

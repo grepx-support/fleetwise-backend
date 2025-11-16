@@ -112,13 +112,26 @@ class DriverLeaveService:
                 f"Driver already has a leave scheduled from {overlapping_leaves.start_date} to {overlapping_leaves.end_date}"
             )
 
+        # Force status to 'pending' if there are affected jobs and status is 'approved'
+        # This prevents approving leaves without reassigning jobs first
+        effective_status = status
+        if status == 'approved':
+            # Check if there would be affected jobs
+            affected_jobs_check = DriverLeaveService.get_affected_jobs(driver_id, start_dt, end_dt)
+            if affected_jobs_check:
+                effective_status = 'pending'
+                logger.warning(
+                    f"Leave creation: status changed from 'approved' to 'pending' "
+                    f"because {len(affected_jobs_check)} affected jobs need reassignment"
+                )
+
         # Create leave record with date objects
         leave = DriverLeave(
             driver_id=driver_id,
             leave_type=leave_type,
             start_date=start_dt,  # Use date object
             end_date=end_dt,      # Use date object
-            status=status,
+            status=effective_status,  # Use validated status
             reason=reason,
             created_by=created_by,
             created_at=datetime.utcnow(),
@@ -168,10 +181,11 @@ class DriverLeaveService:
 
         active_statuses = ['new', 'pending', 'confirmed', 'otw', 'ots', 'pob']
 
-        # Note: Job.pickup_date might be stored as string, need to handle both
+        # Job.pickup_date is stored as String(32) in YYYY-MM-DD format
+        # Convert date objects to string for comparison
         affected_jobs = Job.query_active().filter(
             Job.driver_id == driver_id,
-            Job.pickup_date >= start_dt.strftime('%Y-%m-%d'),  # Convert to string for comparison
+            Job.pickup_date >= start_dt.strftime('%Y-%m-%d'),
             Job.pickup_date <= end_dt.strftime('%Y-%m-%d'),
             Job.status.in_(active_statuses)
         ).order_by(Job.pickup_date, Job.pickup_time).all()
@@ -348,19 +362,29 @@ class DriverLeaveService:
         if not new_driver:
             raise ServiceError(f"Driver {new_driver_id} not found or inactive")
 
-        # Check if new driver is on leave during the job period
-        if leave_start_date and leave_end_date:
-            conflicting_leave = DriverLeave.query_active().filter(
-                DriverLeave.driver_id == new_driver_id,
-                DriverLeave.status == 'approved',
-                DriverLeave.start_date <= job.pickup_date,
-                DriverLeave.end_date >= job.pickup_date
-            ).first()
+        # Convert job.pickup_date to date object if it's a string
+        if isinstance(job.pickup_date, str):
+            try:
+                job_date = datetime.strptime(job.pickup_date, '%Y-%m-%d').date()
+            except ValueError:
+                raise ServiceError(f"Invalid job pickup_date format: {job.pickup_date}")
+        else:
+            job_date = job.pickup_date
 
-            if conflicting_leave:
-                raise ServiceError(
-                    f"Driver {new_driver_id} is on leave from {conflicting_leave.start_date} to {conflicting_leave.end_date}"
-                )
+        # Always check if new driver is on leave on the job date
+        # This is mandatory to prevent assigning jobs to unavailable drivers
+        conflicting_leave = DriverLeave.query_active().filter(
+            DriverLeave.driver_id == new_driver_id,
+            DriverLeave.status == 'approved',
+            DriverLeave.start_date <= job_date,
+            DriverLeave.end_date >= job_date
+        ).first()
+
+        if conflicting_leave:
+            raise ServiceError(
+                f"Cannot reassign to driver {new_driver_id}: driver is on {conflicting_leave.leave_type} "
+                f"from {conflicting_leave.start_date} to {conflicting_leave.end_date}"
+            )
 
         # Check for scheduling conflicts
         conflict = JobService.check_driver_conflict(
@@ -512,11 +536,30 @@ class DriverLeaveService:
             DriverLeave: Updated leave object
 
         Raises:
-            ServiceError: If validation fails
+            ServiceError: If validation fails or trying to approve with affected jobs
         """
         leave = DriverLeave.query_active().filter_by(id=leave_id).first()
         if not leave:
             raise ServiceError(f"Leave with ID {leave_id} not found")
+
+        # Check if status is being changed to 'approved'
+        if kwargs.get('status') == 'approved':
+            # Get current or updated date range
+            start_date = kwargs.get('start_date', leave.start_date)
+            end_date = kwargs.get('end_date', leave.end_date)
+
+            # Check for affected jobs
+            affected_jobs = DriverLeaveService.get_affected_jobs(
+                leave.driver_id,
+                start_date,
+                end_date
+            )
+
+            if affected_jobs:
+                raise ServiceError(
+                    f"Cannot approve leave: {len(affected_jobs)} job(s) still assigned to driver. "
+                    f"Please reassign all affected jobs before approval."
+                )
 
         # Update allowed fields
         allowed_fields = ['leave_type', 'start_date', 'end_date', 'status', 'reason']
