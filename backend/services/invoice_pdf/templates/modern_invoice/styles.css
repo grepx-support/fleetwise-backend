@@ -148,33 +148,33 @@ body {
 
 /* Column widths for auto table layout - content-aware sizing */
 .date-and-time {
-    width: 100px;
-    max-width: 100px;
+    width: 85px;
+    max-width: 90px;
 }
 
 .cust-ref {
-    width: 80px;
-    max-width: 100px;
+    width: 60px;
+    max-width: 70px;
 }
 
 .job-id {
-    width: 50px;
-    max-width: 60px;
+    width: 45px;
+    max-width: 50px;
     white-space: nowrap;
 }
 
 .particulars {
     width: auto;
-    min-width: 150px;
+    min-width: 220px;
 }
 
 .vehicle-type {
-    width: 100px;
-    max-width: 120px;
+    width: 80px;
+    max-width: 90px;
 }
 
 .cash-collected {
-    width: 90px;
+    width: 75px;
     white-space: nowrap;
     text-align: right;
 }
