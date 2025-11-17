@@ -580,11 +580,8 @@ class InvoiceService:
             # Get customer reference from booking_ref field
             customer_reference = getattr(job, 'booking_ref', '') or ''
 
-            # Get service name
-            service_name = job.service_type or ''
-
-            # Build particulars with service name
-            particulars = InvoiceService.build_particulars(job, service_name)
+            # Build particulars
+            particulars = InvoiceService.build_particulars(job)
 
             table_data.append([
                 f"{job.pickup_date} {job.pickup_time or '-'}",
@@ -732,7 +729,7 @@ class InvoiceService:
 
    
     @staticmethod
-    def build_particulars(job, service_name=None):
+    def build_particulars(job):
         pickups = [
         job.pickup_location,
         getattr(job, "pickup_loc1", None),
@@ -750,6 +747,9 @@ class InvoiceService:
         getattr(job, "dropoff_loc5", None),
     ]
         lines = []
+
+        # Get service name from job
+        service_name = job.service_type or ''
 
         # Add service name as first line if provided
         if service_name:
@@ -905,13 +905,13 @@ class InvoiceService:
                     
                 # Get customer reference from booking_ref field
                 customer_reference = getattr(job, 'booking_ref', '') or ''
-                    
+
                 service_name = service.name if service else job.service_type
                 items.append(InvoiceItem(
                     Date=job.pickup_date,
                     Time=job.pickup_time,
                     Job=f"#{job.id}",
-                    Particulars=InvoiceService.build_particulars(job, service_name),
+                    Particulars=InvoiceService.build_particulars(job),
                     ServiceType=service_name,
                     VehicleType=vehicle_type_name,
                     CustomerReference=customer_reference,
@@ -977,14 +977,30 @@ class InvoiceService:
 
             # If address doesn't have newlines, add line breaks intelligently
             if customer_address and '\n' not in customer_address:
-                # Split long addresses at commas for better readability
-                # But only if address is longer than 40 characters
-                if len(customer_address) > 40 and ',' in customer_address:
-                    parts = [part.strip() for part in customer_address.split(',')]
-                    # Group parts to avoid too many short lines
-                    if len(parts) >= 2:
-                        # First line: first part, Second line: rest
-                        customer_address = parts[0] + '\n' + ', '.join(parts[1:])
+                if len(customer_address) > 40:
+                    if ',' in customer_address:
+                        # Split at commas for addresses with commas
+                        parts = [part.strip() for part in customer_address.split(',')]
+                        if len(parts) >= 2:
+                            # First line: first part, Second line: rest
+                            customer_address = parts[0] + '\n' + ', '.join(parts[1:])
+                    else:
+                        # Fallback for comma-less long addresses: split at space around midpoint
+                        words = customer_address.split()
+                        if len(words) > 1:
+                            # Find split point around 40-50 chars
+                            split_idx = 0
+                            char_count = 0
+                            for i, word in enumerate(words):
+                                char_count += len(word) + 1  # +1 for space
+                                if char_count >= 40:
+                                    split_idx = i
+                                    break
+
+                            if split_idx > 0:
+                                first_line = ' '.join(words[:split_idx])
+                                second_line = ' '.join(words[split_idx:])
+                                customer_address = first_line + '\n' + second_line
 
             # Add country and zip code if available
             if customer.country or customer.zip_code:
