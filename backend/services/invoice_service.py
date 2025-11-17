@@ -579,10 +579,13 @@ class InvoiceService:
             
             # Get customer reference from booking_ref field
             customer_reference = getattr(job, 'booking_ref', '') or ''
-            
-            # Build particulars
-            particulars = InvoiceService.build_particulars(job)
-            
+
+            # Get service name
+            service_name = job.service_type or ''
+
+            # Build particulars with service name
+            particulars = InvoiceService.build_particulars(job, service_name)
+
             table_data.append([
                 f"{job.pickup_date} {job.pickup_time or '-'}",
                 customer_reference,
@@ -729,7 +732,7 @@ class InvoiceService:
 
    
     @staticmethod
-    def build_particulars(job):
+    def build_particulars(job, service_name=None):
         pickups = [
         job.pickup_location,
         getattr(job, "pickup_loc1", None),
@@ -747,7 +750,12 @@ class InvoiceService:
         getattr(job, "dropoff_loc5", None),
     ]
         lines = []
-        # Service type shown in separate column, only show route here
+
+        # Add service name as first line if provided
+        if service_name:
+            lines.append(service_name)
+
+        # Add route information
         if pickups[0]:
             lines.append(f"{pickups[0]} → {dropoffs[0] if dropoffs[0] else ''}")
         else:
@@ -898,12 +906,13 @@ class InvoiceService:
                 # Get customer reference from booking_ref field
                 customer_reference = getattr(job, 'booking_ref', '') or ''
                     
+                service_name = service.name if service else job.service_type
                 items.append(InvoiceItem(
                     Date=job.pickup_date,
                     Time=job.pickup_time,
                     Job=f"#{job.id}",
-                    Particulars=InvoiceService.build_particulars(job),
-                    ServiceType=service.name if service else job.service_type,
+                    Particulars=InvoiceService.build_particulars(job, service_name),
+                    ServiceType=service_name,
                     VehicleType=vehicle_type_name,
                     CustomerReference=customer_reference,
                     amount=Decimal(str(job.final_price or 0)),

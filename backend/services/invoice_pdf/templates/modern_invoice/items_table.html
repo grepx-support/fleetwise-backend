@@ -6,7 +6,6 @@
                 <th class="cust-ref">Cust Ref</th>
                 <th class="job-id">Job ID</th>
                 <th class="particulars">Particulars</th>
-                <th class="service-type">Service Type</th>
                 <th class="vehicle-type">Vehicle Type</th>
                 <th class="cash-collected">Cash Collected</th>
                 <th class="amount">Amount</th>
@@ -19,7 +18,6 @@
                 <td class="cust-ref">{{ item.CustomerReference }}</td>
                 <td class="job-id">{{ item.Job }}</td>
                 <td class="particulars">{{ item.Particulars | safe}}</td>
-                <td class="service-type">{{ item.ServiceType }}</td>
                 <td class="vehicle-type">{{ item.VehicleType }}</td>
                 <td class="cash-collected">{{ item.cash_collect | round(2) }}</td>
                 <td class="amount">{{ item.amount | round(2)}}</td>
