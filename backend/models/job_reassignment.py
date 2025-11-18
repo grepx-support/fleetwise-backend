@@ -15,7 +15,6 @@ class JobReassignment(db.Model):
     original_contractor_id = db.Column(db.Integer, db.ForeignKey('contractor.id'), nullable=True)
 
     # New assignment
-    reassignment_type = db.Column(db.String(32), nullable=False)  # driver, vehicle, contractor
     new_driver_id = db.Column(db.Integer, db.ForeignKey('driver.id'), nullable=True)
     new_vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicle.id'), nullable=True)
     new_contractor_id = db.Column(db.Integer, db.ForeignKey('contractor.id'), nullable=True)
@@ -37,7 +36,6 @@ class JobReassignment(db.Model):
     __table_args__ = (
         Index('idx_job_reassignment_job', 'job_id'),
         Index('idx_job_reassignment_leave', 'driver_leave_id'),
-        Index('idx_job_reassignment_type', 'reassignment_type'),
     )
 
     @classmethod
@@ -51,4 +49,4 @@ class JobReassignment(db.Model):
         return cls.query
 
     def __repr__(self):
-        return f'<JobReassignment {self.id}: Job {self.job_id} - Type: {self.reassignment_type}>'
+        return f'<JobReassignment {self.id}: Job {self.job_id}>'

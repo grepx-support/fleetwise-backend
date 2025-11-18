@@ -315,11 +315,11 @@ def create_leave_with_reassignments():
         - job_reassignments: List of job reassignment objects (required if there are affected jobs)
             Each object should contain:
                 - job_id: ID of the job to reassign (required)
-                - reassignment_type: 'driver', 'vehicle', or 'contractor' (required)
-                - new_driver_id: New driver ID (for 'driver' type)
-                - new_vehicle_id: New vehicle ID (for 'driver' or 'vehicle' type)
-                - new_contractor_id: New contractor ID (for 'contractor' type)
+                - new_driver_id: New driver ID (optional, defaults to 0 if not provided)
+                - new_vehicle_id: New vehicle ID (optional, defaults to 0 if not provided)
+                - new_contractor_id: New contractor ID (optional, defaults to 0 if not provided)
                 - notes: Optional notes about the reassignment
+            Note: Missing fields automatically default to 0 (becomes NULL in database)
     """
     try:
         data = request.get_json()
@@ -445,11 +445,11 @@ def reassign_jobs(leave_id):
         - job_reassignments: List of reassignment objects
             Each object should contain:
                 - job_id: ID of the job to reassign (required)
-                - reassignment_type: 'driver', 'vehicle', or 'contractor' (required)
-                - new_driver_id: New driver ID (for 'driver' type)
-                - new_vehicle_id: New vehicle ID (for 'driver' or 'vehicle' type)
-                - new_contractor_id: New contractor ID (for 'contractor' type)
+                - new_driver_id: New driver ID (optional, defaults to 0 if not provided)
+                - new_vehicle_id: New vehicle ID (optional, defaults to 0 if not provided)
+                - new_contractor_id: New contractor ID (optional, defaults to 0 if not provided)
                 - notes: Optional notes about the reassignment
+            Note: Missing fields automatically default to 0 (becomes NULL in database)
     """
     try:
         data = request.get_json()

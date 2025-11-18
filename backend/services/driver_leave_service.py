@@ -206,12 +206,12 @@ class DriverLeaveService:
             leave_id: ID of the driver leave record
             reassignments: List of dicts with job reassignment details
                 Each dict should contain:
-                - job_id: ID of the job to reassign
-                - reassignment_type: 'driver', 'vehicle', or 'contractor'
-                - new_driver_id: (optional) New driver ID
-                - new_vehicle_id: (optional) New vehicle ID
-                - new_contractor_id: (optional) New contractor ID
-                - notes: (optional) Reassignment notes
+                - job_id: ID of the job to reassign (required)
+                - new_driver_id: New driver ID (optional, defaults to 0/null if not provided)
+                - new_vehicle_id: New vehicle ID (optional, defaults to 0/null if not provided)
+                - new_contractor_id: New contractor ID (optional, defaults to 0/null if not provided)
+                - notes: Reassignment notes (optional)
+                Note: Missing fields automatically default to 0 (which becomes NULL in database)
             reassigned_by: User ID who performed the reassignment
             atomic: If True (default), rollback all changes if any reassignment fails.
                    If False, commit successful reassignments even if some fail.
@@ -256,29 +256,33 @@ class DriverLeaveService:
                     original_vehicle_id = job.vehicle_id
                     original_contractor_id = job.contractor_id
 
-                    reassignment_type = reassignment_data.get('reassignment_type')
+                    # Get reassignment fields - set to 0 if not provided
+                    new_driver_id = reassignment_data.get('new_driver_id', 0)
+                    new_vehicle_id = reassignment_data.get('new_vehicle_id', 0)
+                    new_contractor_id = reassignment_data.get('new_contractor_id', 0)
 
-                    # Perform reassignment based on type
-                    if reassignment_type == 'driver':
-                        DriverLeaveService._reassign_to_driver(
-                            job,
-                            reassignment_data.get('new_driver_id'),
-                            reassignment_data.get('new_vehicle_id'),
-                            leave.start_date,
-                            leave.end_date
+                    # Convert to None for comparison
+                    new_driver_value = new_driver_id if new_driver_id > 0 else None
+                    new_vehicle_value = new_vehicle_id if new_vehicle_id > 0 else None
+                    new_contractor_value = new_contractor_id if new_contractor_id > 0 else None
+
+                    # Check if at least one field is being updated
+                    is_driver_changed = new_driver_value != original_driver_id
+                    is_vehicle_changed = new_vehicle_value != original_vehicle_id
+                    is_contractor_changed = new_contractor_value != original_contractor_id
+
+                    if not (is_driver_changed or is_vehicle_changed or is_contractor_changed):
+                        raise ServiceError(
+                            f"Job {job_id}: No changes detected. At least one field must be different from current assignment. "
+                            f"Current: driver={original_driver_id}, vehicle={original_vehicle_id}, contractor={original_contractor_id}"
                         )
-                    elif reassignment_type == 'vehicle':
-                        DriverLeaveService._reassign_to_vehicle(
-                            job,
-                            reassignment_data.get('new_vehicle_id')
-                        )
-                    elif reassignment_type == 'contractor':
-                        DriverLeaveService._reassign_to_contractor(
-                            job,
-                            reassignment_data.get('new_contractor_id')
-                        )
-                    else:
-                        raise ServiceError(f"Invalid reassignment type: {reassignment_type}")
+
+                    # Assign all 3 fields directly to the job
+                    # If not provided, defaults to 0 which becomes None/NULL
+                    job.driver_id = new_driver_value
+                    job.vehicle_id = new_vehicle_value
+                    job.contractor_id = new_contractor_value
+                    job.updated_at = datetime.utcnow()
 
                     # Create reassignment audit record
                     reassignment = JobReassignment(
@@ -287,10 +291,9 @@ class DriverLeaveService:
                         original_driver_id=original_driver_id,
                         original_vehicle_id=original_vehicle_id,
                         original_contractor_id=original_contractor_id,
-                        reassignment_type=reassignment_type,
-                        new_driver_id=job.driver_id,
-                        new_vehicle_id=job.vehicle_id,
-                        new_contractor_id=job.contractor_id,
+                        new_driver_id=new_driver_id if new_driver_id > 0 else None,
+                        new_vehicle_id=new_vehicle_id if new_vehicle_id > 0 else None,
+                        new_contractor_id=new_contractor_id if new_contractor_id > 0 else None,
                         notes=reassignment_data.get('notes'),
                         reassigned_by=reassigned_by,
                         reassigned_at=datetime.utcnow()
@@ -300,11 +303,10 @@ class DriverLeaveService:
 
                     results['success'].append({
                         'job_id': job_id,
-                        'reassignment_type': reassignment_type,
                         'message': f"Job {job_id} successfully reassigned"
                     })
 
-                    logger.info(f"Job {job_id} reassigned: {reassignment_type}")
+                    logger.info(f"Job {job_id} reassigned successfully")
 
                 except ServiceError as e:
                     results['failed'].append({

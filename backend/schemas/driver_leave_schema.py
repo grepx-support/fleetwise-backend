@@ -56,7 +56,6 @@ class JobReassignmentSchema(SQLAlchemyAutoSchema):
     original_driver_id = auto_field()
     original_vehicle_id = auto_field()
     original_contractor_id = auto_field()
-    reassignment_type = auto_field()
     new_driver_id = auto_field()
     new_vehicle_id = auto_field()
     new_contractor_id = auto_field()
@@ -71,14 +70,6 @@ class JobReassignmentSchema(SQLAlchemyAutoSchema):
     original_driver = ma_fields.Nested('DriverSchema', dump_only=True)
     new_driver = ma_fields.Nested('DriverSchema', dump_only=True)
     reassigned_by_user = ma_fields.Nested('UserSchema', dump_only=True, exclude=['password', 'fs_uniquifier'])
-
-    @validates('reassignment_type')
-    def validate_reassignment_type(self, value):
-        """Validate reassignment type is one of the allowed values"""
-        allowed_types = ['driver', 'vehicle', 'contractor']
-        if value not in allowed_types:
-            raise ValidationError(f"Reassignment type must be one of: {', '.join(allowed_types)}")
-        return value
 
 
 # Schema for creating a new leave with affected jobs response
@@ -108,7 +99,6 @@ class JobReassignmentRequestSchema(SQLAlchemyAutoSchema):
         load_instance = False
 
     job_id = fields.Integer(required=True)
-    reassignment_type = fields.String(required=True)
     new_driver_id = fields.Integer(allow_none=True)
     new_vehicle_id = fields.Integer(allow_none=True)
     new_contractor_id = fields.Integer(allow_none=True)

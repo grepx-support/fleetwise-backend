@@ -57,7 +57,6 @@ def upgrade() -> None:
         sa.Column('original_driver_id', sa.Integer(), nullable=True),
         sa.Column('original_vehicle_id', sa.Integer(), nullable=True),
         sa.Column('original_contractor_id', sa.Integer(), nullable=True),
-        sa.Column('reassignment_type', sa.String(length=32), nullable=False),
         sa.Column('new_driver_id', sa.Integer(), nullable=True),
         sa.Column('new_vehicle_id', sa.Integer(), nullable=True),
         sa.Column('new_contractor_id', sa.Integer(), nullable=True),
@@ -81,7 +80,6 @@ def upgrade() -> None:
     # Additional performance indexes
     op.create_index('idx_job_reassignment_job', 'job_reassignment', ['job_id'], unique=False)
     op.create_index('idx_job_reassignment_leave', 'job_reassignment', ['driver_leave_id'], unique=False)
-    op.create_index('idx_job_reassignment_type', 'job_reassignment', ['reassignment_type'], unique=False)
 
     # Add composite index on job table for driver leave queries
     # This improves performance when searching for jobs by driver and date range
@@ -92,10 +90,9 @@ def downgrade() -> None:
     """Downgrade schema."""
     # Drop composite index on job table
     op.drop_index('idx_job_driver_pickup_date', table_name='job')
-    
+
     # Drop driver leave management tables and indexes
     # Drop job_reassignment indexes
-    op.drop_index('idx_job_reassignment_type', table_name='job_reassignment')
     op.drop_index('idx_job_reassignment_leave', table_name='job_reassignment')
     op.drop_index('idx_job_reassignment_job', table_name='job_reassignment')
     op.drop_index(op.f('ix_job_reassignment_driver_leave_id'), table_name='job_reassignment')
