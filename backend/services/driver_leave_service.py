@@ -1,10 +1,11 @@
 import logging
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from typing import Dict, List, Any, Optional, Union
 from backend.extensions import db
 from backend.models.driver_leave import DriverLeave
 from backend.models.job_reassignment import JobReassignment
 from backend.models.job import Job
+from backend.models.job_audit import JobAudit
 from backend.models.driver import Driver
 from backend.models.vehicle import Vehicle
 from backend.models.contractor import Contractor
@@ -14,10 +15,81 @@ from flask_security import current_user
 logger = logging.getLogger(__name__)
 
 
+# Constants for job statuses
+class JobStatus:
+    """Job status constants"""
+    NEW = 'new'
+    PENDING = 'pending'
+    CONFIRMED = 'confirmed'
+    OTW = 'otw'  # On The Way
+    OTS = 'ots'  # On The Site
+    POB = 'pob'  # Person On Board
+    JC = 'jc'    # Job Completed
+    SD = 'sd'    # Stand-Down
+    CANCELED = 'canceled'
+
+    # Status categories
+    NOT_STARTED = [NEW, CONFIRMED]
+    IN_PROGRESS = [OTW, OTS, POB]
+    COMPLETED = [JC, SD, CANCELED]
+
+
+class LeaveStatus:
+    """Leave status constants"""
+    APPROVED = 'approved'
+    PENDING = 'pending'
+    REJECTED = 'rejected'
+    CANCELLED = 'cancelled'
+
+    ALL = [APPROVED, PENDING, REJECTED, CANCELLED]
+
+
+class LeaveType:
+    """Leave type constants"""
+    SICK_LEAVE = 'sick_leave'
+    VACATION = 'vacation'
+    PERSONAL = 'personal'
+    EMERGENCY = 'emergency'
+
+    ALL = [SICK_LEAVE, VACATION, PERSONAL, EMERGENCY]
+
+
 class ServiceError(Exception):
     def __init__(self, message):
         super().__init__(message)
         self.message = message
+
+
+def sanitize_string(value: Optional[str], max_length: int = 512, field_name: str = "field") -> Optional[str]:
+    """
+    Sanitize string input by stripping whitespace and validating length.
+
+    Args:
+        value: String to sanitize
+        max_length: Maximum allowed length
+        field_name: Name of field for error messages
+
+    Returns:
+        Sanitized string or None if input is None/empty
+
+    Raises:
+        ServiceError: If string exceeds max length
+    """
+    if value is None:
+        return None
+
+    # Strip whitespace
+    sanitized = value.strip()
+
+    # Return None for empty strings
+    if not sanitized:
+        return None
+
+    # Validate length
+    if len(sanitized) > max_length:
+        raise ServiceError(f"{field_name} exceeds maximum length of {max_length} characters")
+
+    return sanitized
 
 
 class DriverLeaveService:
@@ -75,14 +147,15 @@ class DriverLeaveService:
             raise ServiceError("End date cannot be before start date")
 
         # Validate leave type
-        allowed_types = ['sick_leave', 'vacation', 'personal', 'emergency']
-        if leave_type not in allowed_types:
-            raise ServiceError(f"Invalid leave type. Must be one of: {', '.join(allowed_types)}")
+        if leave_type not in LeaveType.ALL:
+            raise ServiceError(f"Invalid leave type. Must be one of: {', '.join(LeaveType.ALL)}")
+
+        # Sanitize string inputs
+        reason = sanitize_string(reason, max_length=512, field_name="reason")
 
         # Validate status
-        allowed_statuses = ['approved', 'pending', 'rejected', 'cancelled']
-        if status not in allowed_statuses:
-            raise ServiceError(f"Invalid status. Must be one of: {', '.join(allowed_statuses)}")
+        if status not in LeaveStatus.ALL:
+            raise ServiceError(f"Invalid status. Must be one of: {', '.join(LeaveStatus.ALL)}")
 
         # Check for overlapping leaves with row-level locking (prevents race conditions)
         overlapping_leaves = DriverLeave.query_active().filter(
@@ -134,8 +207,8 @@ class DriverLeaveService:
             status=effective_status,  # Use validated status
             reason=reason,
             created_by=created_by,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc)
         )
 
         db.session.add(leave)
@@ -230,6 +303,7 @@ class DriverLeaveService:
         results = {
             'success': [],
             'failed': [],
+            'skipped': [],
             'total': len(reassignments)
         }
 
@@ -261,15 +335,41 @@ class DriverLeaveService:
                     new_vehicle_id = reassignment_data.get('new_vehicle_id', 0)
                     new_contractor_id = reassignment_data.get('new_contractor_id', 0)
 
-                    # Convert to None for comparison
-                    new_driver_value = new_driver_id if new_driver_id > 0 else None
-                    new_vehicle_value = new_vehicle_id if new_vehicle_id > 0 else None
-                    new_contractor_value = new_contractor_id if new_contractor_id > 0 else None
+                    # Define status categories using constants
+                    not_started_statuses = JobStatus.NOT_STARTED
+                    in_progress_statuses = JobStatus.IN_PROGRESS
+
+                    # Status-based reassignment logic
+                    if job.status in not_started_statuses:
+                        # Jobs not started: Allow full reassignment (can set to NULL)
+                        new_driver_value = new_driver_id if new_driver_id > 0 else None
+                        new_vehicle_value = new_vehicle_id if new_vehicle_id > 0 else None
+                        new_contractor_value = new_contractor_id if new_contractor_id > 0 else None
+                    elif job.status in in_progress_statuses:
+                        # Jobs in progress: Preserve original if not explicitly provided
+                        new_driver_value = new_driver_id if new_driver_id > 0 else original_driver_id
+                        new_vehicle_value = new_vehicle_id if new_vehicle_id > 0 else original_vehicle_id
+                        new_contractor_value = new_contractor_id if new_contractor_id > 0 else original_contractor_id
+                    else:
+                        # For other statuses (canceled, jc, sd, etc.), use default behavior
+                        new_driver_value = new_driver_id if new_driver_id > 0 else None
+                        new_vehicle_value = new_vehicle_id if new_vehicle_id > 0 else None
+                        new_contractor_value = new_contractor_id if new_contractor_id > 0 else None
 
                     # Check if at least one field is being updated
                     is_driver_changed = new_driver_value != original_driver_id
                     is_vehicle_changed = new_vehicle_value != original_vehicle_id
                     is_contractor_changed = new_contractor_value != original_contractor_id
+
+                    # For in-progress jobs, if no new values provided (all 0), skip this job - no changes needed
+                    if job.status in in_progress_statuses and new_driver_id == 0 and new_vehicle_id == 0 and new_contractor_id == 0:
+                        # Skip this job - it's in progress and no reassignment values provided
+                        results['skipped'].append({
+                            'job_id': job_id,
+                            'reason': f"Job is in-progress (status: {job.status}) and no reassignment values provided. Original assignment preserved.",
+                            'status': job.status
+                        })
+                        continue
 
                     if not (is_driver_changed or is_vehicle_changed or is_contractor_changed):
                         raise ServiceError(
@@ -277,12 +377,51 @@ class DriverLeaveService:
                             f"Current: driver={original_driver_id}, vehicle={original_vehicle_id}, contractor={original_contractor_id}"
                         )
 
-                    # Assign all 3 fields directly to the job
-                    # If not provided, defaults to 0 which becomes None/NULL
+                    # Store old status for audit trail
+                    old_status = job.status
+
+                    # Assign all 3 fields to the job
                     job.driver_id = new_driver_value
                     job.vehicle_id = new_vehicle_value
                     job.contractor_id = new_contractor_value
-                    job.updated_at = datetime.utcnow()
+                    job.updated_at = datetime.now(timezone.utc)
+
+                    # Update job status based on contractor assignment (only for basic statuses)
+                    if job.status in not_started_statuses:  # ['new', 'confirmed']
+                        # Check if contractor is assigned
+                        has_contractor = new_contractor_value is not None and new_contractor_value > 0
+
+                        if has_contractor:
+                            job.status = JobStatus.CONFIRMED  # Has contractor = confirmed
+                        else:
+                            job.status = JobStatus.PENDING    # No contractor = pending
+                    # For in-progress jobs (otw, ots, pob), never change status
+                    elif job.status in in_progress_statuses:
+                        pass  # Status unchanged
+
+                    # Create job audit record if status changed
+                    if old_status != job.status:
+                        job_audit = JobAudit(
+                            job_id=job_id,
+                            changed_by=reassigned_by,
+                            old_status=old_status,
+                            new_status=job.status,
+                            reason=f"Status updated due to driver leave reassignment (Leave ID: {leave_id})",
+                            additional_data={
+                                'driver_leave_id': leave_id,
+                                'reassignment_type': 'driver_leave',
+                                'original_driver_id': original_driver_id,
+                                'original_vehicle_id': original_vehicle_id,
+                                'original_contractor_id': original_contractor_id,
+                                'new_driver_id': new_driver_value,
+                                'new_vehicle_id': new_vehicle_value,
+                                'new_contractor_id': new_contractor_value
+                            }
+                        )
+                        db.session.add(job_audit)
+
+                    # Sanitize notes field
+                    notes = sanitize_string(reassignment_data.get('notes'), max_length=512, field_name="notes")
 
                     # Create reassignment audit record
                     reassignment = JobReassignment(
@@ -294,9 +433,9 @@ class DriverLeaveService:
                         new_driver_id=new_driver_id if new_driver_id > 0 else None,
                         new_vehicle_id=new_vehicle_id if new_vehicle_id > 0 else None,
                         new_contractor_id=new_contractor_id if new_contractor_id > 0 else None,
-                        notes=reassignment_data.get('notes'),
+                        notes=notes,
                         reassigned_by=reassigned_by,
-                        reassigned_at=datetime.utcnow()
+                        reassigned_at=datetime.now(timezone.utc)
                     )
 
                     db.session.add(reassignment)
@@ -414,7 +553,7 @@ class DriverLeaveService:
         job.driver_id = new_driver_id
         job.vehicle_id = new_vehicle_id
         job.contractor_id = None  # Clear contractor if switching to driver
-        job.updated_at = datetime.utcnow()
+        job.updated_at = datetime.now(timezone.utc)
 
     @staticmethod
     def _reassign_to_vehicle(job, new_vehicle_id):
@@ -429,7 +568,7 @@ class DriverLeaveService:
 
         # Update job
         job.vehicle_id = new_vehicle_id
-        job.updated_at = datetime.utcnow()
+        job.updated_at = datetime.now(timezone.utc)
 
     @staticmethod
     def _reassign_to_contractor(job, new_contractor_id):
@@ -446,7 +585,7 @@ class DriverLeaveService:
         job.contractor_id = new_contractor_id
         job.driver_id = None  # Clear driver when assigning to contractor
         job.vehicle_id = None  # Clear vehicle when assigning to contractor
-        job.updated_at = datetime.utcnow()
+        job.updated_at = datetime.now(timezone.utc)
 
     @staticmethod
     def check_driver_on_leave(driver_id, date_str):
@@ -569,7 +708,7 @@ class DriverLeaveService:
             if field in allowed_fields and value is not None:
                 setattr(leave, field, value)
 
-        leave.updated_at = datetime.utcnow()
+        leave.updated_at = datetime.now(timezone.utc)
         db.session.commit()
 
         logger.info(f"Updated leave ID {leave_id}")
@@ -595,7 +734,7 @@ class DriverLeaveService:
             raise ServiceError(f"Leave with ID {leave_id} not found")
 
         leave.is_deleted = True
-        leave.updated_at = datetime.utcnow()
+        leave.updated_at = datetime.now(timezone.utc)
         db.session.commit()
 
         logger.info(f"Deleted leave ID {leave_id}")

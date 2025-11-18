@@ -402,32 +402,56 @@ def create_leave_with_reassignments():
                     atomic=True  # All-or-nothing
                 )
 
-                # After successful reassignment, approve the leave
-                DriverLeaveService.update_leave(leave_id, status='approved')
+                # Check if there are skipped jobs (in-progress jobs that couldn't be reassigned)
+                if reassignment_results.get('skipped'):
+                    # Some jobs were skipped - leave stays pending
+                    logger.info(f"Leave {leave_id} remains pending: {len(reassignment_results['skipped'])} job(s) skipped (in-progress)")
+                    response_data = {
+                        'success': True,
+                        'message': f"Leave created successfully. {len(reassignment_results['skipped'])} in-progress job(s) skipped and require manual handling. Leave status is pending.",
+                        'leave': leave_schema.dump(leave),
+                        'leave_id': leave_id,
+                        'status': 'pending'
+                    }
+                else:
+                    # All jobs were reassigned - approve the leave
+                    DriverLeaveService.update_leave(leave_id, status='approved')
+                    logger.info(f"Leave {leave_id} approved: all jobs successfully reassigned")
+                    response_data = {
+                        'success': True,
+                        'message': 'Leave created and all jobs reassigned successfully. Leave has been approved.',
+                        'leave': leave_schema.dump(leave),
+                        'leave_id': leave_id,
+                        'status': 'approved'
+                    }
             else:
                 # No affected jobs, can approve immediately
                 DriverLeaveService.update_leave(leave_id, status='approved')
-
-            logger.info(f"Leave created with reassignments: leave_id={leave_id}, driver_id={data['driver_id']}")
-
-            response_data = {
-                'message': 'Leave created and jobs reassigned successfully',
-                'leave': leave_schema.dump(leave),
-                'leave_id': leave_id
-            }
+                logger.info(f"Leave {leave_id} approved: no affected jobs")
+                response_data = {
+                    'success': True,
+                    'message': 'Leave created and approved successfully (no affected jobs).',
+                    'leave': leave_schema.dump(leave),
+                    'leave_id': leave_id,
+                    'status': 'approved'
+                }
 
             if reassignment_results:
                 response_data['reassignment_summary'] = {
                     'total': reassignment_results['total'],
                     'successful': len(reassignment_results['success']),
-                    'failed': len(reassignment_results['failed'])
+                    'failed': len(reassignment_results['failed']),
+                    'skipped': len(reassignment_results.get('skipped', []))
                 }
+                if reassignment_results.get('skipped'):
+                    response_data['skipped_jobs'] = reassignment_results['skipped']
 
+            logger.info(f"Leave created with reassignments: leave_id={leave_id}, driver_id={data['driver_id']}")
             return jsonify(response_data), 201
 
         except ServiceError as se:
             # Rollback will happen automatically
-            return jsonify({'error': f'Transaction failed: {se.message}'}), 400
+            return jsonify({'success': False, 'error': f'Transaction failed: {se.message}'}), 400
 
     except ServiceError as se:
         return jsonify({'error': se.message}), 400
