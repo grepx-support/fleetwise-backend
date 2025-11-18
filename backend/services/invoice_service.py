@@ -579,10 +579,10 @@ class InvoiceService:
             
             # Get customer reference from booking_ref field
             customer_reference = getattr(job, 'booking_ref', '') or ''
-            
+
             # Build particulars
             particulars = InvoiceService.build_particulars(job)
-            
+
             table_data.append([
                 f"{job.pickup_date} {job.pickup_time or '-'}",
                 customer_reference,
@@ -747,7 +747,15 @@ class InvoiceService:
         getattr(job, "dropoff_loc5", None),
     ]
         lines = []
-        # Service type shown in separate column, only show route here
+
+        # Get service name from job
+        service_name = job.service_type or ''
+
+        # Add service name as first line if provided
+        if service_name:
+            lines.append(service_name)
+
+        # Add route information
         if pickups[0]:
             lines.append(f"{pickups[0]} → {dropoffs[0] if dropoffs[0] else ''}")
         else:
@@ -766,10 +774,6 @@ class InvoiceService:
         # Build 3rd line with extra pickup charges and extra services
         third_line_parts = []
 
-        # Debug logging
-        from flask import current_app
-        current_app.logger.info(f"[PARTICULARS DEBUG] Job ID: {job.id}")
-
         # Part 1: Extra Pickup/Dropoff charges (count pickups and dropoffs with price > 0)
         pickup_prices = [
             getattr(job, 'pickup_loc1_price', 0) or 0,
@@ -787,9 +791,6 @@ class InvoiceService:
             getattr(job, 'dropoff_loc5_price', 0) or 0,
         ]
 
-        current_app.logger.info(f"[PARTICULARS DEBUG] Pickup prices: {pickup_prices}")
-        current_app.logger.info(f"[PARTICULARS DEBUG] Dropoff prices: {dropoff_prices}")
-
         # Count non-zero pickup and dropoff prices and sum them
         extra_pickup_count = sum(1 for price in pickup_prices if price > 0)
         extra_dropoff_count = sum(1 for price in dropoff_prices if price > 0)
@@ -799,25 +800,17 @@ class InvoiceService:
         total_count = extra_pickup_count + extra_dropoff_count
         total_amount = extra_pickup_total + extra_dropoff_total
 
-        current_app.logger.info(f"[PARTICULARS DEBUG] Extra pickup count: {extra_pickup_count}, Total: {extra_pickup_total}")
-        current_app.logger.info(f"[PARTICULARS DEBUG] Extra dropoff count: {extra_dropoff_count}, Total: {extra_dropoff_total}")
-        current_app.logger.info(f"[PARTICULARS DEBUG] Combined count: {total_count}, Combined total: {total_amount}")
-
         if total_count > 0:
             third_line_parts.append(f"Extra Pickup/Dropoff x {total_count} = ${total_amount:.2f}")
 
         # Part 2: Extra Services from extra_services field
         extra_services = getattr(job, 'extra_services_data', [])
-        current_app.logger.info(f"[PARTICULARS DEBUG] Extra services: {extra_services}")
 
         if extra_services:
             for service in extra_services:
                 if isinstance(service, dict):
                     price = service.get('price', 0)
-                    current_app.logger.info(f"[PARTICULARS DEBUG] Adding service: Extra Service = ${price}")
                     third_line_parts.append(f"Extra Service = ${float(price):.2f}")
-
-        current_app.logger.info(f"[PARTICULARS DEBUG] Third line parts: {third_line_parts}")
 
         # Add the 3rd line if there are any extra charges
         if third_line_parts:
@@ -876,12 +869,6 @@ class InvoiceService:
                 current_app.logger.error(error_msg)
                 raise ValueError(error_msg)
 
-            # Debug: Log which jobs were found
-            from flask import current_app
-            current_app.logger.info(f"[INVOICE JOB DEBUG] Invoice ID: {invoice_id}")
-            current_app.logger.info(f"[INVOICE JOB DEBUG] Jobs found: {[job.id for job in jobs]}")
-            current_app.logger.info(f"[INVOICE JOB DEBUG] Number of jobs: {len(jobs)}")
-
             service_names = [job.service_type for job in jobs if job.service_type]
             services = Service.query.filter(Service.name.in_(service_names)).all()
             service_map = {s.name: s for s in services}
@@ -918,13 +905,14 @@ class InvoiceService:
                     
                 # Get customer reference from booking_ref field
                 customer_reference = getattr(job, 'booking_ref', '') or ''
-                    
+
+                service_name = service.name if service else job.service_type
                 items.append(InvoiceItem(
                     Date=job.pickup_date,
                     Time=job.pickup_time,
                     Job=f"#{job.id}",
                     Particulars=InvoiceService.build_particulars(job),
-                    ServiceType=service.name if service else job.service_type,
+                    ServiceType=service_name,
                     VehicleType=vehicle_type_name,
                     CustomerReference=customer_reference,
                     amount=Decimal(str(job.final_price or 0)),
@@ -984,8 +972,35 @@ class InvoiceService:
             elif customer.email:
                 customer_contact = customer.email
 
-            # Use address as-is; template handles wrapping
+            # Format customer address with intelligent line breaks
             customer_address = customer.address or ""
+
+            # If address doesn't have newlines, add line breaks intelligently
+            if customer_address and '\n' not in customer_address:
+                if len(customer_address) > 40:
+                    if ',' in customer_address:
+                        # Split at commas for addresses with commas
+                        parts = [part.strip() for part in customer_address.split(',')]
+                        if len(parts) >= 2:
+                            # First line: first part, Second line: rest
+                            customer_address = parts[0] + '\n' + ', '.join(parts[1:])
+                    else:
+                        # Fallback for comma-less long addresses: split at space around midpoint
+                        words = customer_address.split()
+                        if len(words) > 1:
+                            # Find split point around 40-50 chars
+                            split_idx = 0
+                            char_count = 0
+                            for i, word in enumerate(words):
+                                char_count += len(word) + 1  # +1 for space
+                                if char_count >= 40:
+                                    split_idx = i
+                                    break
+
+                            if split_idx > 0:
+                                first_line = ' '.join(words[:split_idx])
+                                second_line = ' '.join(words[split_idx:])
+                                customer_address = first_line + '\n' + second_line
 
             # Add country and zip code if available
             if customer.country or customer.zip_code:
