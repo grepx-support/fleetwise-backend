@@ -727,9 +727,8 @@ class JobService:
         except Exception as e:
             db.session.rollback()
             logging.error(f"Error updating job: {e}", exc_info=True)
-            raise ServiceError("Could not update job. Please try again later.")
-        
-    
+            raise
+
     @staticmethod
     def delete(job_id, soft=True):
         """
@@ -1053,8 +1052,7 @@ class JobService:
         except Exception as e:
             db.session.rollback()
             logging.error(f"Error updating job: {e}", exc_info=True)
-            raise ServiceError("Could not update job. Please try again later.")
-
+            raise
 
 def safe_float(value, default=0.0):
     try:
