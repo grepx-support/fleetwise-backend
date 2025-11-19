@@ -3,8 +3,7 @@ from backend.services.driver_leave_service import DriverLeaveService, ServiceErr
 from backend.schemas.driver_leave_schema import (
     DriverLeaveSchema,
     JobReassignmentSchema,
-    DriverLeaveCreateResponseSchema,
-    JobReassignmentRequestSchema
+    DriverLeaveCreateResponseSchema
 )
 from backend.schemas.job_schema import JobSchema
 import logging
@@ -20,7 +19,6 @@ leave_schema_many = DriverLeaveSchema(many=True, session=db.session)
 leave_create_response_schema = DriverLeaveCreateResponseSchema(session=db.session)
 reassignment_schema = JobReassignmentSchema(session=db.session)
 reassignment_schema_many = JobReassignmentSchema(many=True, session=db.session)
-reassignment_request_schema = JobReassignmentRequestSchema()
 job_schema_many = JobSchema(many=True, session=db.session)
 
 logger = logging.getLogger(__name__)
@@ -496,14 +494,52 @@ def reassign_jobs(leave_id):
             reassigned_by=reassigned_by
         )
 
-        logger.info(f"Jobs reassigned for leave {leave_id}: {results['success']} successful, {len(results['failed'])} failed")
+        # Get leave to check driver_id and dates
+        leave = DriverLeaveService.get_leave_by_id(leave_id)
 
-        return jsonify({
-            'message': f"Reassignment complete: {len(results['success'])} successful, {len(results['failed'])} failed",
-            'success': results['success'],
-            'failed': results['failed'],
-            'total': results['total']
-        }), 200
+        # Check if there are still jobs assigned to the driver after reassignment
+        remaining_jobs = DriverLeaveService.get_affected_jobs(
+            leave.driver_id,
+            leave.start_date,
+            leave.end_date
+        )
+
+        skipped_count = len(results.get('skipped', []))
+
+        if remaining_jobs:
+            # Still have jobs assigned - leave stays pending
+            logger.info(f"Leave {leave_id} remains pending: {len(remaining_jobs)} job(s) still assigned")
+            response_data = {
+                'success': True,
+                'message': f"Reassignment complete. {len(remaining_jobs)} job(s) still assigned to driver. Leave status remains pending.",
+                'leave_status': 'pending',
+                'remaining_jobs_count': len(remaining_jobs),
+                'remaining_job_ids': [job.id for job in remaining_jobs]
+            }
+        else:
+            # All jobs reassigned - approve the leave
+            DriverLeaveService.update_leave(leave_id, status='approved')
+            logger.info(f"Leave {leave_id} approved: all jobs successfully reassigned")
+            response_data = {
+                'success': True,
+                'message': 'All jobs reassigned successfully. Leave has been approved.',
+                'leave_status': 'approved'
+            }
+
+        # Add reassignment summary
+        response_data['reassignment_summary'] = {
+            'total': results['total'],
+            'successful': len(results['success']),
+            'failed': len(results['failed']),
+            'skipped': skipped_count
+        }
+        response_data['successful_jobs'] = results['success']
+        response_data['failed_jobs'] = results['failed']
+
+        if results.get('skipped'):
+            response_data['skipped_jobs'] = results['skipped']
+
+        return jsonify(response_data), 200
 
     except ServiceError as se:
         return jsonify({'error': se.message}), 400

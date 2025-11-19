@@ -7,9 +7,6 @@ from backend.models.job_reassignment import JobReassignment
 from backend.models.job import Job
 from backend.models.job_audit import JobAudit
 from backend.models.driver import Driver
-from backend.models.vehicle import Vehicle
-from backend.models.contractor import Contractor
-from backend.services.job_service import JobService
 from flask_security import current_user
 
 logger = logging.getLogger(__name__)
@@ -146,6 +143,13 @@ class DriverLeaveService:
         if end_dt < start_dt:
             raise ServiceError("End date cannot be before start date")
 
+        # Validate dates are not in the past
+        today = datetime.now(timezone.utc).date()
+        if start_dt < today:
+            raise ServiceError(f"Cannot create leave: start date ({start_dt}) is in the past")
+        if end_dt < today:
+            raise ServiceError(f"Cannot create leave: end date ({end_dt}) is in the past")
+
         # Validate leave type
         if leave_type not in LeaveType.ALL:
             raise ServiceError(f"Invalid leave type. Must be one of: {', '.join(LeaveType.ALL)}")
@@ -160,7 +164,7 @@ class DriverLeaveService:
         # Check for overlapping leaves with row-level locking (prevents race conditions)
         overlapping_leaves = DriverLeave.query_active().filter(
             DriverLeave.driver_id == driver_id,
-            DriverLeave.status.in_(['approved', 'pending']),
+            DriverLeave.status.in_([LeaveStatus.APPROVED, LeaveStatus.PENDING]),
             db.or_(
                 # New leave starts during existing leave
                 db.and_(
@@ -188,13 +192,13 @@ class DriverLeaveService:
         # Force status to 'pending' if there are affected jobs and status is 'approved'
         # This prevents approving leaves without reassigning jobs first
         effective_status = status
-        if status == 'approved':
+        if status == LeaveStatus.APPROVED:
             # Check if there would be affected jobs
             affected_jobs_check = DriverLeaveService.get_affected_jobs(driver_id, start_dt, end_dt)
             if affected_jobs_check:
-                effective_status = 'pending'
+                effective_status = LeaveStatus.PENDING
                 logger.warning(
-                    f"Leave creation: status changed from 'approved' to 'pending' "
+                    f"Leave creation: status changed from '{LeaveStatus.APPROVED}' to '{LeaveStatus.PENDING}' "
                     f"because {len(affected_jobs_check)} affected jobs need reassignment"
                 )
 
@@ -227,6 +231,25 @@ class DriverLeaveService:
             'affected_jobs_count': len(affected_jobs),
             'requires_reassignment': len(affected_jobs) > 0
         }
+
+    @staticmethod
+    def get_leave_by_id(leave_id: int) -> DriverLeave:
+        """
+        Get a driver leave by ID.
+
+        Args:
+            leave_id: ID of the leave
+
+        Returns:
+            DriverLeave: The leave object
+
+        Raises:
+            ServiceError: If leave not found
+        """
+        leave = DriverLeave.query_active().filter_by(id=leave_id).first()
+        if not leave:
+            raise ServiceError(f"Leave with ID {leave_id} not found")
+        return leave
 
     @staticmethod
     def get_affected_jobs(driver_id: int, start_date: Union[str, date], end_date: Union[str, date]) -> List[Job]:
@@ -399,26 +422,31 @@ class DriverLeaveService:
                     elif job.status in in_progress_statuses:
                         pass  # Status unchanged
 
-                    # Create job audit record if status changed
-                    if old_status != job.status:
-                        job_audit = JobAudit(
-                            job_id=job_id,
-                            changed_by=reassigned_by,
-                            old_status=old_status,
-                            new_status=job.status,
-                            reason=f"Status updated due to driver leave reassignment (Leave ID: {leave_id})",
-                            additional_data={
-                                'driver_leave_id': leave_id,
-                                'reassignment_type': 'driver_leave',
-                                'original_driver_id': original_driver_id,
-                                'original_vehicle_id': original_vehicle_id,
-                                'original_contractor_id': original_contractor_id,
-                                'new_driver_id': new_driver_value,
-                                'new_vehicle_id': new_vehicle_value,
-                                'new_contractor_id': new_contractor_value
-                            }
-                        )
-                        db.session.add(job_audit)
+                    # Create job audit record for every reassignment
+                    status_changed = old_status != job.status
+                    reason = f"Job reassigned due to driver leave (Leave ID: {leave_id})"
+                    if status_changed:
+                        reason += f". Status changed from '{old_status}' to '{job.status}'"
+
+                    job_audit = JobAudit(
+                        job_id=job_id,
+                        changed_by=reassigned_by,
+                        old_status=old_status,
+                        new_status=job.status,
+                        reason=reason,
+                        additional_data={
+                            'driver_leave_id': leave_id,
+                            'reassignment_type': 'driver_leave',
+                            'original_driver_id': original_driver_id,
+                            'original_vehicle_id': original_vehicle_id,
+                            'original_contractor_id': original_contractor_id,
+                            'new_driver_id': new_driver_value,
+                            'new_vehicle_id': new_vehicle_value,
+                            'new_contractor_id': new_contractor_value,
+                            'status_changed': status_changed
+                        }
+                    )
+                    db.session.add(job_audit)
 
                     # Sanitize notes field
                     notes = sanitize_string(reassignment_data.get('notes'), max_length=512, field_name="notes")
@@ -493,117 +521,28 @@ class DriverLeaveService:
             raise ServiceError(f"Reassignment transaction failed: {str(e)}")
 
     @staticmethod
-    def _reassign_to_driver(job, new_driver_id, new_vehicle_id=None, leave_start_date=None, leave_end_date=None):
-        """Reassign job to a new driver (with optional vehicle)"""
-        if not new_driver_id:
-            raise ServiceError("new_driver_id is required for driver reassignment")
-
-        # Validate new driver exists and is active
-        new_driver = Driver.query_active().filter_by(id=new_driver_id).first()
-        if not new_driver:
-            raise ServiceError(f"Driver {new_driver_id} not found or inactive")
-
-        # Convert job.pickup_date to date object if it's a string
-        if isinstance(job.pickup_date, str):
-            try:
-                job_date = datetime.strptime(job.pickup_date, '%Y-%m-%d').date()
-            except ValueError:
-                raise ServiceError(f"Invalid job pickup_date format: {job.pickup_date}")
-        else:
-            job_date = job.pickup_date
-
-        # Always check if new driver is on leave on the job date
-        # This is mandatory to prevent assigning jobs to unavailable drivers
-        conflicting_leave = DriverLeave.query_active().filter(
-            DriverLeave.driver_id == new_driver_id,
-            DriverLeave.status == 'approved',
-            DriverLeave.start_date <= job_date,
-            DriverLeave.end_date >= job_date
-        ).first()
-
-        if conflicting_leave:
-            raise ServiceError(
-                f"Cannot reassign to driver {new_driver_id}: driver is on {conflicting_leave.leave_type} "
-                f"from {conflicting_leave.start_date} to {conflicting_leave.end_date}"
-            )
-
-        # Check for scheduling conflicts
-        conflict = JobService.check_driver_conflict(
-            new_driver_id,
-            job.pickup_date,
-            job.pickup_time,
-            job_id=job.id
-        )
-        if conflict:
-            raise ServiceError(
-                f"Driver {new_driver_id} has a conflicting job at {job.pickup_date} {job.pickup_time}"
-            )
-
-        # If vehicle not specified, use driver's assigned vehicle
-        if not new_vehicle_id:
-            new_vehicle_id = new_driver.vehicle_id
-
-        # Validate vehicle
-        if new_vehicle_id:
-            vehicle = Vehicle.query_active().filter_by(id=new_vehicle_id).first()
-            if not vehicle:
-                raise ServiceError(f"Vehicle {new_vehicle_id} not found or inactive")
-
-        # Update job
-        job.driver_id = new_driver_id
-        job.vehicle_id = new_vehicle_id
-        job.contractor_id = None  # Clear contractor if switching to driver
-        job.updated_at = datetime.now(timezone.utc)
-
-    @staticmethod
-    def _reassign_to_vehicle(job, new_vehicle_id):
-        """Reassign job to a different vehicle (same driver)"""
-        if not new_vehicle_id:
-            raise ServiceError("new_vehicle_id is required for vehicle reassignment")
-
-        # Validate vehicle exists and is active
-        vehicle = Vehicle.query_active().filter_by(id=new_vehicle_id).first()
-        if not vehicle:
-            raise ServiceError(f"Vehicle {new_vehicle_id} not found or inactive")
-
-        # Update job
-        job.vehicle_id = new_vehicle_id
-        job.updated_at = datetime.now(timezone.utc)
-
-    @staticmethod
-    def _reassign_to_contractor(job, new_contractor_id):
-        """Reassign job to a contractor"""
-        if not new_contractor_id:
-            raise ServiceError("new_contractor_id is required for contractor reassignment")
-
-        # Validate contractor exists and is active
-        contractor = Contractor.query_active().filter_by(id=new_contractor_id).first()
-        if not contractor:
-            raise ServiceError(f"Contractor {new_contractor_id} not found or inactive")
-
-        # Update job
-        job.contractor_id = new_contractor_id
-        job.driver_id = None  # Clear driver when assigning to contractor
-        job.vehicle_id = None  # Clear vehicle when assigning to contractor
-        job.updated_at = datetime.now(timezone.utc)
-
-    @staticmethod
-    def check_driver_on_leave(driver_id, date_str):
+    def check_driver_on_leave(driver_id: int, date_str: Union[str, date]):
         """
         Check if a driver is on approved leave on a specific date.
 
         Args:
             driver_id: ID of the driver
-            date_str: Date to check in YYYY-MM-DD format
+            date_str: Date to check as string (YYYY-MM-DD) or date object
 
         Returns:
             DriverLeave object if driver is on leave, None otherwise
         """
+        # Convert to date object if string
+        if isinstance(date_str, str):
+            check_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        else:
+            check_date = date_str
+
         leave = DriverLeave.query_active().filter(
             DriverLeave.driver_id == driver_id,
-            DriverLeave.status == 'approved',
-            DriverLeave.start_date <= date_str,
-            DriverLeave.end_date >= date_str
+            DriverLeave.status == LeaveStatus.APPROVED,
+            DriverLeave.start_date <= check_date,
+            DriverLeave.end_date >= check_date
         ).first()
 
         return leave
@@ -639,8 +578,8 @@ class DriverLeaveService:
         Args:
             status: Filter by status (approved, pending, rejected, cancelled)
             active_only: Whether to show only active (future/current) leaves
-            start_date: Filter leaves starting on or after this date
-            end_date: Filter leaves ending on or before this date
+            start_date: Filter leaves starting on or after this date (string or date object)
+            end_date: Filter leaves ending on or before this date (string or date object)
 
         Returns:
             list: List of DriverLeave objects
@@ -651,13 +590,19 @@ class DriverLeaveService:
             query = query.filter_by(status=status)
 
         if active_only:
-            today = datetime.now().strftime('%Y-%m-%d')
+            today = datetime.now(timezone.utc).date()
             query = query.filter(DriverLeave.end_date >= today)
 
         if start_date:
+            # Convert to date object if string
+            if isinstance(start_date, str):
+                start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
             query = query.filter(DriverLeave.start_date >= start_date)
 
         if end_date:
+            # Convert to date object if string
+            if isinstance(end_date, str):
+                end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
             query = query.filter(DriverLeave.end_date <= end_date)
 
         leaves = query.order_by(DriverLeave.start_date.desc()).all()
@@ -683,8 +628,40 @@ class DriverLeaveService:
         if not leave:
             raise ServiceError(f"Leave with ID {leave_id} not found")
 
+        # Convert date strings to date objects
+        if 'start_date' in kwargs and kwargs['start_date'] is not None:
+            if isinstance(kwargs['start_date'], str):
+                kwargs['start_date'] = datetime.strptime(kwargs['start_date'], '%Y-%m-%d').date()
+
+        if 'end_date' in kwargs and kwargs['end_date'] is not None:
+            if isinstance(kwargs['end_date'], str):
+                kwargs['end_date'] = datetime.strptime(kwargs['end_date'], '%Y-%m-%d').date()
+
+        # Validate dates are not in the past
+        today = datetime.now(timezone.utc).date()
+
+        # Get the effective dates (updated or existing)
+        effective_start = kwargs.get('start_date', leave.start_date)
+        effective_end = kwargs.get('end_date', leave.end_date)
+
+        # Check if start date is in the past
+        if effective_start < today:
+            raise ServiceError(f"Cannot update leave: start date ({effective_start}) is in the past")
+
+        # Check if end date is in the past
+        if effective_end < today:
+            raise ServiceError(f"Cannot update leave: end date ({effective_end}) is in the past")
+
+        # Check date order
+        if effective_end < effective_start:
+            raise ServiceError("End date cannot be before start date")
+
+        # Sanitize reason field
+        if 'reason' in kwargs:
+            kwargs['reason'] = sanitize_string(kwargs['reason'], max_length=512, field_name="reason")
+
         # Check if status is being changed to 'approved'
-        if kwargs.get('status') == 'approved':
+        if kwargs.get('status') == LeaveStatus.APPROVED:
             # Get current or updated date range
             start_date = kwargs.get('start_date', leave.start_date)
             end_date = kwargs.get('end_date', leave.end_date)
