@@ -369,10 +369,17 @@ class DriverLeaveService:
                         new_vehicle_value = new_vehicle_id if new_vehicle_id > 0 else None
                         new_contractor_value = new_contractor_id if new_contractor_id > 0 else None
                     elif job.status in in_progress_statuses:
-                        # Jobs in progress: Preserve original if not explicitly provided
-                        new_driver_value = new_driver_id if new_driver_id > 0 else original_driver_id
-                        new_vehicle_value = new_vehicle_id if new_vehicle_id > 0 else original_vehicle_id
-                        new_contractor_value = new_contractor_id if new_contractor_id > 0 else original_contractor_id
+                        # Jobs in progress: Handle contractor assignment specially
+                        if new_contractor_id > 0:
+                            # When assigning to contractor, clear driver and vehicle
+                            new_driver_value = None
+                            new_vehicle_value = None
+                            new_contractor_value = new_contractor_id
+                        else:
+                            # Preserve original values if not explicitly provided
+                            new_driver_value = new_driver_id if new_driver_id > 0 else original_driver_id
+                            new_vehicle_value = new_vehicle_id if new_vehicle_id > 0 else original_vehicle_id
+                            new_contractor_value = original_contractor_id
                     else:
                         # For other statuses (canceled, jc, sd, etc.), use default behavior
                         new_driver_value = new_driver_id if new_driver_id > 0 else None
