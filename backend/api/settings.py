@@ -14,6 +14,11 @@ from backend.services.user_settings_service import (
     delete_user_settings,
 )
 from backend.extensions import db
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from cryptography.fernet import Fernet
+import os
 
 settings_bp = Blueprint('settings', __name__)
 
@@ -295,3 +300,158 @@ def delete_file():
 
     return jsonify({'message': 'File and reference deleted'}), 200
 
+# --- EMAIL SETTINGS: GET ---
+@settings_bp.route('/settings/email', methods=['GET'])
+@auth_required()
+def get_email_settings():
+    """
+    Get Email Notification Settings from UserSettings.preferences
+    """
+    settings = UserSettings.query.filter_by(user_id=current_user.id).first()
+    prefs = dict(settings.preferences) if settings and settings.preferences else {}
+    email_settings = prefs.get('email_settings', {})
+    
+    # Decrypt password when retrieving (if it's encrypted)
+    if 'password' in email_settings and email_settings['password']:
+        try:
+            encryption_key = os.environ.get('EMAIL_PASSWORD_KEY')
+            if encryption_key:
+                f = Fernet(encryption_key.encode())
+                # Try to decrypt - if it fails, it might be already decrypted
+                try:
+                    decrypted_password = f.decrypt(email_settings['password'].encode()).decode()
+                    email_settings['password'] = decrypted_password
+                except:
+                    # Password is already decrypted or in plain text
+                    pass
+        except:
+            # If decryption fails for any reason, return as is
+            pass
+    
+    return jsonify({'email_settings': email_settings}), 200
+
+# --- EMAIL SETTINGS: SAVE ---
+@settings_bp.route('/settings/email', methods=['POST'])
+@auth_required()
+def save_email_settings():
+    """
+    Save Email Notification Settings to UserSettings.preferences
+    """
+    data = request.get_json()
+    email_settings = data.get('email_settings')
+    
+    if email_settings is None:
+        return jsonify({'error': 'Email settings required'}), 400
+
+    # Get existing settings to check if password has changed
+    settings = UserSettings.query.filter_by(user_id=current_user.id).first()
+    existing_email_settings = {}
+    if settings and settings.preferences:
+        existing_email_settings = dict(settings.preferences).get('email_settings', {})
+
+    # Encrypt password before saving if it's provided and different from existing
+    if 'password' in email_settings and email_settings['password']:
+        # Check if this is a new password or if it has changed
+        existing_password = existing_email_settings.get('password', '')
+        
+        # If password looks like it's already encrypted (long string with non-readable characters),
+        # or if it's the same as the existing one, don't re-encrypt
+        if (len(email_settings['password']) > 50 and 
+            not email_settings['password'].isalnum() and 
+            email_settings['password'] == existing_password):
+            # Password is already encrypted, keep as is
+            pass
+        else:
+            # Encrypt the new password
+            encryption_key = os.environ.get('EMAIL_PASSWORD_KEY')
+            if not encryption_key:
+                encryption_key = Fernet.generate_key()
+                # In production, you should store this key securely
+                os.environ['EMAIL_PASSWORD_KEY'] = encryption_key.decode()
+            
+            f = Fernet(encryption_key.encode())
+            encrypted_password = f.encrypt(email_settings['password'].encode())
+            email_settings['password'] = encrypted_password.decode()
+
+    if not settings:
+        settings = UserSettings(user_id=current_user.id, preferences={})
+
+    import copy
+    prefs = dict(settings.preferences) if settings.preferences else {}
+    prefs['email_settings'] = email_settings
+    settings.preferences = prefs
+    
+    try:
+        db.session.add(settings)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to save email settings: {str(e)}'}), 500
+
+    return jsonify({'message': 'Email settings saved successfully'}), 200
+
+# --- EMAIL SETTINGS: TEST ---
+@settings_bp.route('/settings/email/test', methods=['POST'])
+@auth_required()
+def test_email_settings():
+    """
+    Test Email Notification Settings by sending a test email
+    """
+    data = request.get_json()
+    email_settings = data.get('email_settings')
+    
+    if not email_settings:
+        return jsonify({'error': 'Email settings required'}), 400
+
+    try:
+        # Extract settings
+        smtp_host = email_settings.get('smtp_host', 'smtp.gmail.com')
+        smtp_port = int(email_settings.get('smtp_port', 587))
+        use_tls = email_settings.get('use_tls', True)
+        use_ssl = email_settings.get('use_ssl', False)
+        username = email_settings.get('username', '')
+        password = email_settings.get('password', '')
+        sender_email = email_settings.get('sender_email', '')
+        
+        # Decrypt password if it's encrypted
+        if password:
+            try:
+                encryption_key = os.environ.get('EMAIL_PASSWORD_KEY')
+                if encryption_key:
+                    f = Fernet(encryption_key.encode())
+                    # Try to decrypt - if it fails, it might be already decrypted
+                    try:
+                        decrypted_password = f.decrypt(password.encode()).decode()
+                        password = decrypted_password
+                    except:
+                        # Password is already decrypted or in plain text
+                        pass
+            except:
+                # If decryption fails for any reason, use as is
+                pass
+        
+        # Create message
+        msg = MIMEMultipart()
+        msg['From'] = sender_email
+        msg['To'] = sender_email
+        msg['Subject'] = "FleetOps Email Configuration Test"
+        
+        body = "This is a test email from FleetOps to confirm your email notification settings are working correctly."
+        msg.attach(MIMEText(body, 'plain'))
+        
+        # Create SMTP connection
+        if use_ssl:
+            server = smtplib.SMTP_SSL(smtp_host, smtp_port)
+        else:
+            server = smtplib.SMTP(smtp_host, smtp_port)
+            if use_tls:
+                server.starttls()
+        
+        # Login and send
+        server.login(username, password)
+        server.send_message(msg)
+        server.quit()
+        
+        return jsonify({'message': 'Test email sent successfully!'}), 200
+    except Exception as e:
+        return jsonify({'error': f'Failed to send test email: {str(e)}'}), 500
