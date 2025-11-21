@@ -19,6 +19,7 @@ from werkzeug.utils import secure_filename
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl import load_workbook
 import re
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -755,7 +756,7 @@ def download_job_template():
                     'Customer Reference No': 'REF001',
                     'Department/Person In Charge/Sub-Customer': 'Operations Department',
                     'Service': services[0].name,
-                    'Pickup Date': (today + timedelta(days=1)).strftime('%Y-%m-%d'),
+                    'Pickup Date': (today + timedelta(days=1)).strftime('%d-%m-%Y'),
                     'Pickup Time': '09:00',
                     'Pickup Location': 'Sample Pickup Location 1',
                     'Drop-off Location': 'Sample Drop-off Location 1',
@@ -772,7 +773,7 @@ def download_job_template():
                     'Customer Reference No': 'REF002',
                     'Department/Person In Charge/Sub-Customer': 'Sales Department',
                     'Service': services[1].name if len(services) > 1 else services[0].name,
-                    'Pickup Date': (today + timedelta(days=2)).strftime('%Y-%m-%d'),
+                    'Pickup Date': (today + timedelta(days=2)).strftime('%d-%m-%Y'),
                     'Pickup Time': '14:30',
                     'Pickup Location': 'Sample Pickup Location 2',
                     'Drop-off Location': 'Sample Drop-off Location 2',
@@ -810,7 +811,7 @@ def download_job_template():
                     'Customer Reference No': 'REF002',
                     'Department/Person In Charge/Sub-Customer': 'Sales Department',
                     'Service': services[1].name if len(services) > 1 else services[0].name,
-                    'Pickup Date': (today + timedelta(days=2)).strftime('%Y-%m-%d'),
+                    'Pickup Date': (today + timedelta(days=2)).strftime('%d-%m-%Y'),
                     'Pickup Time': '14:30',
                     'Pickup Location': 'Sample Pickup Location 2',
                     'Drop-off Location': 'Sample Drop-off Location 2',
@@ -829,7 +830,7 @@ def download_job_template():
                 'Customer Reference No': 'REF003',
                 'Department/Person In Charge/Sub-Customer': 'IT Department',
                 'Service': services[0].name,
-                'Pickup Date': (today + timedelta(days=3)).strftime('%Y-%m-%d'),
+                'Pickup Date': (today + timedelta(days=3)).strftime('%d-%m-%Y'),
                 'Pickup Time': '10:00',
                 'Pickup Location': 'Test Location',
                 'Drop-off Location': 'Test Destination',
@@ -847,7 +848,7 @@ def download_job_template():
                 'Customer Reference No': 'REF004',
                 'Department/Person In Charge/Sub-Customer': 'Marketing',
                 'Service': 'Invalid Service',
-                'Pickup Date': (today + timedelta(days=4)).strftime('%Y-%m-%d'),
+                'Pickup Date': (today + timedelta(days=4)).strftime('%d-%m-%Y'),
                 'Pickup Time': '11:00',
                 'Pickup Location': 'Test Location',
                 'Drop-off Location': 'Test Destination',
@@ -865,7 +866,7 @@ def download_job_template():
                 'Customer Reference No': 'REF005',
                 'Department/Person In Charge/Sub-Customer': 'Finance',
                 'Service': services[0].name,
-                'Pickup Date': (today + timedelta(days=5)).strftime('%Y-%m-%d'),
+                'Pickup Date': (today + timedelta(days=5)).strftime('%d-%m-%Y'),
                 'Pickup Time': '12:00',
                 'Pickup Location': 'Test Location',
                 'Drop-off Location': 'Test Destination',
@@ -883,7 +884,7 @@ def download_job_template():
                 'Customer Reference No': 'REF006',
                 'Department/Person In Charge/Sub-Customer': 'HR Department',
                 'Service': services[0].name,
-                'Pickup Date': (today + timedelta(days=6)).strftime('%Y-%m-%d'),
+                'Pickup Date': (today + timedelta(days=6)).strftime('%d-%m-%Y'),
                 'Pickup Time': '13:00',
                 'Pickup Location': 'Test Location',
                 'Drop-off Location': 'Test Destination',
@@ -905,7 +906,7 @@ def download_job_template():
                     'Customer Reference No': '',
                     'Department/Person In Charge/Sub-Customer': '',
                     'Service': '',
-                    'Pickup Date': (today + timedelta(days=1)).strftime('%Y-%m-%d'),
+                    'Pickup Date': (today + timedelta(days=1)).strftime('%d-%m-%Y'),
                     'Pickup Time': '09:00',
                     'Pickup Location': '',
                     'Drop-off Location': '',
@@ -922,7 +923,7 @@ def download_job_template():
                     'Customer Reference No': '',
                     'Department/Person In Charge/Sub-Customer': '',
                     'Service': '',
-                    'Pickup Date': (today + timedelta(days=1)).strftime('%Y-%m-%d'),
+                    'Pickup Date': (today + timedelta(days=1)).strftime('%d-%m-%Y'),
                     'Pickup Time': '09:00',
                     'Pickup Location': '',
                     'Drop-off Location': '',
@@ -1082,7 +1083,7 @@ def download_job_template():
                     ['Required Fields:'],
                     ['- Customer: Select from dropdown'],
                     ['- Service: Select from dropdown'],
-                    ['- Pickup Date: Format YYYY-MM-DD'],
+                    ['- Pickup Date: Format DD-MM-YYYY or DDMMYYYY'],
                     ['- Pickup Time: Format HH:MM (24-hour)'],
                     ['- Pickup Location: Text'],
                     ['- Drop-off Location: Text'],
@@ -1097,8 +1098,9 @@ def download_job_template():
                     ['- Remarks: Text'],
                     [''],
                     ['Notes:'],
-                    ['- Date format must be YYYY-MM-DD'],
-                    ['- Time format must be HH:MM (24-hour)'],
+                    ['- Date format: DD-MM-YYYY (e.g., 25-01-2025) or DDMMYYYY (e.g., 25012025)'],
+                    ['- Time format: HHMM (e.g., 0930, 1430) or HH:MM (e.g., 09:30, 14:30) in 24-hour format'],
+                    ['- For times after midnight, use 4 digits: 0010 for 00:10, 0030 for 00:30, etc.'],
                     ['- Vehicle and Driver will be assigned by the system'],
                     ['- Use dropdowns for Customer, Service, Contractor, and Vehicle Type'],
                     ['- Remove sample data before uploading'],
@@ -1123,7 +1125,7 @@ def download_job_template():
                     ['- Service: Select from dropdown'],
                     ['- Vehicle: Select from dropdown'],
                     ['- Driver: Select from dropdown'],
-                    ['- Pickup Date: Format YYYY-MM-DD'],
+                    ['- Pickup Date: Format DD-MM-YYYY or DDMMYYYY'],
                     ['- Pickup Time: Format HH:MM (24-hour)'],
                     ['- Pickup Location: Text'],
                     ['- Drop-off Location: Text'],
@@ -1138,8 +1140,9 @@ def download_job_template():
                     ['- Remarks: Text'],
                     [''],
                     ['Notes:'],
-                    ['- Date format must be YYYY-MM-DD'],
-                    ['- Time format must be HH:MM (24-hour)'],
+                    ['- Date format: DD-MM-YYYY (e.g., 25-01-2025) or DDMMYYYY (e.g., 25012025)'],
+                    ['- Time format: HHMM (e.g., 0930, 1430) or HH:MM (e.g., 09:30, 14:30) in 24-hour format'],
+                    ['- For times after midnight, use 4 digits: 0010 for 00:10, 0030 for 00:30, etc.'],
                     ['- Use dropdowns for Customer, Service, Vehicle, Driver, Contractor, and Vehicle Type'],
                     ['- Remove sample data before uploading'],
                     ['- Maximum 1000 jobs per file'],
@@ -1250,8 +1253,56 @@ def upload_excel_file():
 def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=False):
     """Process the uploaded Excel file for preview with validation and column mapping"""
     try:
-        # Read Excel file
+        # Read Excel file with pandas
         df = pd.read_excel(file_path, sheet_name='Jobs Template')
+
+        # Use openpyxl to get raw cell values for time columns to preserve leading zeros
+        wb = load_workbook(file_path, data_only=False)
+        ws = wb['Jobs Template']
+
+        # Find the time column index
+        header_row = [cell.value for cell in ws[1]]
+        time_column_idx = None
+        time_column_names = ['Pickup Time', 'Time', 'pickup_time']
+        for idx, col_name in enumerate(header_row):
+            if col_name in time_column_names:
+                time_column_idx = idx + 1  # openpyxl is 1-indexed
+                break
+
+        # If we found a time column, replace pandas values with raw cell values from openpyxl
+        if time_column_idx:
+            time_values = []
+            for row_idx in range(2, ws.max_row + 1):  # Start from row 2 (skip header)
+                cell = ws.cell(row=row_idx, column=time_column_idx)
+
+                # Check if cell is formatted as text or if it's a string value
+                if cell.value is not None:
+                    # If it's already a string, use it directly
+                    if isinstance(cell.value, str):
+                        raw_value = cell.value
+                    # If it's a number, check if it looks like it should have leading zeros
+                    elif isinstance(cell.value, (int, float)):
+                        # For numbers less than 100, assume they might be times like "0010" or "0930"
+                        # We'll pad them to 4 digits
+                        num_str = str(int(cell.value))
+                        if int(cell.value) < 100:
+                            # Could be "0010" (00:10) or "0930" (09:30)
+                            raw_value = num_str.zfill(4)
+                        else:
+                            raw_value = num_str
+                    else:
+                        raw_value = str(cell.value)
+                else:
+                    raw_value = ''
+
+                time_values.append(raw_value)
+
+            # Update the dataframe with raw time values
+            time_col_name = header_row[time_column_idx - 1]
+            if len(time_values) == len(df):
+                df[time_col_name] = time_values
+
+        wb.close()
         
         # Check row count limit
         max_rows = current_app.config.get('MAX_ROWS_PER_FILE', 1000)
@@ -1374,11 +1425,84 @@ def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=
             # Get row index as integer
             row_index = index if isinstance(index, int) else 0
             
+            # Helper function to normalize time format
+            def normalize_time(time_str):
+                """Convert time without colon (e.g., '0900', '930') to HH:MM format"""
+                if not time_str:
+                    return ''
+
+                # Convert to string and strip whitespace
+                original_str = str(time_str).strip()
+                time_str = original_str
+
+                # Debug logging
+                current_app.logger.info(f"normalize_time input: '{original_str}', type: {type(time_str)}")
+
+                # If already has colon, return as is
+                if ':' in time_str:
+                    return time_str
+
+                # Remove any non-digit characters (including decimal points from float conversion)
+                digits = ''.join(c for c in time_str if c.isdigit())
+
+                if not digits:
+                    return time_str
+
+                current_app.logger.info(f"normalize_time digits: '{digits}', length: {len(digits)}")
+
+                # Handle different formats based on digit length
+                if len(digits) == 4:
+                    # e.g., "0930" -> "09:30", "0010" -> "00:10"
+                    result = f"{digits[0:2]}:{digits[2:4]}"
+                    current_app.logger.info(f"normalize_time 4-digit result: '{result}'")
+                    return result
+                elif len(digits) == 3:
+                    # e.g., "930" -> "09:30"
+                    result = f"{digits[0]:0>2}:{digits[1:3]}"
+                    current_app.logger.info(f"normalize_time 3-digit result: '{result}'")
+                    return result
+                elif len(digits) == 1 or len(digits) == 2:
+                    # e.g., "9" -> "09:00", "10" -> "10:00"
+                    # Check if original string had leading zeros (preserved by dtype=str)
+                    if original_str.startswith('0') and len(original_str) >= 3:
+                        # This was "0010" or similar - pad to 4 digits
+                        digits = digits.zfill(4)
+                        result = f"{digits[0:2]}:{digits[2:4]}"
+                        current_app.logger.info(f"normalize_time zero-padded result: '{result}'")
+                        return result
+                    else:
+                        result = f"{digits:0>2}:00"
+                        current_app.logger.info(f"normalize_time 1-2 digit result: '{result}'")
+                        return result
+
+                return time_str
+
             # Clean and normalize the data
-            def clean_value(value):
+            def clean_value(value, is_date=False, is_time=False):
                 if pd.isna(value):
                     return ''
-                return str(value).strip()
+                # Handle datetime objects from Excel
+                if isinstance(value, pd.Timestamp):
+                    if is_date:
+                        return value.strftime('%d-%m-%Y')
+                    return value.strftime('%H:%M')
+                # Handle Python datetime objects
+                if hasattr(value, 'strftime'):
+                    if is_date:
+                        return value.strftime('%d-%m-%Y')
+                    return value.strftime('%H:%M')
+
+                result = str(value).strip()
+
+                # Handle string "nan" from pandas when dtype is forced to string
+                if result.lower() == 'nan':
+                    return ''
+
+                # Normalize time format if this is a time field
+                if is_time:
+                    result = normalize_time(result)
+
+                return result
             
             # Conditional row data extraction based on user role
             if is_customer_user:
@@ -1393,8 +1517,8 @@ def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=
                     'driver': '',   # Always empty for customer users
                     'contractor': clean_value(row.get(column_map.get('contractor', 'Contractor'), '')),
                     'vehicle_type': clean_value(row.get(column_map.get('vehicle_type', 'Vehicle Type'), '')),
-                    'pickup_date': clean_value(row.get(column_map.get('pickup_date', 'Pickup Date'), '')),
-                    'pickup_time': clean_value(row.get(column_map.get('pickup_time', 'Pickup Time'), '')),
+                    'pickup_date': clean_value(row.get(column_map.get('pickup_date', 'Pickup Date'), ''), is_date=True),
+                    'pickup_time': clean_value(row.get(column_map.get('pickup_time', 'Pickup Time'), ''), is_time=True),
                     'pickup_location': clean_value(row.get(column_map.get('pickup_location', 'Pickup Location'), '')),
                     'dropoff_location': clean_value(row.get(column_map.get('dropoff_location', 'Drop-off Location'), '')),
                     'passenger_name': clean_value(row.get(column_map.get('passenger_name', 'Passenger Name'), '')),
@@ -1415,8 +1539,8 @@ def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=
                     'driver': clean_value(row.get(column_map.get('driver', 'Driver'), '')),
                     'contractor': clean_value(row.get(column_map.get('contractor', 'Contractor'), '')),
                     'vehicle_type': clean_value(row.get(column_map.get('vehicle_type', 'Vehicle Type'), '')),
-                    'pickup_date': clean_value(row.get(column_map.get('pickup_date', 'Pickup Date'), '')),
-                    'pickup_time': clean_value(row.get(column_map.get('pickup_time', 'Pickup Time'), '')),
+                    'pickup_date': clean_value(row.get(column_map.get('pickup_date', 'Pickup Date'), ''), is_date=True),
+                    'pickup_time': clean_value(row.get(column_map.get('pickup_time', 'Pickup Time'), ''), is_time=True),
                     'pickup_location': clean_value(row.get(column_map.get('pickup_location', 'Pickup Location'), '')),
                     'dropoff_location': clean_value(row.get(column_map.get('dropoff_location', 'Drop-off Location'), '')),
                     'passenger_name': clean_value(row.get(column_map.get('passenger_name', 'Passenger Name'), '')),
@@ -1451,7 +1575,12 @@ def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=
                 pickup_time_val = row_data.get('pickup_time', '').strip()
 
                 if pickup_date_val:
-                    datetime.strptime(pickup_date_val, '%Y-%m-%d')
+                    # Parse DD-MM-YYYY or DDMMYYYY format and convert to YYYY-MM-DD for database
+                    try:
+                        date_obj = datetime.strptime(pickup_date_val, '%d-%m-%Y')
+                    except ValueError:
+                        date_obj = datetime.strptime(pickup_date_val, '%d%m%Y')
+                    row_data['pickup_date'] = date_obj.strftime('%Y-%m-%d')
                 if pickup_time_val:
                     datetime.strptime(pickup_time_val, '%H:%M')
             except ValueError as ve:
@@ -1661,9 +1790,18 @@ def confirm_upload():
                 if pickup_date:
                     try:
                         from datetime import datetime
-                        datetime.strptime(pickup_date, '%Y-%m-%d')
+                        # Parse DD-MM-YYYY, DDMMYYYY, or YYYY-MM-DD format and convert to YYYY-MM-DD for database
+                        try:
+                            date_obj = datetime.strptime(pickup_date, '%d-%m-%Y')
+                        except ValueError:
+                            try:
+                                date_obj = datetime.strptime(pickup_date, '%d%m%Y')
+                            except ValueError:
+                                # Also accept YYYY-MM-DD format (from preview data)
+                                date_obj = datetime.strptime(pickup_date, '%Y-%m-%d')
+                        pickup_date = date_obj.strftime('%Y-%m-%d')
                     except ValueError:
-                        row_errors.append(f"Invalid pickup_date format: '{pickup_date}'. Expected YYYY-MM-DD")
+                        row_errors.append(f"Invalid pickup_date format: '{pickup_date}'. Expected DD-MM-YYYY or DDMMYYYY")
 
                 if pickup_time:
                     try:
