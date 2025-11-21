@@ -755,14 +755,14 @@ def download_job_template():
                     'Customer Reference No': 'REF001',
                     'Department/Person In Charge/Sub-Customer': 'Operations Department',
                     'Service': services[0].name,
-                    'Contractor': contractor_value,
-                    'Vehicle Type': vehicle_type_value,
                     'Pickup Date': (today + timedelta(days=1)).strftime('%Y-%m-%d'),
                     'Pickup Time': '09:00',
                     'Pickup Location': 'Sample Pickup Location 1',
                     'Drop-off Location': 'Sample Drop-off Location 1',
                     'Passenger Name': 'Sample Passenger 1',
                     'Passenger Mobile': '+6591234567',
+                    'Vehicle Type': vehicle_type_value,
+                    'Contractor': contractor_value,
                     'Remarks': 'Sample job entry - Valid data'
                 })
 
@@ -772,14 +772,14 @@ def download_job_template():
                     'Customer Reference No': 'REF002',
                     'Department/Person In Charge/Sub-Customer': 'Sales Department',
                     'Service': services[1].name if len(services) > 1 else services[0].name,
-                    'Contractor': contractor_value,
-                    'Vehicle Type': vehicle_type_value_2,
                     'Pickup Date': (today + timedelta(days=2)).strftime('%Y-%m-%d'),
                     'Pickup Time': '14:30',
                     'Pickup Location': 'Sample Pickup Location 2',
                     'Drop-off Location': 'Sample Drop-off Location 2',
                     'Passenger Name': 'Sample Passenger 2',
                     'Passenger Mobile': '+6598765432',
+                    'Vehicle Type': vehicle_type_value_2,
+                    'Contractor': contractor_value,
                     'Remarks': 'Sample job entry - Valid data'
                 })
         elif customers and services and vehicles and drivers:
@@ -790,16 +790,16 @@ def download_job_template():
                 'Customer Reference No': 'REF001',
                 'Department/Person In Charge/Sub-Customer': 'Operations Department',
                 'Service': services[0].name,
-                'Vehicle': vehicles[0].number,
-                'Driver': drivers[0].name,
-                'Contractor': contractor_value,
-                'Vehicle Type': vehicle_type_value,
                 'Pickup Date': (today + timedelta(days=1)).strftime('%Y-%m-%d'),
                 'Pickup Time': '09:00',
                 'Pickup Location': 'Sample Pickup Location 1',
                 'Drop-off Location': 'Sample Drop-off Location 1',
                 'Passenger Name': 'Sample Passenger 1',
                 'Passenger Mobile': '+6591234567',
+                'Vehicle Type': vehicle_type_value,
+                'Vehicle': vehicles[0].number,
+                'Driver': drivers[0].name,
+                'Contractor': contractor_value,
                 'Remarks': 'Sample job entry - Valid data'
             })
 
@@ -810,16 +810,16 @@ def download_job_template():
                     'Customer Reference No': 'REF002',
                     'Department/Person In Charge/Sub-Customer': 'Sales Department',
                     'Service': services[1].name if len(services) > 1 else services[0].name,
-                    'Vehicle': vehicles[1].number if len(vehicles) > 1 else vehicles[0].number,
-                    'Driver': drivers[1].name if len(drivers) > 1 else drivers[0].name,
-                    'Contractor': contractor_value_2,
-                    'Vehicle Type': vehicle_type_value_2,
                     'Pickup Date': (today + timedelta(days=2)).strftime('%Y-%m-%d'),
                     'Pickup Time': '14:30',
                     'Pickup Location': 'Sample Pickup Location 2',
                     'Drop-off Location': 'Sample Drop-off Location 2',
                     'Passenger Name': 'Sample Passenger 2',
                     'Passenger Mobile': '+6598765432',
+                    'Vehicle Type': vehicle_type_value_2,
+                    'Vehicle': vehicles[1].number if len(vehicles) > 1 else vehicles[0].number,
+                    'Driver': drivers[1].name if len(drivers) > 1 else drivers[0].name,
+                    'Contractor': contractor_value_2,
                     'Remarks': 'Sample job entry - Valid data'
                 })
 
@@ -829,16 +829,16 @@ def download_job_template():
                 'Customer Reference No': 'REF003',
                 'Department/Person In Charge/Sub-Customer': 'IT Department',
                 'Service': services[0].name,
-                'Vehicle': vehicles[0].number,
-                'Driver': drivers[0].name,
-                'Contractor': contractor_value,
-                'Vehicle Type': vehicle_type_value,
                 'Pickup Date': (today + timedelta(days=3)).strftime('%Y-%m-%d'),
                 'Pickup Time': '10:00',
                 'Pickup Location': 'Test Location',
                 'Drop-off Location': 'Test Destination',
                 'Passenger Name': 'Test Passenger',
                 'Passenger Mobile': '+6512345678',
+                'Vehicle Type': vehicle_type_value,
+                'Vehicle': vehicles[0].number,
+                'Driver': drivers[0].name,
+                'Contractor': contractor_value,
                 'Remarks': 'Invalid customer - should fail validation'
             })
 
@@ -847,16 +847,16 @@ def download_job_template():
                 'Customer Reference No': 'REF004',
                 'Department/Person In Charge/Sub-Customer': 'Marketing',
                 'Service': 'Invalid Service',
-                'Vehicle': vehicles[0].number,
-                'Driver': drivers[0].name,
-                'Contractor': contractor_value,
-                'Vehicle Type': vehicle_type_value,
                 'Pickup Date': (today + timedelta(days=4)).strftime('%Y-%m-%d'),
                 'Pickup Time': '11:00',
                 'Pickup Location': 'Test Location',
                 'Drop-off Location': 'Test Destination',
                 'Passenger Name': 'Test Passenger',
                 'Passenger Mobile': '+6587654321',
+                'Vehicle Type': vehicle_type_value,
+                'Vehicle': vehicles[0].number,
+                'Driver': drivers[0].name,
+                'Contractor': contractor_value,
                 'Remarks': 'Invalid service - should fail validation'
             })
 
@@ -865,16 +865,16 @@ def download_job_template():
                 'Customer Reference No': 'REF005',
                 'Department/Person In Charge/Sub-Customer': 'Finance',
                 'Service': services[0].name,
-                'Vehicle': 'INVALID123',
-                'Driver': drivers[0].name,
-                'Contractor': contractor_value,
-                'Vehicle Type': vehicle_type_value,
                 'Pickup Date': (today + timedelta(days=5)).strftime('%Y-%m-%d'),
                 'Pickup Time': '12:00',
                 'Pickup Location': 'Test Location',
                 'Drop-off Location': 'Test Destination',
                 'Passenger Name': 'Test Passenger',
                 'Passenger Mobile': '+6596543210',
+                'Vehicle Type': vehicle_type_value,
+                'Vehicle': 'INVALID123',
+                'Driver': drivers[0].name,
+                'Contractor': contractor_value,
                 'Remarks': 'Invalid vehicle - should fail validation'
             })
 
@@ -883,16 +883,16 @@ def download_job_template():
                 'Customer Reference No': 'REF006',
                 'Department/Person In Charge/Sub-Customer': 'HR Department',
                 'Service': services[0].name,
-                'Vehicle': vehicles[0].number,
-                'Driver': 'Invalid Driver',
-                'Contractor': contractor_value,
-                'Vehicle Type': vehicle_type_value,
                 'Pickup Date': (today + timedelta(days=6)).strftime('%Y-%m-%d'),
                 'Pickup Time': '13:00',
                 'Pickup Location': 'Test Location',
                 'Drop-off Location': 'Test Destination',
                 'Passenger Name': 'Test Passenger',
                 'Passenger Mobile': '+6511223344',
+                'Vehicle Type': vehicle_type_value,
+                'Vehicle': vehicles[0].number,
+                'Driver': 'Invalid Driver',
+                'Contractor': contractor_value,
                 'Remarks': 'Invalid driver - should fail validation'
             })
 
@@ -905,14 +905,14 @@ def download_job_template():
                     'Customer Reference No': '',
                     'Department/Person In Charge/Sub-Customer': '',
                     'Service': '',
-                    'Contractor': '',
-                    'Vehicle Type': '',
                     'Pickup Date': (today + timedelta(days=1)).strftime('%Y-%m-%d'),
                     'Pickup Time': '09:00',
                     'Pickup Location': '',
                     'Drop-off Location': '',
                     'Passenger Name': '',
                     'Passenger Mobile': '',
+                    'Vehicle Type': '',
+                    'Contractor': '',
                     'Remarks': ''
                 })
             else:
@@ -922,16 +922,16 @@ def download_job_template():
                     'Customer Reference No': '',
                     'Department/Person In Charge/Sub-Customer': '',
                     'Service': '',
-                    'Vehicle': '',
-                    'Driver': '',
-                    'Contractor': '',
-                    'Vehicle Type': '',
                     'Pickup Date': (today + timedelta(days=1)).strftime('%Y-%m-%d'),
                     'Pickup Time': '09:00',
                     'Pickup Location': '',
                     'Drop-off Location': '',
                     'Passenger Name': '',
                     'Passenger Mobile': '',
+                    'Vehicle Type': '',
+                    'Vehicle': '',
+                    'Driver': '',
+                    'Contractor': '',
                     'Remarks': ''
                 })
         
@@ -1005,42 +1005,8 @@ def download_job_template():
             # Column E: Contractors (all users)
             # Column F: Vehicle Types (all users)
 
-            # Vehicle dropdown (Column C in reference sheet) - Admin users only
-            if not is_customer_user and vehicles and len(vehicles) > 0:
-                vehicle_numbers = [vehicle.number for vehicle in vehicles]
-                # Write vehicle numbers to hidden sheet (Column C)
-                for idx, number in enumerate(vehicle_numbers, start=1):
-                    ref_sheet.cell(row=idx, column=3, value=number)
-                vehicle_range = f"ReferenceData!$C$1:$C${len(vehicle_numbers)}"
-                vehicle_validation = DataValidation(type="list", formula1=vehicle_range, allow_blank=True)
-                vehicle_validation.add('E2:E1000')  # Column E in main sheet
-                worksheet.add_data_validation(vehicle_validation)
-
-            # Driver dropdown (Column D in reference sheet) - Admin users only
-            if not is_customer_user and drivers and len(drivers) > 0:
-                driver_names = [driver.name for driver in drivers]
-                # Write driver names to hidden sheet (Column D)
-                for idx, name in enumerate(driver_names, start=1):
-                    ref_sheet.cell(row=idx, column=4, value=name)
-                driver_range = f"ReferenceData!$D$1:$D${len(driver_names)}"
-                driver_validation = DataValidation(type="list", formula1=driver_range, allow_blank=True)
-                driver_validation.add('F2:F1000')  # Column F in main sheet
-                worksheet.add_data_validation(driver_validation)
-
-            # Contractor dropdown (Column E in reference sheet) - All users
-            if contractors and len(contractors) > 0:
-                contractor_names = [contractor.name for contractor in contractors]
-                # Write contractor names to hidden sheet (Column E)
-                for idx, name in enumerate(contractor_names, start=1):
-                    ref_sheet.cell(row=idx, column=5, value=name)
-                contractor_range = f"ReferenceData!$E$1:$E${len(contractor_names)}"
-                contractor_validation = DataValidation(type="list", formula1=contractor_range, allow_blank=True)
-                # Column E for customer users, Column G for admin users
-                target_column = 'E2:E1000' if is_customer_user else 'G2:G1000'
-                contractor_validation.add(target_column)
-                worksheet.add_data_validation(contractor_validation)
-
             # Vehicle Type dropdown (Column F in reference sheet) - All users
+            # Column K for both customer and admin users (moved before Vehicle)
             if vehicle_types and len(vehicle_types) > 0:
                 vehicle_type_names = [vtype.name for vtype in vehicle_types]
                 # Write vehicle type names to hidden sheet (Column F)
@@ -1048,10 +1014,46 @@ def download_job_template():
                     ref_sheet.cell(row=idx, column=6, value=name)
                 vehicle_type_range = f"ReferenceData!$F$1:$F${len(vehicle_type_names)}"
                 vehicle_type_validation = DataValidation(type="list", formula1=vehicle_type_range, allow_blank=True)
-                # Column F for customer users, Column H for admin users
-                target_column = 'F2:F1000' if is_customer_user else 'H2:H1000'
-                vehicle_type_validation.add(target_column)
+                vehicle_type_validation.add('K2:K1000')  # Column K for both users
                 worksheet.add_data_validation(vehicle_type_validation)
+
+            # Vehicle dropdown (Column C in reference sheet) - Admin users only
+            # Column L in main sheet (after Vehicle Type)
+            if not is_customer_user and vehicles and len(vehicles) > 0:
+                vehicle_numbers = [vehicle.number for vehicle in vehicles]
+                # Write vehicle numbers to hidden sheet (Column C)
+                for idx, number in enumerate(vehicle_numbers, start=1):
+                    ref_sheet.cell(row=idx, column=3, value=number)
+                vehicle_range = f"ReferenceData!$C$1:$C${len(vehicle_numbers)}"
+                vehicle_validation = DataValidation(type="list", formula1=vehicle_range, allow_blank=True)
+                vehicle_validation.add('L2:L1000')  # Column L in main sheet
+                worksheet.add_data_validation(vehicle_validation)
+
+            # Driver dropdown (Column D in reference sheet) - Admin users only
+            # Column M in main sheet (after Vehicle)
+            if not is_customer_user and drivers and len(drivers) > 0:
+                driver_names = [driver.name for driver in drivers]
+                # Write driver names to hidden sheet (Column D)
+                for idx, name in enumerate(driver_names, start=1):
+                    ref_sheet.cell(row=idx, column=4, value=name)
+                driver_range = f"ReferenceData!$D$1:$D${len(driver_names)}"
+                driver_validation = DataValidation(type="list", formula1=driver_range, allow_blank=True)
+                driver_validation.add('M2:M1000')  # Column M in main sheet
+                worksheet.add_data_validation(driver_validation)
+
+            # Contractor dropdown (Column E in reference sheet) - All users
+            # Column L for customer users, Column N for admin users (after driver details)
+            if contractors and len(contractors) > 0:
+                contractor_names = [contractor.name for contractor in contractors]
+                # Write contractor names to hidden sheet (Column E)
+                for idx, name in enumerate(contractor_names, start=1):
+                    ref_sheet.cell(row=idx, column=5, value=name)
+                contractor_range = f"ReferenceData!$E$1:$E${len(contractor_names)}"
+                contractor_validation = DataValidation(type="list", formula1=contractor_range, allow_blank=True)
+                # Column L for customer users, Column N for admin users
+                target_column = 'L2:L1000' if is_customer_user else 'N2:N1000'
+                contractor_validation.add(target_column)
+                worksheet.add_data_validation(contractor_validation)
 
             # Auto-adjust column widths
             for column in worksheet.columns:
@@ -2314,7 +2316,7 @@ def jobs_calendar():
 
         for job in jobs:
             date_key = job.pickup_date
-            driver_key = job.driver_id if job.driver_id else 'unassigned'
+            driver_key = str(job.driver_id) if job.driver_id else 'unassigned'
 
             # Init nested dicts
             calendar_data.setdefault(date_key, {})
