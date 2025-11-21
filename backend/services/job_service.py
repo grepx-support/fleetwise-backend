@@ -474,7 +474,12 @@ class JobService:
         except Exception as e:
             db.session.rollback()
             logging.error(f"Error creating job: {e}", exc_info=True)
-            raise ServiceError("Could not create job. Please try again later.")
+            # Only wrap non-ServiceError exceptions with generic message
+            # ServiceError exceptions should be re-raised as-is to preserve detailed messages
+            if isinstance(e, ServiceError):
+                raise
+            else:
+                raise ServiceError("Could not create job. Please try again later.")
     
     @staticmethod
     def update(job_id, data):
@@ -727,7 +732,12 @@ class JobService:
         except Exception as e:
             db.session.rollback()
             logging.error(f"Error updating job: {e}", exc_info=True)
-            raise
+            # Only wrap non-ServiceError exceptions with generic message
+            # ServiceError exceptions should be re-raised as-is to preserve detailed messages
+            if isinstance(e, ServiceError):
+                raise
+            else:
+                raise ServiceError("Could not update job. Please try again later.")
 
     @staticmethod
     def delete(job_id, soft=True):
@@ -1052,7 +1062,12 @@ class JobService:
         except Exception as e:
             db.session.rollback()
             logging.error(f"Error updating job: {e}", exc_info=True)
-            raise
+            # Only wrap non-ServiceError exceptions with generic message
+            # ServiceError exceptions should be re-raised as-is to preserve detailed messages
+            if isinstance(e, ServiceError):
+                raise
+            else:
+                raise ServiceError("Could not update job. Please try again later.")
 
 def safe_float(value, default=0.0):
     try:
