@@ -245,7 +245,7 @@ def create_job():
             return jsonify(job_data), 201
     except ServiceError as se:
         db.session.rollback()
-        return jsonify({'error': se.message}), 400
+        return jsonify({'message': se.message}), 400
     except Exception as e:
         db.session.rollback()
         logging.error(f"Unhandled error in create_job: {e}", exc_info=True)
@@ -373,7 +373,7 @@ def update_job(job_id):
             return jsonify(job_data), 200
     except ServiceError as se:
         db.session.rollback()
-        return jsonify({'error': se.message}), 400
+        return jsonify({'message': se.message}), 400
     except Exception as e:
         db.session.rollback()
         logging.error(f"Unhandled error in update_job: {e}", exc_info=True)
@@ -497,7 +497,7 @@ def set_job_penalty(job_id):
             return jsonify(result), 400
         return jsonify({'message': 'Penalty updated', 'job_id': job_id, 'penalty': penalty}), 200
     except ServiceError as se:
-        return jsonify({'error': se.message}), 400
+        return jsonify({'message': se.message}), 400
     except Exception as e:
         logging.error(f"Unhandled error in set_job_penalty: {e}", exc_info=True)
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
