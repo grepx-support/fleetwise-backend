@@ -1,30 +1,40 @@
 from flask import Blueprint, jsonify
 from services.driver_scoring import get_job_data, compute_driver_scores, get_best_driver
 import time
-from flask_security.decorators import roles_accepted, auth_required
+from flask_security.decorators import roles_accepted
+import logging
+from flask import current_app
+import traceback
 
 pipeline_bp = Blueprint('pipeline', __name__)
 
-@pipeline_bp.route('/run', methods=['GET'])
+@pipeline_bp.route('/run', methods=['POST'])
 @roles_accepted('admin', 'manager', 'accountant', 'customer')
 def run_pipeline():
     try:
         start = time.time()
-        df = get_job_data()
+
+        # 1️⃣ Fetch all job data without any filters
+        df = get_job_data()  # fetch all jobs
+
+        # 2️⃣ Compute driver scoring
         ranking = compute_driver_scores(df)
-        print(ranking)
-        best_driver = get_best_driver(ranking)
+        best = get_best_driver(ranking)
 
-        ai_result = {
-            "status": "ok",
-            "best_driver": best_driver,
-            "ranking": ranking
-        }
         end = time.time()
-        print(f"Time taken: {end - start:.4f} seconds")
 
-        return jsonify(ai_result), 200
+        return jsonify({
+            "success": True,
+            "processing_time": round(end - start, 3),
+            "ranking": ranking,
+            "best_driver": best
+        }), 200
 
     except Exception as e:
-        print("Error:", e)
-        return jsonify({'error': 'Something Failed'}), 500
+       logging.error(f"Pipeline failed: {str(e)}", extra={
+           "traceback": traceback.format_exc()
+       })
+       return jsonify({
+           'error': 'Driver recommendation failed',
+           'details': str(e) if current_app.debug else None
+       }), 500

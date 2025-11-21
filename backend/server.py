@@ -229,7 +229,7 @@ blueprints = [
     ('services_vehicle_type_price', '/api'),
     ('bill', '/api'),
     ('reports', '/api'),
-    ('driver_leave', '/api')
+    ('driver_leave', '/api'),
     ('pipeline', '/api')
 ]
 
