@@ -2845,24 +2845,26 @@ def lookup_pincode():
     """
     Pin Code Lookup API
     Accepts: postalcode (or zipcode), countrycode
-    First checks local database, then calls OpenStreetMap Nominatim as fallback
-    
+    First checks local database, then calls OneMap API for Singapore or OpenStreetMap Nominatim for other countries
+
     This implementation addresses multiple critical issues:
     1. Robust error handling to prevent application crashes
     2. Input validation to prevent malformed data from reaching external APIs
     3. Efficient database lookups using indexed queries (O(1) performance)
     4. Graceful degradation when postal code data is unavailable
+    5. OneMap API integration for Singapore postal codes
     """
     try:
         from backend.models.postal_code import PostalCode
+        from backend.services.onemap_service import get_address_from_postal_code
     except ImportError as e:
-        logging.error(f"Failed to import PostalCode model: {e}")
+        logging.error(f"Failed to import required modules: {e}")
         return jsonify({'error': 'Postal code service temporarily unavailable'}), 503
-    
+
     # Extract and validate input parameters
     postalcode = request.args.get('postalcode') or request.args.get('zipcode')
     countrycode = request.args.get('countrycode')
-    
+
     if not postalcode or not countrycode:
         return jsonify({'error': 'postalcode and countrycode are required'}), 400
 
@@ -2872,11 +2874,11 @@ def lookup_pincode():
 
     # Clean and normalize postal code for database lookup
     clean_postalcode = postalcode.strip().replace(' ', '').replace('-', '')
-    
+
     try:
         # First, check local database for postal code (O(1) indexed lookup)
         logging.info(f"Checking local database for postal code: {clean_postalcode}")
-        
+
         try:
             # Use indexed query for O(1) performance - postal_code column is indexed
             local_postal_code = PostalCode.query.filter_by(postal_code=clean_postalcode).first()
@@ -2884,10 +2886,10 @@ def lookup_pincode():
             # Database lookup failed - log but don't crash, fall back to external API
             logging.warning(f"Database lookup failed for postal code {clean_postalcode}: {db_error}")
             local_postal_code = None
-        
+
         if local_postal_code:
             logging.info(f"Found postal code in local database: {local_postal_code.postal_code}")
-            
+
             # Check for potential data quality issues (duplicate postal codes)
             try:
                 duplicate_count = PostalCode.query.filter_by(postal_code=clean_postalcode).count()
@@ -2898,7 +2900,7 @@ def lookup_pincode():
                     )
             except Exception as dup_check_error:
                 logging.warning(f"Failed to check for duplicates: {dup_check_error}")
-            
+
             # Return address from local database
             # For Singapore postal codes, parse the address to extract components
             address_parts = local_postal_code.address.split(',') if local_postal_code.address else []
@@ -2914,12 +2916,62 @@ def lookup_pincode():
                 'source': 'local_database'
             }
             return jsonify({'address': normalized}), 200
-        
+
         # If not found in local database, fall back to external API
-        logging.info(f"Postal code not found in local database, trying external API for: {postalcode}")
-        
-        # External API fallback with robust error handling
+        logging.info(f"[POSTAL CODE LOOKUP] Not found in local database, trying external APIs for: {postalcode} (country: {countrycode})")
+
+        # For Singapore, try OneMap API first, then fall back to OpenStreetMap
+        if countrycode.lower() == 'sg':
+            try:
+                logging.info(f"[ONEMAP API] Starting lookup for Singapore postal code: {clean_postalcode}")
+                address = get_address_from_postal_code(clean_postalcode, 'Singapore')
+
+                if address:
+                    logging.info(f"[ONEMAP API] SUCCESS - Found address: {address}")
+                    normalized = {
+                        'city': 'Singapore',
+                        'state': 'Singapore',
+                        'country': 'Singapore',
+                        'postcode': clean_postalcode,
+                        'locality': None,
+                        'display_name': address,
+                        'lat': None,
+                        'lon': None,
+                        'source': 'onemap_api'
+                    }
+
+                    # Cache the result to local database
+                    try:
+                        existing = PostalCode.query.filter_by(postal_code=clean_postalcode).first()
+                        if not existing:
+                            new_postal_code = PostalCode(
+                                postal_code=clean_postalcode,
+                                address=address
+                            )
+                            db.session.add(new_postal_code)
+                            db.session.commit()
+                            logging.info(f"[ONEMAP API] Cached result to local database for postal code: {clean_postalcode}")
+                    except Exception as cache_error:
+                        logging.warning(f"[ONEMAP API] Failed to cache to database: {cache_error}")
+                        try:
+                            db.session.rollback()
+                        except Exception:
+                            pass
+
+                    return jsonify({'address': normalized}), 200
+                else:
+                    # OneMap returned None, fall back to OpenStreetMap
+                    logging.warning(f"[ONEMAP API] No results found for postal code: {clean_postalcode}")
+                    logging.info(f"[OPENSTREETMAP] Falling back to OpenStreetMap for postal code: {clean_postalcode}")
+
+            except Exception as onemap_error:
+                # OneMap API failed, fall back to OpenStreetMap
+                logging.error(f"[ONEMAP API] Error occurred: {onemap_error}")
+                logging.info(f"[OPENSTREETMAP] Falling back to OpenStreetMap due to OneMap error")
+
+        # Use OpenStreetMap Nominatim (for non-Singapore or as fallback for Singapore)
         try:
+            logging.info(f"[OPENSTREETMAP] Starting lookup for postal code: {postalcode} (country: {countrycode})")
             url = "https://nominatim.openstreetmap.org/search"
             params = {
                 'q': postalcode,  # Use original postal code for external API (may handle formatting)
@@ -2928,19 +2980,21 @@ def lookup_pincode():
                 'addressdetails': 1,
                 'limit': 1
             }
-            
+
             response = requests.get(
-                url, 
-                params=params, 
-                headers={"User-Agent": "fleetwise/1.0"}, 
+                url,
+                params=params,
+                headers={"User-Agent": "fleetwise/1.0"},
                 timeout=10
             )
             response.raise_for_status()
             data = response.json()
-            
+
             if not data:
+                logging.warning(f"[OPENSTREETMAP] No results found for postal code: {postalcode}")
                 return jsonify({'error': 'No address found for given postal code'}), 404
-                
+
+            logging.info(f"[OPENSTREETMAP] SUCCESS - Found address")
             address = data[0].get('address', {})
             normalized = {
                 'city': address.get('city') or address.get('town') or address.get('village'),
@@ -2951,14 +3005,11 @@ def lookup_pincode():
                 'display_name': data[0].get('display_name'),
                 'lat': data[0].get('lat'),
                 'lon': data[0].get('lon'),
-                'source': 'external_api'
+                'source': 'openstreetmap_api'
             }
-            
+
             # Optionally cache the API result back to database for future lookups
-            # Only cache if we have a valid display_name and it's for Singapore
-            if (countrycode.lower() == 'sg' and 
-                normalized.get('display_name') and 
-                normalized.get('postcode')):
+            if normalized.get('display_name') and normalized.get('postcode'):
                 try:
                     # Check if this postal code already exists (might have been added by another request)
                     existing = PostalCode.query.filter_by(postal_code=normalized['postcode']).first()
@@ -2969,30 +3020,30 @@ def lookup_pincode():
                         )
                         db.session.add(new_postal_code)
                         db.session.commit()
-                        logging.info(f"Cached postal code {normalized['postcode']} to local database")
+                        logging.info(f"[OPENSTREETMAP] Cached result to local database for postal code: {normalized['postcode']}")
                 except Exception as cache_error:
-                    logging.warning(f"Failed to cache postal code to database: {cache_error}")
+                    logging.warning(f"[OPENSTREETMAP] Failed to cache to database: {cache_error}")
                     try:
                         db.session.rollback()
                     except Exception:
                         pass  # Ignore rollback errors
                     # Don't fail the request if caching fails
-            
+
             return jsonify({'address': normalized}), 200
-            
+
         except requests.Timeout:
-            logging.error(f"External API timeout for postal code: {postalcode}")
+            logging.error(f"[OPENSTREETMAP] Timeout for postal code: {postalcode}")
             return jsonify({'error': 'Address lookup service timeout - please try again'}), 504
         except requests.ConnectionError:
-            logging.error(f"External API connection error for postal code: {postalcode}")
+            logging.error(f"[OPENSTREETMAP] Connection error for postal code: {postalcode}")
             return jsonify({'error': 'Address lookup service unavailable - please check your connection'}), 503
         except requests.HTTPError as http_error:
-            logging.error(f"External API HTTP error for postal code {postalcode}: {http_error}")
+            logging.error(f"[OPENSTREETMAP] HTTP error for postal code {postalcode}: {http_error}")
             return jsonify({'error': 'Address lookup service error - please try again later'}), 503
         except requests.RequestException as req_error:
-            logging.error(f"External API request error for postal code {postalcode}: {req_error}")
+            logging.error(f"[OPENSTREETMAP] Request error for postal code {postalcode}: {req_error}")
             return jsonify({'error': 'Address lookup service unavailable'}), 503
-        
+
     except Exception as e:
         # Catch-all for any unexpected errors to prevent application crashes
         logging.error(f"Unexpected error in postal code lookup: {str(e)}", exc_info=True)
