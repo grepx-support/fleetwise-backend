@@ -1,6 +1,9 @@
 import sqlite3
 import pandas as pd
 from flask import current_app
+from backend.api.job import JobService  
+from flask_login import current_user
+from datetime import datetime
 
 SUCCESS_STATUSES = {"jc", "confirmed", "otw", "ots", "pob", "sd"}
 CANCEL_STATUS = "canceled"
@@ -58,6 +61,23 @@ def compute_driver_scores(df: pd.DataFrame):
 
     # Sort by success ratio descending
     return sorted(results, key=lambda x: x["ratio"], reverse=True)
+
+def get_available_driver(ranking, pickup_date, pickup_time, job_id=None, time_buffer_minutes=60):
+    """
+    Iterate through ranked drivers and return the first driver without a scheduling conflict.
+    """
+    for driver in ranking:
+        conflict_job = JobService.check_driver_conflict(
+            driver_id=driver["driver_id"],
+            pickup_date=pickup_date,
+            pickup_time=pickup_time,
+            time_buffer_minutes=time_buffer_minutes
+        )
+        if not conflict_job:
+            # No conflict, return this driver
+            return driver
+    # If all drivers conflict
+    return None
 
 def get_best_driver(ranking):
     if not ranking:
