@@ -19,6 +19,7 @@ from werkzeug.utils import secure_filename
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl import load_workbook
 import re
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -755,14 +756,14 @@ def download_job_template():
                     'Customer Reference No': 'REF001',
                     'Department/Person In Charge/Sub-Customer': 'Operations Department',
                     'Service': services[0].name,
-                    'Contractor': contractor_value,
-                    'Vehicle Type': vehicle_type_value,
-                    'Pickup Date': (today + timedelta(days=1)).strftime('%Y-%m-%d'),
+                    'Pickup Date': (today + timedelta(days=1)).strftime('%d-%m-%Y'),
                     'Pickup Time': '09:00',
                     'Pickup Location': 'Sample Pickup Location 1',
                     'Drop-off Location': 'Sample Drop-off Location 1',
                     'Passenger Name': 'Sample Passenger 1',
                     'Passenger Mobile': '+6591234567',
+                    'Vehicle Type': vehicle_type_value,
+                    'Contractor': contractor_value,
                     'Remarks': 'Sample job entry - Valid data'
                 })
 
@@ -772,14 +773,14 @@ def download_job_template():
                     'Customer Reference No': 'REF002',
                     'Department/Person In Charge/Sub-Customer': 'Sales Department',
                     'Service': services[1].name if len(services) > 1 else services[0].name,
-                    'Contractor': contractor_value,
-                    'Vehicle Type': vehicle_type_value_2,
-                    'Pickup Date': (today + timedelta(days=2)).strftime('%Y-%m-%d'),
+                    'Pickup Date': (today + timedelta(days=2)).strftime('%d-%m-%Y'),
                     'Pickup Time': '14:30',
                     'Pickup Location': 'Sample Pickup Location 2',
                     'Drop-off Location': 'Sample Drop-off Location 2',
                     'Passenger Name': 'Sample Passenger 2',
                     'Passenger Mobile': '+6598765432',
+                    'Vehicle Type': vehicle_type_value_2,
+                    'Contractor': contractor_value,
                     'Remarks': 'Sample job entry - Valid data'
                 })
         elif customers and services and vehicles and drivers:
@@ -790,16 +791,16 @@ def download_job_template():
                 'Customer Reference No': 'REF001',
                 'Department/Person In Charge/Sub-Customer': 'Operations Department',
                 'Service': services[0].name,
-                'Vehicle': vehicles[0].number,
-                'Driver': drivers[0].name,
-                'Contractor': contractor_value,
-                'Vehicle Type': vehicle_type_value,
-                'Pickup Date': (today + timedelta(days=1)).strftime('%Y-%m-%d'),
+                'Pickup Date': (today + timedelta(days=1)).strftime('%d-%m-%Y'),
                 'Pickup Time': '09:00',
                 'Pickup Location': 'Sample Pickup Location 1',
                 'Drop-off Location': 'Sample Drop-off Location 1',
                 'Passenger Name': 'Sample Passenger 1',
                 'Passenger Mobile': '+6591234567',
+                'Vehicle Type': vehicle_type_value,
+                'Vehicle': vehicles[0].number,
+                'Driver': drivers[0].name,
+                'Contractor': contractor_value,
                 'Remarks': 'Sample job entry - Valid data'
             })
 
@@ -810,16 +811,16 @@ def download_job_template():
                     'Customer Reference No': 'REF002',
                     'Department/Person In Charge/Sub-Customer': 'Sales Department',
                     'Service': services[1].name if len(services) > 1 else services[0].name,
-                    'Vehicle': vehicles[1].number if len(vehicles) > 1 else vehicles[0].number,
-                    'Driver': drivers[1].name if len(drivers) > 1 else drivers[0].name,
-                    'Contractor': contractor_value_2,
-                    'Vehicle Type': vehicle_type_value_2,
-                    'Pickup Date': (today + timedelta(days=2)).strftime('%Y-%m-%d'),
+                    'Pickup Date': (today + timedelta(days=2)).strftime('%d-%m-%Y'),
                     'Pickup Time': '14:30',
                     'Pickup Location': 'Sample Pickup Location 2',
                     'Drop-off Location': 'Sample Drop-off Location 2',
                     'Passenger Name': 'Sample Passenger 2',
                     'Passenger Mobile': '+6598765432',
+                    'Vehicle Type': vehicle_type_value_2,
+                    'Vehicle': vehicles[1].number if len(vehicles) > 1 else vehicles[0].number,
+                    'Driver': drivers[1].name if len(drivers) > 1 else drivers[0].name,
+                    'Contractor': contractor_value_2,
                     'Remarks': 'Sample job entry - Valid data'
                 })
 
@@ -829,16 +830,16 @@ def download_job_template():
                 'Customer Reference No': 'REF003',
                 'Department/Person In Charge/Sub-Customer': 'IT Department',
                 'Service': services[0].name,
-                'Vehicle': vehicles[0].number,
-                'Driver': drivers[0].name,
-                'Contractor': contractor_value,
-                'Vehicle Type': vehicle_type_value,
-                'Pickup Date': (today + timedelta(days=3)).strftime('%Y-%m-%d'),
+                'Pickup Date': (today + timedelta(days=3)).strftime('%d-%m-%Y'),
                 'Pickup Time': '10:00',
                 'Pickup Location': 'Test Location',
                 'Drop-off Location': 'Test Destination',
                 'Passenger Name': 'Test Passenger',
                 'Passenger Mobile': '+6512345678',
+                'Vehicle Type': vehicle_type_value,
+                'Vehicle': vehicles[0].number,
+                'Driver': drivers[0].name,
+                'Contractor': contractor_value,
                 'Remarks': 'Invalid customer - should fail validation'
             })
 
@@ -847,16 +848,16 @@ def download_job_template():
                 'Customer Reference No': 'REF004',
                 'Department/Person In Charge/Sub-Customer': 'Marketing',
                 'Service': 'Invalid Service',
-                'Vehicle': vehicles[0].number,
-                'Driver': drivers[0].name,
-                'Contractor': contractor_value,
-                'Vehicle Type': vehicle_type_value,
-                'Pickup Date': (today + timedelta(days=4)).strftime('%Y-%m-%d'),
+                'Pickup Date': (today + timedelta(days=4)).strftime('%d-%m-%Y'),
                 'Pickup Time': '11:00',
                 'Pickup Location': 'Test Location',
                 'Drop-off Location': 'Test Destination',
                 'Passenger Name': 'Test Passenger',
                 'Passenger Mobile': '+6587654321',
+                'Vehicle Type': vehicle_type_value,
+                'Vehicle': vehicles[0].number,
+                'Driver': drivers[0].name,
+                'Contractor': contractor_value,
                 'Remarks': 'Invalid service - should fail validation'
             })
 
@@ -865,16 +866,16 @@ def download_job_template():
                 'Customer Reference No': 'REF005',
                 'Department/Person In Charge/Sub-Customer': 'Finance',
                 'Service': services[0].name,
-                'Vehicle': 'INVALID123',
-                'Driver': drivers[0].name,
-                'Contractor': contractor_value,
-                'Vehicle Type': vehicle_type_value,
-                'Pickup Date': (today + timedelta(days=5)).strftime('%Y-%m-%d'),
+                'Pickup Date': (today + timedelta(days=5)).strftime('%d-%m-%Y'),
                 'Pickup Time': '12:00',
                 'Pickup Location': 'Test Location',
                 'Drop-off Location': 'Test Destination',
                 'Passenger Name': 'Test Passenger',
                 'Passenger Mobile': '+6596543210',
+                'Vehicle Type': vehicle_type_value,
+                'Vehicle': 'INVALID123',
+                'Driver': drivers[0].name,
+                'Contractor': contractor_value,
                 'Remarks': 'Invalid vehicle - should fail validation'
             })
 
@@ -883,16 +884,16 @@ def download_job_template():
                 'Customer Reference No': 'REF006',
                 'Department/Person In Charge/Sub-Customer': 'HR Department',
                 'Service': services[0].name,
-                'Vehicle': vehicles[0].number,
-                'Driver': 'Invalid Driver',
-                'Contractor': contractor_value,
-                'Vehicle Type': vehicle_type_value,
-                'Pickup Date': (today + timedelta(days=6)).strftime('%Y-%m-%d'),
+                'Pickup Date': (today + timedelta(days=6)).strftime('%d-%m-%Y'),
                 'Pickup Time': '13:00',
                 'Pickup Location': 'Test Location',
                 'Drop-off Location': 'Test Destination',
                 'Passenger Name': 'Test Passenger',
                 'Passenger Mobile': '+6511223344',
+                'Vehicle Type': vehicle_type_value,
+                'Vehicle': vehicles[0].number,
+                'Driver': 'Invalid Driver',
+                'Contractor': contractor_value,
                 'Remarks': 'Invalid driver - should fail validation'
             })
 
@@ -905,14 +906,14 @@ def download_job_template():
                     'Customer Reference No': '',
                     'Department/Person In Charge/Sub-Customer': '',
                     'Service': '',
-                    'Contractor': '',
-                    'Vehicle Type': '',
-                    'Pickup Date': (today + timedelta(days=1)).strftime('%Y-%m-%d'),
+                    'Pickup Date': (today + timedelta(days=1)).strftime('%d-%m-%Y'),
                     'Pickup Time': '09:00',
                     'Pickup Location': '',
                     'Drop-off Location': '',
                     'Passenger Name': '',
                     'Passenger Mobile': '',
+                    'Vehicle Type': '',
+                    'Contractor': '',
                     'Remarks': ''
                 })
             else:
@@ -922,16 +923,16 @@ def download_job_template():
                     'Customer Reference No': '',
                     'Department/Person In Charge/Sub-Customer': '',
                     'Service': '',
-                    'Vehicle': '',
-                    'Driver': '',
-                    'Contractor': '',
-                    'Vehicle Type': '',
-                    'Pickup Date': (today + timedelta(days=1)).strftime('%Y-%m-%d'),
+                    'Pickup Date': (today + timedelta(days=1)).strftime('%d-%m-%Y'),
                     'Pickup Time': '09:00',
                     'Pickup Location': '',
                     'Drop-off Location': '',
                     'Passenger Name': '',
                     'Passenger Mobile': '',
+                    'Vehicle Type': '',
+                    'Vehicle': '',
+                    'Driver': '',
+                    'Contractor': '',
                     'Remarks': ''
                 })
         
@@ -1005,42 +1006,8 @@ def download_job_template():
             # Column E: Contractors (all users)
             # Column F: Vehicle Types (all users)
 
-            # Vehicle dropdown (Column C in reference sheet) - Admin users only
-            if not is_customer_user and vehicles and len(vehicles) > 0:
-                vehicle_numbers = [vehicle.number for vehicle in vehicles]
-                # Write vehicle numbers to hidden sheet (Column C)
-                for idx, number in enumerate(vehicle_numbers, start=1):
-                    ref_sheet.cell(row=idx, column=3, value=number)
-                vehicle_range = f"ReferenceData!$C$1:$C${len(vehicle_numbers)}"
-                vehicle_validation = DataValidation(type="list", formula1=vehicle_range, allow_blank=True)
-                vehicle_validation.add('E2:E1000')  # Column E in main sheet
-                worksheet.add_data_validation(vehicle_validation)
-
-            # Driver dropdown (Column D in reference sheet) - Admin users only
-            if not is_customer_user and drivers and len(drivers) > 0:
-                driver_names = [driver.name for driver in drivers]
-                # Write driver names to hidden sheet (Column D)
-                for idx, name in enumerate(driver_names, start=1):
-                    ref_sheet.cell(row=idx, column=4, value=name)
-                driver_range = f"ReferenceData!$D$1:$D${len(driver_names)}"
-                driver_validation = DataValidation(type="list", formula1=driver_range, allow_blank=True)
-                driver_validation.add('F2:F1000')  # Column F in main sheet
-                worksheet.add_data_validation(driver_validation)
-
-            # Contractor dropdown (Column E in reference sheet) - All users
-            if contractors and len(contractors) > 0:
-                contractor_names = [contractor.name for contractor in contractors]
-                # Write contractor names to hidden sheet (Column E)
-                for idx, name in enumerate(contractor_names, start=1):
-                    ref_sheet.cell(row=idx, column=5, value=name)
-                contractor_range = f"ReferenceData!$E$1:$E${len(contractor_names)}"
-                contractor_validation = DataValidation(type="list", formula1=contractor_range, allow_blank=True)
-                # Column E for customer users, Column G for admin users
-                target_column = 'E2:E1000' if is_customer_user else 'G2:G1000'
-                contractor_validation.add(target_column)
-                worksheet.add_data_validation(contractor_validation)
-
             # Vehicle Type dropdown (Column F in reference sheet) - All users
+            # Column K for both customer and admin users (moved before Vehicle)
             if vehicle_types and len(vehicle_types) > 0:
                 vehicle_type_names = [vtype.name for vtype in vehicle_types]
                 # Write vehicle type names to hidden sheet (Column F)
@@ -1048,10 +1015,46 @@ def download_job_template():
                     ref_sheet.cell(row=idx, column=6, value=name)
                 vehicle_type_range = f"ReferenceData!$F$1:$F${len(vehicle_type_names)}"
                 vehicle_type_validation = DataValidation(type="list", formula1=vehicle_type_range, allow_blank=True)
-                # Column F for customer users, Column H for admin users
-                target_column = 'F2:F1000' if is_customer_user else 'H2:H1000'
-                vehicle_type_validation.add(target_column)
+                vehicle_type_validation.add('K2:K1000')  # Column K for both users
                 worksheet.add_data_validation(vehicle_type_validation)
+
+            # Vehicle dropdown (Column C in reference sheet) - Admin users only
+            # Column L in main sheet (after Vehicle Type)
+            if not is_customer_user and vehicles and len(vehicles) > 0:
+                vehicle_numbers = [vehicle.number for vehicle in vehicles]
+                # Write vehicle numbers to hidden sheet (Column C)
+                for idx, number in enumerate(vehicle_numbers, start=1):
+                    ref_sheet.cell(row=idx, column=3, value=number)
+                vehicle_range = f"ReferenceData!$C$1:$C${len(vehicle_numbers)}"
+                vehicle_validation = DataValidation(type="list", formula1=vehicle_range, allow_blank=True)
+                vehicle_validation.add('L2:L1000')  # Column L in main sheet
+                worksheet.add_data_validation(vehicle_validation)
+
+            # Driver dropdown (Column D in reference sheet) - Admin users only
+            # Column M in main sheet (after Vehicle)
+            if not is_customer_user and drivers and len(drivers) > 0:
+                driver_names = [driver.name for driver in drivers]
+                # Write driver names to hidden sheet (Column D)
+                for idx, name in enumerate(driver_names, start=1):
+                    ref_sheet.cell(row=idx, column=4, value=name)
+                driver_range = f"ReferenceData!$D$1:$D${len(driver_names)}"
+                driver_validation = DataValidation(type="list", formula1=driver_range, allow_blank=True)
+                driver_validation.add('M2:M1000')  # Column M in main sheet
+                worksheet.add_data_validation(driver_validation)
+
+            # Contractor dropdown (Column E in reference sheet) - All users
+            # Column L for customer users, Column N for admin users (after driver details)
+            if contractors and len(contractors) > 0:
+                contractor_names = [contractor.name for contractor in contractors]
+                # Write contractor names to hidden sheet (Column E)
+                for idx, name in enumerate(contractor_names, start=1):
+                    ref_sheet.cell(row=idx, column=5, value=name)
+                contractor_range = f"ReferenceData!$E$1:$E${len(contractor_names)}"
+                contractor_validation = DataValidation(type="list", formula1=contractor_range, allow_blank=True)
+                # Column L for customer users, Column N for admin users
+                target_column = 'L2:L1000' if is_customer_user else 'N2:N1000'
+                contractor_validation.add(target_column)
+                worksheet.add_data_validation(contractor_validation)
 
             # Auto-adjust column widths
             for column in worksheet.columns:
@@ -1080,7 +1083,7 @@ def download_job_template():
                     ['Required Fields:'],
                     ['- Customer: Select from dropdown'],
                     ['- Service: Select from dropdown'],
-                    ['- Pickup Date: Format YYYY-MM-DD'],
+                    ['- Pickup Date: Format DD-MM-YYYY or DDMMYYYY'],
                     ['- Pickup Time: Format HH:MM (24-hour)'],
                     ['- Pickup Location: Text'],
                     ['- Drop-off Location: Text'],
@@ -1095,8 +1098,9 @@ def download_job_template():
                     ['- Remarks: Text'],
                     [''],
                     ['Notes:'],
-                    ['- Date format must be YYYY-MM-DD'],
-                    ['- Time format must be HH:MM (24-hour)'],
+                    ['- Date format: DD-MM-YYYY (e.g., 25-01-2025) or DDMMYYYY (e.g., 25012025)'],
+                    ['- Time format: HHMM (e.g., 0930, 1430) or HH:MM (e.g., 09:30, 14:30) in 24-hour format'],
+                    ['- For times after midnight, use 4 digits: 0010 for 00:10, 0030 for 00:30, etc.'],
                     ['- Vehicle and Driver will be assigned by the system'],
                     ['- Use dropdowns for Customer, Service, Contractor, and Vehicle Type'],
                     ['- Remove sample data before uploading'],
@@ -1121,7 +1125,7 @@ def download_job_template():
                     ['- Service: Select from dropdown'],
                     ['- Vehicle: Select from dropdown'],
                     ['- Driver: Select from dropdown'],
-                    ['- Pickup Date: Format YYYY-MM-DD'],
+                    ['- Pickup Date: Format DD-MM-YYYY or DDMMYYYY'],
                     ['- Pickup Time: Format HH:MM (24-hour)'],
                     ['- Pickup Location: Text'],
                     ['- Drop-off Location: Text'],
@@ -1136,8 +1140,9 @@ def download_job_template():
                     ['- Remarks: Text'],
                     [''],
                     ['Notes:'],
-                    ['- Date format must be YYYY-MM-DD'],
-                    ['- Time format must be HH:MM (24-hour)'],
+                    ['- Date format: DD-MM-YYYY (e.g., 25-01-2025) or DDMMYYYY (e.g., 25012025)'],
+                    ['- Time format: HHMM (e.g., 0930, 1430) or HH:MM (e.g., 09:30, 14:30) in 24-hour format'],
+                    ['- For times after midnight, use 4 digits: 0010 for 00:10, 0030 for 00:30, etc.'],
                     ['- Use dropdowns for Customer, Service, Vehicle, Driver, Contractor, and Vehicle Type'],
                     ['- Remove sample data before uploading'],
                     ['- Maximum 1000 jobs per file'],
@@ -1248,8 +1253,71 @@ def upload_excel_file():
 def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=False):
     """Process the uploaded Excel file for preview with validation and column mapping"""
     try:
-        # Read Excel file
+        # Read Excel file with pandas
         df = pd.read_excel(file_path, sheet_name='Jobs Template')
+
+        # Debug logging to diagnose empty rows issue
+        current_app.logger.info(f"Excel file loaded: {len(df)} rows found (excluding header)")
+        current_app.logger.info(f"DataFrame shape: {df.shape}")
+        current_app.logger.info(f"DataFrame columns: {df.columns.tolist()}")
+        if len(df) > 0:
+            current_app.logger.info(f"First row data: {df.iloc[0].to_dict()}")
+
+        # Use openpyxl to get raw cell values for time columns to preserve leading zeros
+        wb = None
+        try:
+            wb = load_workbook(file_path, data_only=False)
+            ws = wb['Jobs Template']
+
+            # Find the time column index
+            header_row = [cell.value for cell in ws[1]]
+            time_column_idx = None
+            time_column_names = ['Pickup Time', 'Time', 'pickup_time']
+            for idx, col_name in enumerate(header_row):
+                if col_name in time_column_names:
+                    time_column_idx = idx + 1  # openpyxl is 1-indexed
+                    break
+
+            # If we found a time column, replace pandas values with raw cell values from openpyxl
+            if time_column_idx:
+                time_values = []
+                for row_idx in range(2, ws.max_row + 1):  # Start from row 2 (skip header)
+                    cell = ws.cell(row=row_idx, column=time_column_idx)
+
+                    # Check if cell is formatted as text or if it's a string value
+                    if cell.value is not None:
+                        # If it's already a string, use it directly
+                        if isinstance(cell.value, str):
+                            raw_value = cell.value
+                        # If it's a number, check if it looks like it should have leading zeros
+                        elif isinstance(cell.value, (int, float)):
+                            # For numbers less than 100, assume they might be times like "0010" or "0930"
+                            # We'll pad them to 4 digits
+                            num_str = str(int(cell.value))
+                            if int(cell.value) < 100:
+                                # Could be "0010" (00:10) or "0930" (09:30)
+                                raw_value = num_str.zfill(4)
+                            else:
+                                raw_value = num_str
+                        else:
+                            raw_value = str(cell.value)
+                    else:
+                        raw_value = ''
+
+                    time_values.append(raw_value)
+
+                # Update the dataframe with raw time values
+                time_col_name = header_row[time_column_idx - 1]
+                if len(time_values) == len(df):
+                    df[time_col_name] = time_values
+                else:
+                    current_app.logger.warning(
+                        f"Time column row mismatch: openpyxl={len(time_values)}, pandas={len(df)}. "
+                        "Using pandas values; leading zeros in times may be lost."
+                    )
+        finally:
+            if wb:
+                wb.close()
         
         # Check row count limit
         max_rows = current_app.config.get('MAX_ROWS_PER_FILE', 1000)
@@ -1366,18 +1434,77 @@ def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=
         preview_rows = []
         valid_count = 0
         error_count = 0
-        
+
+        # Helper function to normalize time format (defined outside loop for performance)
+        def normalize_time(time_str):
+            """Convert time without colon (e.g., '0900', '930') to HH:MM format"""
+            if not time_str:
+                return ''
+
+            # Convert to string and strip whitespace
+            original_str = str(time_str).strip()
+
+            # If already has colon, return as is
+            if ':' in original_str:
+                return original_str
+
+            # Remove any non-digit characters (including decimal points from float conversion)
+            digits = ''.join(c for c in original_str if c.isdigit())
+
+            if not digits:
+                return original_str
+
+            # Handle different formats based on digit length
+            if len(digits) == 4:
+                # e.g., "0930" -> "09:30", "0010" -> "00:10"
+                return f"{digits[0:2]}:{digits[2:4]}"
+            elif len(digits) == 3:
+                # e.g., "930" -> "09:30"
+                return f"{digits[0]:0>2}:{digits[1:3]}"
+            elif len(digits) == 1 or len(digits) == 2:
+                # e.g., "9" -> "09:00", "10" -> "10:00"
+                # Check if original string had leading zeros (preserved by openpyxl)
+                if original_str.startswith('0') and len(original_str) >= 3:
+                    # This was "0010" or similar - pad to 4 digits
+                    digits = digits.zfill(4)
+                    return f"{digits[0:2]}:{digits[2:4]}"
+                else:
+                    return f"{digits:0>2}:00"
+
+            return original_str
+
+        # Helper function to clean and normalize cell values (defined outside loop for performance)
+        def clean_value(value, is_date=False, is_time=False):
+            if pd.isna(value):
+                return ''
+            # Handle datetime objects from Excel
+            if isinstance(value, pd.Timestamp):
+                if is_date:
+                    return value.strftime('%d-%m-%Y')
+                return value.strftime('%H:%M')
+            # Handle Python datetime objects
+            if hasattr(value, 'strftime'):
+                if is_date:
+                    return value.strftime('%d-%m-%Y')
+                return value.strftime('%H:%M')
+
+            result = str(value).strip()
+
+            # Handle string "nan" from pandas when dtype is forced to string
+            if result.lower() == 'nan':
+                return ''
+
+            # Normalize time format if this is a time field
+            if is_time:
+                result = normalize_time(result)
+
+            return result
+
         # Process each row
         for index, row in df.iterrows():
             # Get row index as integer
             row_index = index if isinstance(index, int) else 0
-            
-            # Clean and normalize the data
-            def clean_value(value):
-                if pd.isna(value):
-                    return ''
-                return str(value).strip()
-            
+
             # Conditional row data extraction based on user role
             if is_customer_user:
                 # Customer users: Vehicle and Driver set to empty strings
@@ -1391,8 +1518,8 @@ def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=
                     'driver': '',   # Always empty for customer users
                     'contractor': clean_value(row.get(column_map.get('contractor', 'Contractor'), '')),
                     'vehicle_type': clean_value(row.get(column_map.get('vehicle_type', 'Vehicle Type'), '')),
-                    'pickup_date': clean_value(row.get(column_map.get('pickup_date', 'Pickup Date'), '')),
-                    'pickup_time': clean_value(row.get(column_map.get('pickup_time', 'Pickup Time'), '')),
+                    'pickup_date': clean_value(row.get(column_map.get('pickup_date', 'Pickup Date'), ''), is_date=True),
+                    'pickup_time': clean_value(row.get(column_map.get('pickup_time', 'Pickup Time'), ''), is_time=True),
                     'pickup_location': clean_value(row.get(column_map.get('pickup_location', 'Pickup Location'), '')),
                     'dropoff_location': clean_value(row.get(column_map.get('dropoff_location', 'Drop-off Location'), '')),
                     'passenger_name': clean_value(row.get(column_map.get('passenger_name', 'Passenger Name'), '')),
@@ -1413,8 +1540,8 @@ def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=
                     'driver': clean_value(row.get(column_map.get('driver', 'Driver'), '')),
                     'contractor': clean_value(row.get(column_map.get('contractor', 'Contractor'), '')),
                     'vehicle_type': clean_value(row.get(column_map.get('vehicle_type', 'Vehicle Type'), '')),
-                    'pickup_date': clean_value(row.get(column_map.get('pickup_date', 'Pickup Date'), '')),
-                    'pickup_time': clean_value(row.get(column_map.get('pickup_time', 'Pickup Time'), '')),
+                    'pickup_date': clean_value(row.get(column_map.get('pickup_date', 'Pickup Date'), ''), is_date=True),
+                    'pickup_time': clean_value(row.get(column_map.get('pickup_time', 'Pickup Time'), ''), is_time=True),
                     'pickup_location': clean_value(row.get(column_map.get('pickup_location', 'Pickup Location'), '')),
                     'dropoff_location': clean_value(row.get(column_map.get('dropoff_location', 'Drop-off Location'), '')),
                     'passenger_name': clean_value(row.get(column_map.get('passenger_name', 'Passenger Name'), '')),
@@ -1443,21 +1570,38 @@ def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=
                 continue
 
             # Validate date/time formats
-            try:
-                from datetime import datetime
-                pickup_date_val = row_data.get('pickup_date', '').strip()
-                pickup_time_val = row_data.get('pickup_time', '').strip()
+            from datetime import datetime
+            pickup_date_val = row_data.get('pickup_date', '').strip()
+            pickup_time_val = row_data.get('pickup_time', '').strip()
 
-                if pickup_date_val:
-                    datetime.strptime(pickup_date_val, '%Y-%m-%d')
-                if pickup_time_val:
+            if pickup_date_val:
+                # Parse DD-MM-YYYY, DDMMYYYY, or YYYY-MM-DD format and convert to YYYY-MM-DD for database
+                date_obj = None
+                for fmt in ('%d-%m-%Y', '%d%m%Y', '%Y-%m-%d'):
+                    try:
+                        date_obj = datetime.strptime(pickup_date_val, fmt)
+                        break
+                    except ValueError:
+                        continue
+
+                if date_obj:
+                    row_data['pickup_date'] = date_obj.strftime('%Y-%m-%d')
+                else:
+                    row_data['is_valid'] = False
+                    row_data['error_message'] = f"Invalid pickup_date format: '{pickup_date_val}'. Expected DD-MM-YYYY, DDMMYYYY, or YYYY-MM-DD"
+                    error_count += 1
+                    preview_rows.append(row_data)
+                    continue
+
+            if pickup_time_val:
+                try:
                     datetime.strptime(pickup_time_val, '%H:%M')
-            except ValueError as ve:
-                row_data['is_valid'] = False
-                row_data['error_message'] = f"Invalid date/time format: {str(ve)}"
-                error_count += 1
-                preview_rows.append(row_data)
-                continue
+                except ValueError:
+                    row_data['is_valid'] = False
+                    row_data['error_message'] = f"Invalid pickup_time format: '{pickup_time_val}'. Expected HH:MM"
+                    error_count += 1
+                    preview_rows.append(row_data)
+                    continue
 
             # Use centralized validation
             try:
@@ -1659,9 +1803,18 @@ def confirm_upload():
                 if pickup_date:
                     try:
                         from datetime import datetime
-                        datetime.strptime(pickup_date, '%Y-%m-%d')
+                        # Parse DD-MM-YYYY, DDMMYYYY, or YYYY-MM-DD format and convert to YYYY-MM-DD for database
+                        try:
+                            date_obj = datetime.strptime(pickup_date, '%d-%m-%Y')
+                        except ValueError:
+                            try:
+                                date_obj = datetime.strptime(pickup_date, '%d%m%Y')
+                            except ValueError:
+                                # Also accept YYYY-MM-DD format (from preview data)
+                                date_obj = datetime.strptime(pickup_date, '%Y-%m-%d')
+                        pickup_date = date_obj.strftime('%Y-%m-%d')
                     except ValueError:
-                        row_errors.append(f"Invalid pickup_date format: '{pickup_date}'. Expected YYYY-MM-DD")
+                        row_errors.append(f"Invalid pickup_date format: '{pickup_date}'. Expected DD-MM-YYYY, DDMMYYYY, or YYYY-MM-DD")
 
                 if pickup_time:
                     try:
@@ -2314,7 +2467,8 @@ def jobs_calendar():
 
         for job in jobs:
             date_key = job.pickup_date
-            driver_key = job.driver_id if job.driver_id else 'unassigned'
+            # Use numeric driver_id directly; 0 for unassigned (more type-safe than string mixing)
+            driver_key = job.driver_id if job.driver_id else 0
 
             # Init nested dicts
             calendar_data.setdefault(date_key, {})
@@ -2331,8 +2485,8 @@ def jobs_calendar():
                 'status': job.status
             })
 
-            # Track driver meta once
-            if driver_key != 'unassigned' and driver_key not in drivers_lookup:
+            # Track driver meta once (skip unassigned which is 0)
+            if driver_key != 0 and driver_key not in drivers_lookup:
                 drivers_lookup[driver_key] = {
                     'id': job.driver_id,
                     'name': job.driver.name if job.driver else 'Unknown'
