@@ -9,7 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-
+from sqlalchemy.dialects import sqlite
 
 # revision identifiers, used by Alembic.
 revision: str = '8537e815aa61'
@@ -84,10 +84,26 @@ def upgrade() -> None:
     # Add composite index on job table for driver leave queries
     # This improves performance when searching for jobs by driver and date range
     op.create_index('idx_job_driver_pickup_date', 'job', ['driver_id', 'pickup_date'], unique=False)
+    
+    # Create system_settings table for system-wide configuration
+    op.create_table(
+        'system_settings',
+        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('setting_key', sa.String(length=100), nullable=False),
+        sa.Column('setting_value', sa.JSON(), nullable=True),
+        sa.Column('updated_by', sa.Integer(), nullable=True),
+        sa.Column('updated_at', sa.DateTime(), nullable=True),
+        sa.ForeignKeyConstraint(['updated_by'], ['user.id'], ),
+        sa.PrimaryKeyConstraint('id'),
+        sa.UniqueConstraint('setting_key')
+    )
 
 
 def downgrade() -> None:
     """Downgrade schema."""
+    # Drop system_settings table
+    op.drop_table('system_settings')
+    
     # Drop composite index on job table
     op.drop_index('idx_job_driver_pickup_date', table_name='job')
 
