@@ -74,8 +74,6 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-logger = logging.getLogger(__name__)
-
 class ServiceError(Exception):
     def __init__(self, message):
         super().__init__(message)
