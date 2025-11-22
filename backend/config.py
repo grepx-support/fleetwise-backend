@@ -40,13 +40,7 @@ class Config:
     ALLOWED_FILE_EXTENSIONS = {'.xlsx', '.xls'}
 
     # Email configuration for password reset
-    MAIL_SERVER = os.environ.get('MAIL_SERVER', 'localhost')
-    MAIL_PORT = int(os.environ.get('MAIL_PORT', 587))
-    MAIL_USE_TLS = os.environ.get('MAIL_USE_TLS', 'True').lower() == 'true'
-    MAIL_USE_SSL = os.environ.get('MAIL_USE_SSL', 'False').lower() == 'true'
-    MAIL_USERNAME = os.environ.get('MAIL_USERNAME')
-    MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
-    MAIL_DEFAULT_SENDER = os.environ.get('MAIL_DEFAULT_SENDER', 'noreply@fleetwise.com')
+    EMAIL_PASSWORD_KEY='P_z-n_BZWsQjYFdANL9TjMUeDAL-lPg6vH_hz0U0Y_8='
     
     # App settings
     PASSWORD_RESET_TOKEN_EXPIRY_HOURS = 1
@@ -58,8 +52,7 @@ class Config:
     # invoice storage backup
     INVOICE_STORAGE_ROOT = os.getenv(
     "INVOICE_STORAGE_ROOT",
-    str(Path(__file__).resolve().parents[2] / "fleetwise-storage")
-)
+    str(Path(__file__).resolve().parents[2] / "fleetwise-storage"))
 
     # Job photo storage backup (organized by date: YYYY/MM/DD)
     PHOTO_STORAGE_ROOT = os.getenv(
