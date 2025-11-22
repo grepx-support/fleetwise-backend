@@ -113,13 +113,26 @@ class UserService:
             return user
         except IntegrityError as e:
             db.session.rollback()
+            # Try to get constraint name for more reliable error identification
+            constraint = ''
+            if hasattr(e, 'orig') and hasattr(e.orig, 'diag'):
+                # PostgreSQL provides constraint_name in diag
+                constraint = getattr(e.orig.diag, 'constraint_name', '')
+
+            # Fallback to string matching if constraint name not available
             error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
-            if 'email' in error_msg.lower() or 'unique' in error_msg.lower():
+            error_lower = error_msg.lower()
+
+            # Check constraint name first (more reliable), then fall back to string matching
+            if 'email' in constraint.lower() or 'ix_user_email' in constraint.lower():
                 raise ServiceError("Email already exists. Please use a different email address.")
-            elif 'driver_id' in error_msg.lower():
+            elif 'driver_id' in constraint.lower() or ('driver_id' in error_lower and 'unique' in error_lower):
                 raise ServiceError("Driver is already assigned to another user")
-            elif 'customer_id' in error_msg.lower():
+            elif 'customer_id' in constraint.lower() or ('customer_id' in error_lower and 'unique' in error_lower):
                 raise ServiceError("Customer is already assigned to another user")
+            elif 'email' in error_lower or 'unique' in error_lower:
+                # Generic unique constraint - likely email
+                raise ServiceError("Email already exists. Please use a different email address.")
             else:
                 raise ServiceError("A user with this information already exists")
         except ServiceError:
@@ -315,10 +328,20 @@ class UserService:
             return user
         except IntegrityError as e:
             db.session.rollback()
+            # Try to get constraint name for more reliable error identification
+            constraint = ''
+            if hasattr(e, 'orig') and hasattr(e.orig, 'diag'):
+                # PostgreSQL provides constraint_name in diag
+                constraint = getattr(e.orig.diag, 'constraint_name', '')
+
+            # Fallback to string matching if constraint name not available
             error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
-            if user_type == "driver" and 'driver_id' in error_msg.lower():
+            error_lower = error_msg.lower()
+
+            # Check constraint name first (more reliable), then fall back to string matching
+            if user_type == "driver" and ('driver_id' in constraint.lower() or ('driver_id' in error_lower and 'unique' in error_lower)):
                 raise ServiceError("Driver is already assigned to another user")
-            elif user_type == "customer" and 'customer_id' in error_msg.lower():
+            elif user_type == "customer" and ('customer_id' in constraint.lower() or ('customer_id' in error_lower and 'unique' in error_lower)):
                 raise ServiceError("Customer is already assigned to another user")
             else:
                 raise ServiceError(f"Unable to assign {user_type}. The assignment may already exist or violates database constraints.")

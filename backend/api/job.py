@@ -791,7 +791,7 @@ def download_job_template():
                 'Customer Reference No': 'REF001',
                 'Department/Person In Charge/Sub-Customer': 'Operations Department',
                 'Service': services[0].name,
-                'Pickup Date': (today + timedelta(days=1)).strftime('%Y-%m-%d'),
+                'Pickup Date': (today + timedelta(days=1)).strftime('%d-%m-%Y'),
                 'Pickup Time': '09:00',
                 'Pickup Location': 'Sample Pickup Location 1',
                 'Drop-off Location': 'Sample Drop-off Location 1',
@@ -1256,53 +1256,68 @@ def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=
         # Read Excel file with pandas
         df = pd.read_excel(file_path, sheet_name='Jobs Template')
 
+        # Debug logging to diagnose empty rows issue
+        current_app.logger.info(f"Excel file loaded: {len(df)} rows found (excluding header)")
+        current_app.logger.info(f"DataFrame shape: {df.shape}")
+        current_app.logger.info(f"DataFrame columns: {df.columns.tolist()}")
+        if len(df) > 0:
+            current_app.logger.info(f"First row data: {df.iloc[0].to_dict()}")
+
         # Use openpyxl to get raw cell values for time columns to preserve leading zeros
-        wb = load_workbook(file_path, data_only=False)
-        ws = wb['Jobs Template']
+        wb = None
+        try:
+            wb = load_workbook(file_path, data_only=False)
+            ws = wb['Jobs Template']
 
-        # Find the time column index
-        header_row = [cell.value for cell in ws[1]]
-        time_column_idx = None
-        time_column_names = ['Pickup Time', 'Time', 'pickup_time']
-        for idx, col_name in enumerate(header_row):
-            if col_name in time_column_names:
-                time_column_idx = idx + 1  # openpyxl is 1-indexed
-                break
+            # Find the time column index
+            header_row = [cell.value for cell in ws[1]]
+            time_column_idx = None
+            time_column_names = ['Pickup Time', 'Time', 'pickup_time']
+            for idx, col_name in enumerate(header_row):
+                if col_name in time_column_names:
+                    time_column_idx = idx + 1  # openpyxl is 1-indexed
+                    break
 
-        # If we found a time column, replace pandas values with raw cell values from openpyxl
-        if time_column_idx:
-            time_values = []
-            for row_idx in range(2, ws.max_row + 1):  # Start from row 2 (skip header)
-                cell = ws.cell(row=row_idx, column=time_column_idx)
+            # If we found a time column, replace pandas values with raw cell values from openpyxl
+            if time_column_idx:
+                time_values = []
+                for row_idx in range(2, ws.max_row + 1):  # Start from row 2 (skip header)
+                    cell = ws.cell(row=row_idx, column=time_column_idx)
 
-                # Check if cell is formatted as text or if it's a string value
-                if cell.value is not None:
-                    # If it's already a string, use it directly
-                    if isinstance(cell.value, str):
-                        raw_value = cell.value
-                    # If it's a number, check if it looks like it should have leading zeros
-                    elif isinstance(cell.value, (int, float)):
-                        # For numbers less than 100, assume they might be times like "0010" or "0930"
-                        # We'll pad them to 4 digits
-                        num_str = str(int(cell.value))
-                        if int(cell.value) < 100:
-                            # Could be "0010" (00:10) or "0930" (09:30)
-                            raw_value = num_str.zfill(4)
+                    # Check if cell is formatted as text or if it's a string value
+                    if cell.value is not None:
+                        # If it's already a string, use it directly
+                        if isinstance(cell.value, str):
+                            raw_value = cell.value
+                        # If it's a number, check if it looks like it should have leading zeros
+                        elif isinstance(cell.value, (int, float)):
+                            # For numbers less than 100, assume they might be times like "0010" or "0930"
+                            # We'll pad them to 4 digits
+                            num_str = str(int(cell.value))
+                            if int(cell.value) < 100:
+                                # Could be "0010" (00:10) or "0930" (09:30)
+                                raw_value = num_str.zfill(4)
+                            else:
+                                raw_value = num_str
                         else:
-                            raw_value = num_str
+                            raw_value = str(cell.value)
                     else:
-                        raw_value = str(cell.value)
+                        raw_value = ''
+
+                    time_values.append(raw_value)
+
+                # Update the dataframe with raw time values
+                time_col_name = header_row[time_column_idx - 1]
+                if len(time_values) == len(df):
+                    df[time_col_name] = time_values
                 else:
-                    raw_value = ''
-
-                time_values.append(raw_value)
-
-            # Update the dataframe with raw time values
-            time_col_name = header_row[time_column_idx - 1]
-            if len(time_values) == len(df):
-                df[time_col_name] = time_values
-
-        wb.close()
+                    current_app.logger.warning(
+                        f"Time column row mismatch: openpyxl={len(time_values)}, pandas={len(df)}. "
+                        "Using pandas values; leading zeros in times may be lost."
+                    )
+        finally:
+            if wb:
+                wb.close()
         
         # Check row count limit
         max_rows = current_app.config.get('MAX_ROWS_PER_FILE', 1000)
@@ -1419,91 +1434,77 @@ def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=
         preview_rows = []
         valid_count = 0
         error_count = 0
-        
+
+        # Helper function to normalize time format (defined outside loop for performance)
+        def normalize_time(time_str):
+            """Convert time without colon (e.g., '0900', '930') to HH:MM format"""
+            if not time_str:
+                return ''
+
+            # Convert to string and strip whitespace
+            original_str = str(time_str).strip()
+
+            # If already has colon, return as is
+            if ':' in original_str:
+                return original_str
+
+            # Remove any non-digit characters (including decimal points from float conversion)
+            digits = ''.join(c for c in original_str if c.isdigit())
+
+            if not digits:
+                return original_str
+
+            # Handle different formats based on digit length
+            if len(digits) == 4:
+                # e.g., "0930" -> "09:30", "0010" -> "00:10"
+                return f"{digits[0:2]}:{digits[2:4]}"
+            elif len(digits) == 3:
+                # e.g., "930" -> "09:30"
+                return f"{digits[0]:0>2}:{digits[1:3]}"
+            elif len(digits) == 1 or len(digits) == 2:
+                # e.g., "9" -> "09:00", "10" -> "10:00"
+                # Check if original string had leading zeros (preserved by openpyxl)
+                if original_str.startswith('0') and len(original_str) >= 3:
+                    # This was "0010" or similar - pad to 4 digits
+                    digits = digits.zfill(4)
+                    return f"{digits[0:2]}:{digits[2:4]}"
+                else:
+                    return f"{digits:0>2}:00"
+
+            return original_str
+
+        # Helper function to clean and normalize cell values (defined outside loop for performance)
+        def clean_value(value, is_date=False, is_time=False):
+            if pd.isna(value):
+                return ''
+            # Handle datetime objects from Excel
+            if isinstance(value, pd.Timestamp):
+                if is_date:
+                    return value.strftime('%d-%m-%Y')
+                return value.strftime('%H:%M')
+            # Handle Python datetime objects
+            if hasattr(value, 'strftime'):
+                if is_date:
+                    return value.strftime('%d-%m-%Y')
+                return value.strftime('%H:%M')
+
+            result = str(value).strip()
+
+            # Handle string "nan" from pandas when dtype is forced to string
+            if result.lower() == 'nan':
+                return ''
+
+            # Normalize time format if this is a time field
+            if is_time:
+                result = normalize_time(result)
+
+            return result
+
         # Process each row
         for index, row in df.iterrows():
             # Get row index as integer
             row_index = index if isinstance(index, int) else 0
-            
-            # Helper function to normalize time format
-            def normalize_time(time_str):
-                """Convert time without colon (e.g., '0900', '930') to HH:MM format"""
-                if not time_str:
-                    return ''
 
-                # Convert to string and strip whitespace
-                original_str = str(time_str).strip()
-                time_str = original_str
-
-                # Debug logging
-                current_app.logger.info(f"normalize_time input: '{original_str}', type: {type(time_str)}")
-
-                # If already has colon, return as is
-                if ':' in time_str:
-                    return time_str
-
-                # Remove any non-digit characters (including decimal points from float conversion)
-                digits = ''.join(c for c in time_str if c.isdigit())
-
-                if not digits:
-                    return time_str
-
-                current_app.logger.info(f"normalize_time digits: '{digits}', length: {len(digits)}")
-
-                # Handle different formats based on digit length
-                if len(digits) == 4:
-                    # e.g., "0930" -> "09:30", "0010" -> "00:10"
-                    result = f"{digits[0:2]}:{digits[2:4]}"
-                    current_app.logger.info(f"normalize_time 4-digit result: '{result}'")
-                    return result
-                elif len(digits) == 3:
-                    # e.g., "930" -> "09:30"
-                    result = f"{digits[0]:0>2}:{digits[1:3]}"
-                    current_app.logger.info(f"normalize_time 3-digit result: '{result}'")
-                    return result
-                elif len(digits) == 1 or len(digits) == 2:
-                    # e.g., "9" -> "09:00", "10" -> "10:00"
-                    # Check if original string had leading zeros (preserved by dtype=str)
-                    if original_str.startswith('0') and len(original_str) >= 3:
-                        # This was "0010" or similar - pad to 4 digits
-                        digits = digits.zfill(4)
-                        result = f"{digits[0:2]}:{digits[2:4]}"
-                        current_app.logger.info(f"normalize_time zero-padded result: '{result}'")
-                        return result
-                    else:
-                        result = f"{digits:0>2}:00"
-                        current_app.logger.info(f"normalize_time 1-2 digit result: '{result}'")
-                        return result
-
-                return time_str
-
-            # Clean and normalize the data
-            def clean_value(value, is_date=False, is_time=False):
-                if pd.isna(value):
-                    return ''
-                # Handle datetime objects from Excel
-                if isinstance(value, pd.Timestamp):
-                    if is_date:
-                        return value.strftime('%d-%m-%Y')
-                    return value.strftime('%H:%M')
-                # Handle Python datetime objects
-                if hasattr(value, 'strftime'):
-                    if is_date:
-                        return value.strftime('%d-%m-%Y')
-                    return value.strftime('%H:%M')
-
-                result = str(value).strip()
-
-                # Handle string "nan" from pandas when dtype is forced to string
-                if result.lower() == 'nan':
-                    return ''
-
-                # Normalize time format if this is a time field
-                if is_time:
-                    result = normalize_time(result)
-
-                return result
-            
             # Conditional row data extraction based on user role
             if is_customer_user:
                 # Customer users: Vehicle and Driver set to empty strings
@@ -1569,26 +1570,38 @@ def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=
                 continue
 
             # Validate date/time formats
-            try:
-                from datetime import datetime
-                pickup_date_val = row_data.get('pickup_date', '').strip()
-                pickup_time_val = row_data.get('pickup_time', '').strip()
+            from datetime import datetime
+            pickup_date_val = row_data.get('pickup_date', '').strip()
+            pickup_time_val = row_data.get('pickup_time', '').strip()
 
-                if pickup_date_val:
-                    # Parse DD-MM-YYYY or DDMMYYYY format and convert to YYYY-MM-DD for database
+            if pickup_date_val:
+                # Parse DD-MM-YYYY, DDMMYYYY, or YYYY-MM-DD format and convert to YYYY-MM-DD for database
+                date_obj = None
+                for fmt in ('%d-%m-%Y', '%d%m%Y', '%Y-%m-%d'):
                     try:
-                        date_obj = datetime.strptime(pickup_date_val, '%d-%m-%Y')
+                        date_obj = datetime.strptime(pickup_date_val, fmt)
+                        break
                     except ValueError:
-                        date_obj = datetime.strptime(pickup_date_val, '%d%m%Y')
+                        continue
+
+                if date_obj:
                     row_data['pickup_date'] = date_obj.strftime('%Y-%m-%d')
-                if pickup_time_val:
+                else:
+                    row_data['is_valid'] = False
+                    row_data['error_message'] = f"Invalid pickup_date format: '{pickup_date_val}'. Expected DD-MM-YYYY, DDMMYYYY, or YYYY-MM-DD"
+                    error_count += 1
+                    preview_rows.append(row_data)
+                    continue
+
+            if pickup_time_val:
+                try:
                     datetime.strptime(pickup_time_val, '%H:%M')
-            except ValueError as ve:
-                row_data['is_valid'] = False
-                row_data['error_message'] = f"Invalid date/time format: {str(ve)}"
-                error_count += 1
-                preview_rows.append(row_data)
-                continue
+                except ValueError:
+                    row_data['is_valid'] = False
+                    row_data['error_message'] = f"Invalid pickup_time format: '{pickup_time_val}'. Expected HH:MM"
+                    error_count += 1
+                    preview_rows.append(row_data)
+                    continue
 
             # Use centralized validation
             try:
@@ -1801,7 +1814,7 @@ def confirm_upload():
                                 date_obj = datetime.strptime(pickup_date, '%Y-%m-%d')
                         pickup_date = date_obj.strftime('%Y-%m-%d')
                     except ValueError:
-                        row_errors.append(f"Invalid pickup_date format: '{pickup_date}'. Expected DD-MM-YYYY or DDMMYYYY")
+                        row_errors.append(f"Invalid pickup_date format: '{pickup_date}'. Expected DD-MM-YYYY, DDMMYYYY, or YYYY-MM-DD")
 
                 if pickup_time:
                     try:
@@ -2454,7 +2467,8 @@ def jobs_calendar():
 
         for job in jobs:
             date_key = job.pickup_date
-            driver_key = str(job.driver_id) if job.driver_id else 'unassigned'
+            # Use numeric driver_id directly; 0 for unassigned (more type-safe than string mixing)
+            driver_key = job.driver_id if job.driver_id else 0
 
             # Init nested dicts
             calendar_data.setdefault(date_key, {})
@@ -2471,8 +2485,8 @@ def jobs_calendar():
                 'status': job.status
             })
 
-            # Track driver meta once
-            if driver_key != 'unassigned' and driver_key not in drivers_lookup:
+            # Track driver meta once (skip unassigned which is 0)
+            if driver_key != 0 and driver_key not in drivers_lookup:
                 drivers_lookup[driver_key] = {
                     'id': job.driver_id,
                     'name': job.driver.name if job.driver else 'Unknown'
