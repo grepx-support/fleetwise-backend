@@ -1,4 +1,8 @@
+import os
+import logging
+import socket
 from backend.models.settings import UserSettings
+from backend.models.system_settings import SystemSettings
 from flask import Blueprint, request, jsonify
 from flask_security import roles_accepted, current_user, auth_required
 from werkzeug.utils import secure_filename
@@ -14,6 +18,7 @@ from backend.services.user_settings_service import (
     delete_user_settings,
 )
 from backend.extensions import db
+from sqlalchemy.orm.attributes import flag_modified
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -300,150 +305,230 @@ def delete_file():
 
     return jsonify({'message': 'File and reference deleted'}), 200
 
+def validate_email_settings(settings):
+    """Validate email settings before saving."""
+    errors = []
+    # Validate SMTP host
+    if not settings.get('smtp_host', '').strip():
+        errors.append('SMTP host is required')
+    # Validate port
+    try:
+        port = int(settings.get('smtp_port', 587))
+        if not (1 <= port <= 65535):
+            errors.append('SMTP port must be between 1 and 65535')
+    except (ValueError, TypeError):
+        errors.append('SMTP port must be a valid integer')
+    # Validate username
+    if not settings.get('username', '').strip():
+        errors.append('Mail username is required')
+    # Validate password
+    if not settings.get('password', '').strip():
+        errors.append('Mail password is required')
+    # Validate sender email
+    sender = settings.get('sender_email', '').strip()
+    if not sender:
+        errors.append('Sender email is required')
+    elif '@' not in sender or '.' not in sender.split('@')[-1]:
+        errors.append('Sender email format is invalid')
+    
+    # Validate TLS/SSL mutual exclusivity
+    use_tls = settings.get('use_tls', False)
+    use_ssl = settings.get('use_ssl', False)
+    port = int(settings.get('smtp_port', 587))
+    
+    # Enforce mutual exclusivity
+    if use_tls and use_ssl:
+        errors.append('Cannot enable both TLS and SSL. Use TLS for port 587, SSL for port 465.')
+    
+    # Warn about common misconfigurations
+    if use_ssl and port == 587:
+        errors.append('Port 587 typically requires TLS, not SSL')
+    if use_tls and port == 465:
+        errors.append('Port 465 typically requires SSL, not TLS')
+        
+    return errors
+
 # --- EMAIL SETTINGS: GET ---
 @settings_bp.route('/settings/email', methods=['GET'])
 @auth_required()
+@roles_accepted('admin')
 def get_email_settings():
     """
-    Get Email Notification Settings from UserSettings.preferences
+    Get Email Notification Settings from SystemSettings (Admin Only)
     """
-    settings = UserSettings.query.filter_by(user_id=current_user.id).first()
-    prefs = dict(settings.preferences) if settings and settings.preferences else {}
-    email_settings = prefs.get('email_settings', {})
+    # Get system-wide email settings
+    settings = SystemSettings.query.filter_by(setting_key='email_notifications').first()
+    email_settings = settings.setting_value if settings and settings.setting_value else {}
     
     # Decrypt password when retrieving (if it's encrypted)
     if 'password' in email_settings and email_settings['password']:
-        try:
-            encryption_key = os.environ.get('EMAIL_PASSWORD_KEY')
-            if encryption_key:
+        if email_settings.get('is_encrypted', False):
+            try:
+                encryption_key = os.environ.get('EMAIL_PASSWORD_KEY')
+                if not encryption_key:
+                    return jsonify({'error': 'Server encryption not configured'}), 500
                 f = Fernet(encryption_key.encode())
-                # Try to decrypt - if it fails, it might be already decrypted
-                try:
-                    decrypted_password = f.decrypt(email_settings['password'].encode()).decode()
-                    email_settings['password'] = decrypted_password
-                except:
-                    # Password is already decrypted or in plain text
-                    pass
-        except:
-            # If decryption fails for any reason, return as is
-            pass
-    
+                decrypted_password = f.decrypt(email_settings['password'].encode()).decode()
+                email_settings['password'] = decrypted_password
+            except Exception as e:
+                logging.error(f"Password decryption failed: {str(e)}")
+                return jsonify({
+                    'error': 'Password decryption failed. Please re-enter your credentials.',
+                    'details': 'Encryption key may have changed or data is corrupted'
+                }), 400
+        # Remove internal flag before sending to frontend
+        email_settings.pop('is_encrypted', None)
+
     return jsonify({'email_settings': email_settings}), 200
 
 # --- EMAIL SETTINGS: SAVE ---
 @settings_bp.route('/settings/email', methods=['POST'])
 @auth_required()
+@roles_accepted('admin')
 def save_email_settings():
     """
-    Save Email Notification Settings to UserSettings.preferences
+    Save Email Notification Settings to SystemSettings (Admin Only)
     """
     data = request.get_json()
     email_settings = data.get('email_settings')
     
     if email_settings is None:
         return jsonify({'error': 'Email settings required'}), 400
+    
+    # Validate inputs
+    validation_errors = validate_email_settings(email_settings)
+    if validation_errors:
+        return jsonify({'error': ', '.join(validation_errors)}), 400
 
-    # Get existing settings to check if password has changed
-    settings = UserSettings.query.filter_by(user_id=current_user.id).first()
+    # Get existing system-wide settings to check if password has changed
+    settings = SystemSettings.query.filter_by(setting_key='email_notifications').first()
     existing_email_settings = {}
-    if settings and settings.preferences:
-        existing_email_settings = dict(settings.preferences).get('email_settings', {})
+    if settings and settings.setting_value:
+        existing_email_settings = dict(settings.setting_value)
 
     # Encrypt password before saving if it's provided and different from existing
     if 'password' in email_settings and email_settings['password']:
-        # Check if this is a new password or if it has changed
         existing_password = existing_email_settings.get('password', '')
+        existing_is_encrypted = existing_email_settings.get('is_encrypted', False)
         
-        # If password looks like it's already encrypted (long string with non-readable characters),
-        # or if it's the same as the existing one, don't re-encrypt
-        if (len(email_settings['password']) > 50 and 
-            not email_settings['password'].isalnum() and 
-            email_settings['password'] == existing_password):
-            # Password is already encrypted, keep as is
-            pass
-        else:
-            # Encrypt the new password
+        # If password is exactly the same as existing (unchanged), preserve existing encrypted value
+        if email_settings['password'] == existing_password:
+            # Password unchanged, preserve existing encrypted value
+            email_settings['password'] = existing_password
+            email_settings['is_encrypted'] = existing_is_encrypted
+        elif email_settings['password']:
+            # New password provided, encrypt it
             encryption_key = os.environ.get('EMAIL_PASSWORD_KEY')
             if not encryption_key:
-                encryption_key = Fernet.generate_key()
-                # In production, you should store this key securely
-                os.environ['EMAIL_PASSWORD_KEY'] = encryption_key.decode()
-            
+                raise ValueError(
+                    "EMAIL_PASSWORD_KEY environment variable must be set. "
+                    "Generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
+                )
             f = Fernet(encryption_key.encode())
-            encrypted_password = f.encrypt(email_settings['password'].encode())
-            email_settings['password'] = encrypted_password.decode()
+            email_settings['password'] = f.encrypt(email_settings['password'].encode()).decode()
+            email_settings['is_encrypted'] = True
 
+    # Create or update system settings
     if not settings:
-        settings = UserSettings(user_id=current_user.id, preferences={})
+        settings = SystemSettings(setting_key='email_notifications')
+    settings.setting_value = email_settings
+    settings.updated_by = current_user.id
 
-    import copy
-    prefs = dict(settings.preferences) if settings.preferences else {}
-    prefs['email_settings'] = email_settings
-    settings.preferences = prefs
-    
     try:
         db.session.add(settings)
         db.session.commit()
+        return jsonify({'message': 'Email settings saved successfully'}), 200
     except Exception as e:
         db.session.rollback()
+        logging.exception("Failed to save email settings")
         return jsonify({'error': f'Failed to save email settings: {str(e)}'}), 500
-
-    return jsonify({'message': 'Email settings saved successfully'}), 200
 
 # --- EMAIL SETTINGS: TEST ---
 @settings_bp.route('/settings/email/test', methods=['POST'])
 @auth_required()
+@roles_accepted('admin')
 def test_email_settings():
     """
-    Test Email Notification Settings by sending a test email
+    Test Email Notification Settings by sending a test email (Admin Only)
     """
     data = request.get_json()
     email_settings = data.get('email_settings')
     
     if not email_settings:
         return jsonify({'error': 'Email settings required'}), 400
+    
+    # Validate inputs
+    validation_errors = validate_email_settings(email_settings)
+    if validation_errors:
+        return jsonify({'error': ', '.join(validation_errors)}), 400
 
-    try:
-        # Extract settings
-        smtp_host = email_settings.get('smtp_host', 'smtp.gmail.com')
-        smtp_port = int(email_settings.get('smtp_port', 587))
-        use_tls = email_settings.get('use_tls', True)
-        use_ssl = email_settings.get('use_ssl', False)
-        username = email_settings.get('username', '')
-        password = email_settings.get('password', '')
-        sender_email = email_settings.get('sender_email', '')
+    # Extract settings
+    smtp_host = email_settings.get('smtp_host', 'smtp.gmail.com')
+    smtp_port = int(email_settings.get('smtp_port', 587))
+    use_tls = email_settings.get('use_tls', True)
+    use_ssl = email_settings.get('use_ssl', False)
+    username = email_settings.get('username', '')
+    password = email_settings.get('password', '')
+    sender_email = email_settings.get('sender_email', '')
+    
+    # Allow custom test recipient, default to current user
+    test_recipient = data.get('test_recipient') or current_user.email
+    if not test_recipient:
+        return jsonify({'error': 'No valid recipient for test email'}), 400
         
-        # Decrypt password if it's encrypted
-        if password:
+    # Decrypt password if it's encrypted
+    if password:
+        if email_settings.get('is_encrypted', False):
             try:
                 encryption_key = os.environ.get('EMAIL_PASSWORD_KEY')
-                if encryption_key:
-                    f = Fernet(encryption_key.encode())
-                    # Try to decrypt - if it fails, it might be already decrypted
-                    try:
-                        decrypted_password = f.decrypt(password.encode()).decode()
-                        password = decrypted_password
-                    except:
-                        # Password is already decrypted or in plain text
-                        pass
-            except:
-                # If decryption fails for any reason, use as is
-                pass
-        
-        # Create message
-        msg = MIMEMultipart()
-        msg['From'] = sender_email
-        msg['To'] = sender_email
-        msg['Subject'] = "FleetOps Email Configuration Test"
-        
-        body = "This is a test email from FleetOps to confirm your email notification settings are working correctly."
-        msg.attach(MIMEText(body, 'plain'))
-        
-        # Create SMTP connection
-        if use_ssl:
-            server = smtplib.SMTP_SSL(smtp_host, smtp_port)
+                if not encryption_key:
+                    return jsonify({'error': 'Server encryption not configured'}), 500
+                f = Fernet(encryption_key.encode())
+                decrypted_password = f.decrypt(password.encode()).decode()
+                password = decrypted_password
+            except Exception as e:
+                logging.error(f"Password decryption failed in test: {str(e)}")
+                return jsonify({
+                    'error': 'Password decryption failed. Please re-enter your credentials.',
+                    'details': 'Encryption key may have changed or data is corrupted'
+                }), 400
+        # If not encrypted, use password as is
+    
+    # Create message
+    msg = MIMEMultipart()
+    msg['From'] = sender_email
+    msg['To'] = test_recipient
+    msg['Subject'] = "FleetOps Email Configuration Test"
+    
+    body = f"This is a test email from FleetOps sent to {test_recipient}. Your email notification settings are configured correctly."
+    msg.attach(MIMEText(body, 'plain'))
+    
+    # Create SMTP connection with proper protocol selection
+    # Auto-select protocol based on port if both/neither are set
+    port = int(email_settings.get('smtp_port', 587))
+    use_tls = email_settings.get('use_tls', True)
+    use_ssl = email_settings.get('use_ssl', False)
+    
+    # Auto-adjust protocol based on port if there's a conflict
+    if use_tls and use_ssl:
+        # If both are set, prioritize based on port
+        if port == 465:
+            use_tls = False  # Use SSL for port 465
         else:
-            server = smtplib.SMTP(smtp_host, smtp_port)
+            use_ssl = False  # Use TLS for other ports (default to 587)
+    elif not use_tls and not use_ssl:
+        # If neither is set, auto-select based on port
+        if port == 465:
+            use_ssl = True
+        else:
+            use_tls = True  # Default to TLS for ports like 587
+    
+    # Create SMTP connection with timeout
+    try:
+        if use_ssl:
+            server = smtplib.SMTP_SSL(smtp_host, port, timeout=10)
+        else:
+            server = smtplib.SMTP(smtp_host, port, timeout=10)
             if use_tls:
                 server.starttls()
         
@@ -452,6 +537,15 @@ def test_email_settings():
         server.send_message(msg)
         server.quit()
         
-        return jsonify({'message': 'Test email sent successfully!'}), 200
+        return jsonify({'message': f'Test email sent successfully to {test_recipient}!'}), 200
+    except smtplib.SMTPAuthenticationError as e:
+        return jsonify({'error': f'Authentication failed: {str(e)}. Check username and password.'}), 400
+    except smtplib.SMTPConnectError as e:
+        return jsonify({'error': f'Connection failed: {str(e)}. Check SMTP host and port.'}), 400
+    except socket.timeout:
+        return jsonify({'error': f'Connection timed out. Check SMTP host, port, and network connectivity.'}), 400
+    except smtplib.SMTPException as e:
+        return jsonify({'error': f'SMTP error: {str(e)}'}), 400
     except Exception as e:
-        return jsonify({'error': f'Failed to send test email: {str(e)}'}), 500
+        logging.exception("Unexpected error in test email")
+        return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
