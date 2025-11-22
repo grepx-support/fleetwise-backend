@@ -46,6 +46,17 @@ class UserService:
     @staticmethod
     def create(data):
         try:
+            # Normalize email to lowercase for case-insensitive uniqueness
+            if 'email' in data and data['email']:
+                email_lower = data['email'].lower().strip()
+
+                # Check if email already exists (case-insensitive)
+                existing_user = User.query.filter(db.func.lower(User.email) == email_lower).first()
+                if existing_user:
+                    raise ServiceError("Email already exists. Please use a different email address.")
+
+                data['email'] = email_lower
+
             # Validate and sanitize name field
             if 'name' in data:
                 name = data['name']
@@ -56,21 +67,21 @@ class UserService:
                     if len(name) > 255:
                         raise ServiceError("Name cannot exceed 255 characters")
                     data['name'] = name if name else None
-            
+
             password = data.pop('password', None)
             if password:
                 data['password'] = hash_password(password)
             roles = data.pop('roles', [])
             role_names = data.pop('role_names', None)
-            
+
             # Handle customer or driver assignment during creation
             customer_id = data.pop('customer_id', None)
             driver_id = data.pop('driver_id', None)
-            
+
             # Ensure fs_uniquifier is set
             if 'fs_uniquifier' not in data or data['fs_uniquifier'] is None:
                 data['fs_uniquifier'] = str(uuid.uuid4())
-                
+
             user = User(**data)
             db.session.add(user)
             db.session.flush()
@@ -100,9 +111,30 @@ class UserService:
                         user.roles.append(role)
             db.session.commit()
             return user
-        except IntegrityError:
+        except IntegrityError as e:
             db.session.rollback()
-            raise ServiceError("Driver is already assigned to another user")
+            # Try to get constraint name for more reliable error identification
+            constraint = ''
+            if hasattr(e, 'orig') and hasattr(e.orig, 'diag'):
+                # PostgreSQL provides constraint_name in diag
+                constraint = getattr(e.orig.diag, 'constraint_name', '')
+
+            # Fallback to string matching if constraint name not available
+            error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+            error_lower = error_msg.lower()
+
+            # Check constraint name first (more reliable), then fall back to string matching
+            if 'email' in constraint.lower() or 'ix_user_email' in constraint.lower():
+                raise ServiceError("Email already exists. Please use a different email address.")
+            elif 'driver_id' in constraint.lower() or ('driver_id' in error_lower and 'unique' in error_lower):
+                raise ServiceError("Driver is already assigned to another user")
+            elif 'customer_id' in constraint.lower() or ('customer_id' in error_lower and 'unique' in error_lower):
+                raise ServiceError("Customer is already assigned to another user")
+            elif 'email' in error_lower or 'unique' in error_lower:
+                # Generic unique constraint - likely email
+                raise ServiceError("Email already exists. Please use a different email address.")
+            else:
+                raise ServiceError("A user with this information already exists")
         except ServiceError:
             db.session.rollback()
             raise
@@ -117,7 +149,21 @@ class UserService:
             user = User.query.get(user_id)
             if not user:
                 return None
-                
+
+            # Normalize and validate email if being updated
+            if 'email' in data and data['email']:
+                email_lower = data['email'].lower().strip()
+
+                # Check if email already exists for a different user (case-insensitive)
+                existing_user = User.query.filter(
+                    db.func.lower(User.email) == email_lower,
+                    User.id != user_id
+                ).first()
+                if existing_user:
+                    raise ServiceError("Email already exists. Please use a different email address.")
+
+                data['email'] = email_lower
+
             # Validate and sanitize name field
             if 'name' in data:
                 name = data['name']
@@ -128,7 +174,7 @@ class UserService:
                     if len(name) > 255:
                         raise ServiceError("Name cannot exceed 255 characters")
                     data['name'] = name if name else None
-                
+
             password = data.pop('password', None)
             if password:
                 user.password = hash_password(password)
@@ -280,13 +326,25 @@ class UserService:
 
             db.session.commit()
             return user
-        except IntegrityError:
+        except IntegrityError as e:
             db.session.rollback()
-            if user_type == "customer":
-                # This should not happen anymore since we allow multiple customer assignments
-                raise ServiceError("An unexpected error occurred")
-            else:
+            # Try to get constraint name for more reliable error identification
+            constraint = ''
+            if hasattr(e, 'orig') and hasattr(e.orig, 'diag'):
+                # PostgreSQL provides constraint_name in diag
+                constraint = getattr(e.orig.diag, 'constraint_name', '')
+
+            # Fallback to string matching if constraint name not available
+            error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+            error_lower = error_msg.lower()
+
+            # Check constraint name first (more reliable), then fall back to string matching
+            if user_type == "driver" and ('driver_id' in constraint.lower() or ('driver_id' in error_lower and 'unique' in error_lower)):
                 raise ServiceError("Driver is already assigned to another user")
+            elif user_type == "customer" and ('customer_id' in constraint.lower() or ('customer_id' in error_lower and 'unique' in error_lower)):
+                raise ServiceError("Customer is already assigned to another user")
+            else:
+                raise ServiceError(f"Unable to assign {user_type}. The assignment may already exist or violates database constraints.")
         except ServiceError:
             db.session.rollback()
             raise
