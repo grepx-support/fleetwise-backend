@@ -5,7 +5,8 @@ from backend.models.user import User
 from backend.models.customer import Customer
 from backend.models.driver import Driver
 from backend.models.role import Role
-from flask_security.utils import hash_password
+from backend.models.password_history import PasswordHistory
+from flask_security.utils import hash_password, verify_password
 from sqlalchemy.exc import IntegrityError
 
 
@@ -16,6 +17,25 @@ class ServiceError(Exception):
 
 
 class UserService:
+    @staticmethod
+    def _check_password_reuse(user_id, new_password, history_count=5):
+        """
+        Check if the new password has been used recently
+
+        Args:
+            user_id: The ID of the user
+            new_password: The new password to check
+            history_count: Number of recent passwords to check (default: 5)
+
+        Returns:
+            bool: True if password is reused, False otherwise
+        """
+        recent_passwords = PasswordHistory.get_recent_passwords(user_id, history_count)
+        for old_password_hash in recent_passwords:
+            if verify_password(new_password, old_password_hash):
+                return True
+        return False
+
     @staticmethod
     def _validate_entity_not_assigned(user_type, entity_id, exclude_user_id=None):
         # Allow multiple users to be assigned to the same customer
@@ -69,8 +89,10 @@ class UserService:
                     data['name'] = name if name else None
 
             password = data.pop('password', None)
+            hashed_password = None
             if password:
-                data['password'] = hash_password(password)
+                hashed_password = hash_password(password)
+                data['password'] = hashed_password
             roles = data.pop('roles', [])
             role_names = data.pop('role_names', None)
 
@@ -109,6 +131,11 @@ class UserService:
                     role = Role.query.filter_by(name=role_name).first()
                     if role:
                         user.roles.append(role)
+
+            # Add initial password to history if password was provided
+            if hashed_password:
+                PasswordHistory.add_to_history(user.id, hashed_password)
+
             db.session.commit()
             return user
         except IntegrityError as e:
@@ -177,7 +204,16 @@ class UserService:
 
             password = data.pop('password', None)
             if password:
-                user.password = hash_password(password)
+                # Check for password reuse
+                if UserService._check_password_reuse(user_id, password):
+                    raise ServiceError("Cannot reuse any of your last 5 passwords")
+
+                # Hash and update password
+                hashed_password = hash_password(password)
+                user.password = hashed_password
+
+                # Add to password history
+                PasswordHistory.add_to_history(user_id, hashed_password)
             roles = data.pop('roles', None)
             role_names = data.pop('role_names', None)
             for key, value in data.items():

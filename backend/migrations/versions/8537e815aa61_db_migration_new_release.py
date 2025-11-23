@@ -98,12 +98,39 @@ def upgrade() -> None:
         sa.UniqueConstraint('setting_key')
     )
 
+    # Create password_history table for password reuse prevention
+    op.create_table('password_history',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('password_hash', sa.String(length=255), nullable=False),
+    sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.ForeignKeyConstraint(['user_id'], ['user.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_password_history_user_id'), 'password_history', ['user_id'], unique=False)
+
+    # Add account lockout fields to user table
+    with op.batch_alter_table('user', schema=None) as batch_op:
+        batch_op.add_column(sa.Column('failed_login_attempts', sa.Integer(), nullable=False, server_default='0'))
+        batch_op.add_column(sa.Column('locked_until', sa.DateTime(), nullable=True))
+        batch_op.add_column(sa.Column('last_failed_login', sa.DateTime(), nullable=True))
+
 
 def downgrade() -> None:
     """Downgrade schema."""
+    # Remove account lockout fields from user table
+    with op.batch_alter_table('user', schema=None) as batch_op:
+        batch_op.drop_column('last_failed_login')
+        batch_op.drop_column('locked_until')
+        batch_op.drop_column('failed_login_attempts')
+
+    # Drop password_history table
+    op.drop_index(op.f('ix_password_history_user_id'), table_name='password_history')
+    op.drop_table('password_history')
+
     # Drop system_settings table
     op.drop_table('system_settings')
-    
+
     # Drop composite index on job table
     op.drop_index('idx_job_driver_pickup_date', table_name='job')
 

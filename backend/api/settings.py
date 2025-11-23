@@ -1,15 +1,21 @@
 import os
 import logging
 import socket
-from backend.models.settings import UserSettings
-from backend.models.system_settings import SystemSettings
-from flask import Blueprint, request, jsonify
+import smtplib
+import copy
+from io import BytesIO
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+from flask import Blueprint, request, jsonify, current_app
 from flask_security import roles_accepted, current_user, auth_required
 from werkzeug.utils import secure_filename
 from PIL import Image
-from io import BytesIO
-import os
+from cryptography.fernet import Fernet
+from sqlalchemy.orm.attributes import flag_modified
 
+from backend.models.settings import UserSettings
+from backend.models.system_settings import SystemSettings
 from backend.models.photo_config import PhotoConfig
 from backend.schemas.user_settings_schema import UserSettingsSchema
 from backend.services.user_settings_service import (
@@ -18,12 +24,6 @@ from backend.services.user_settings_service import (
     delete_user_settings,
 )
 from backend.extensions import db
-from sqlalchemy.orm.attributes import flag_modified
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from cryptography.fernet import Fernet
-import os
 
 settings_bp = Blueprint('settings', __name__)
 
@@ -354,30 +354,19 @@ def validate_email_settings(settings):
 @roles_accepted('admin')
 def get_email_settings():
     """
-    Get Email Notification Settings from SystemSettings (Admin Only)
+    Get Email Notification Settings from UserSettings (Admin Only)
     """
-    # Get system-wide email settings
-    settings = SystemSettings.query.filter_by(setting_key='email_notifications').first()
-    email_settings = settings.setting_value if settings and settings.setting_value else {}
-    
-    # Decrypt password when retrieving (if it's encrypted)
+    settings = UserSettings.query.filter_by(user_id=current_user.id).first()
+    prefs = dict(settings.preferences) if settings and settings.preferences else {}
+    email_settings = prefs.get('email_settings', {})
+
+    # Don't send password back to frontend - replace with placeholder
     if 'password' in email_settings and email_settings['password']:
-        if email_settings.get('is_encrypted', False):
-            try:
-                encryption_key = os.environ.get('EMAIL_PASSWORD_KEY')
-                if not encryption_key:
-                    return jsonify({'error': 'Server encryption not configured'}), 500
-                f = Fernet(encryption_key.encode())
-                decrypted_password = f.decrypt(email_settings['password'].encode()).decode()
-                email_settings['password'] = decrypted_password
-            except Exception as e:
-                logging.error(f"Password decryption failed: {str(e)}")
-                return jsonify({
-                    'error': 'Password decryption failed. Please re-enter your credentials.',
-                    'details': 'Encryption key may have changed or data is corrupted'
-                }), 400
-        # Remove internal flag before sending to frontend
-        email_settings.pop('is_encrypted', None)
+        # Password exists in database, send placeholder
+        email_settings['password'] = '********'  # Placeholder to indicate password is set
+        email_settings['password_set'] = True
+    else:
+        email_settings['password_set'] = False
 
     return jsonify({'email_settings': email_settings}), 200
 
@@ -387,52 +376,56 @@ def get_email_settings():
 @roles_accepted('admin')
 def save_email_settings():
     """
-    Save Email Notification Settings to SystemSettings (Admin Only)
+    Save Email Notification Settings to UserSettings (Admin Only)
     """
     data = request.get_json()
     email_settings = data.get('email_settings')
-    
+
     if email_settings is None:
         return jsonify({'error': 'Email settings required'}), 400
-    
+
     # Validate inputs
     validation_errors = validate_email_settings(email_settings)
     if validation_errors:
         return jsonify({'error': ', '.join(validation_errors)}), 400
 
-    # Get existing system-wide settings to check if password has changed
-    settings = SystemSettings.query.filter_by(setting_key='email_notifications').first()
+    # Get existing user settings to check if password has changed
+    settings = UserSettings.query.filter_by(user_id=current_user.id).first()
     existing_email_settings = {}
-    if settings and settings.setting_value:
-        existing_email_settings = dict(settings.setting_value)
+    if settings and settings.preferences:
+        prefs = dict(settings.preferences)
+        existing_email_settings = prefs.get('email_settings', {})
 
     # Encrypt password before saving if it's provided and different from existing
     if 'password' in email_settings and email_settings['password']:
         existing_password = existing_email_settings.get('password', '')
-        existing_is_encrypted = existing_email_settings.get('is_encrypted', False)
-        
-        # If password is exactly the same as existing (unchanged), preserve existing encrypted value
+
+        # If password is exactly the same as existing encrypted password (unchanged), keep it as is
         if email_settings['password'] == existing_password:
             # Password unchanged, preserve existing encrypted value
-            email_settings['password'] = existing_password
-            email_settings['is_encrypted'] = existing_is_encrypted
-        elif email_settings['password']:
+            pass
+        else:
             # New password provided, encrypt it
-            encryption_key = os.environ.get('EMAIL_PASSWORD_KEY')
+            encryption_key = current_app.config.get('EMAIL_PASSWORD_KEY')
             if not encryption_key:
-                raise ValueError(
-                    "EMAIL_PASSWORD_KEY environment variable must be set. "
-                    "Generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
-                )
-            f = Fernet(encryption_key.encode())
-            email_settings['password'] = f.encrypt(email_settings['password'].encode()).decode()
-            email_settings['is_encrypted'] = True
+                # This should not happen as we have fallback in config.py
+                raise ValueError("EMAIL_PASSWORD_KEY not configured in application config")
 
-    # Create or update system settings
+            # Handle both string and bytes for encryption_key
+            if isinstance(encryption_key, str):
+                encryption_key = encryption_key.encode()
+
+            f = Fernet(encryption_key)
+            encrypted_password = f.encrypt(email_settings['password'].encode())
+            email_settings['password'] = encrypted_password.decode()
+
+    # Create or update user settings
     if not settings:
-        settings = SystemSettings(setting_key='email_notifications')
-    settings.setting_value = email_settings
-    settings.updated_by = current_user.id
+        settings = UserSettings(user_id=current_user.id, preferences={})
+
+    prefs = copy.deepcopy(settings.preferences) if settings.preferences else {}
+    prefs['email_settings'] = email_settings
+    settings.preferences = prefs
 
     try:
         db.session.add(settings)
@@ -470,29 +463,40 @@ def test_email_settings():
     username = email_settings.get('username', '')
     password = email_settings.get('password', '')
     sender_email = email_settings.get('sender_email', '')
-    
+
     # Allow custom test recipient, default to current user
     test_recipient = data.get('test_recipient') or current_user.email
     if not test_recipient:
         return jsonify({'error': 'No valid recipient for test email'}), 400
-        
-    # Decrypt password if it's encrypted
+
+    # Check if password is the placeholder (contains bullet characters or asterisks)
+    # If so, retrieve actual password from database
+    if password and ('•' in password or password == '********'):
+        # Retrieve password from database
+        settings = UserSettings.query.filter_by(user_id=current_user.id).first()
+        if settings and settings.preferences:
+            prefs = dict(settings.preferences)
+            stored_email_settings = prefs.get('email_settings', {})
+            password = stored_email_settings.get('password', '')
+
+            if not password:
+                return jsonify({'error': 'No password found in database. Please save your email settings first.'}), 400
+        else:
+            return jsonify({'error': 'No email settings found in database. Please save your settings first.'}), 400
+
+    # Decrypt password if it's encrypted (all passwords in DB are encrypted)
     if password:
-        if email_settings.get('is_encrypted', False):
-            try:
-                encryption_key = os.environ.get('EMAIL_PASSWORD_KEY')
-                if not encryption_key:
-                    return jsonify({'error': 'Server encryption not configured'}), 500
-                f = Fernet(encryption_key.encode())
-                decrypted_password = f.decrypt(password.encode()).decode()
-                password = decrypted_password
-            except Exception as e:
-                logging.error(f"Password decryption failed in test: {str(e)}")
-                return jsonify({
-                    'error': 'Password decryption failed. Please re-enter your credentials.',
-                    'details': 'Encryption key may have changed or data is corrupted'
-                }), 400
-        # If not encrypted, use password as is
+        try:
+            encryption_key = current_app.config.get('EMAIL_PASSWORD_KEY')
+            if not encryption_key:
+                return jsonify({'error': 'Server encryption not configured'}), 500
+            f = Fernet(encryption_key.encode())
+            decrypted_password = f.decrypt(password.encode()).decode()
+            password = decrypted_password
+        except Exception as e:
+            # If decryption fails, password might be plain text (shouldn't happen in normal flow)
+            logging.warning(f"Password decryption failed in test, using as plain text: {str(e)}")
+            pass
     
     # Create message
     msg = MIMEMultipart()

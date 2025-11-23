@@ -108,6 +108,15 @@ except Exception as e:
     logger.error("App will continue, but password reset emails won't work")
     # Don't raise for mail - app can work without it
 
+# Initialize scheduler for background tasks
+try:
+    from backend.services.scheduler_service import scheduler_service
+    scheduler_service.start()
+    logger.info("Scheduler service initialized successfully")
+except Exception as e:
+    logger.error(f"WARNING: Failed to initialize scheduler: {e}")
+    logger.error("App will continue, but scheduled tasks won't run")
+
 # Configure CORS for better proxy support
 CORS(app, supports_credentials=True, resources={r"/api/*": {"origins": [
     "https://localhost",
@@ -191,6 +200,11 @@ with app.app_context():
         user_datastore = SQLAlchemyUserDatastore(db, User, Role)
         security = Security(app, user_datastore)
         logger.info("Flask-Security initialized successfully")
+
+        # Initialize login security (account lockout, failed login tracking)
+        from backend.services.login_security import init_login_security
+        init_login_security(app)
+        logger.info("Login security handlers initialized successfully")
         
         # Logging patch
         original_find_user = user_datastore.find_user

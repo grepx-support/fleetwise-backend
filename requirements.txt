@@ -21,3 +21,4 @@ PyYAML==6.0.1
 Flask-Mail==0.9.1
 itsdangerous==2.1.2
 cryptography==45.0.7
+APScheduler==3.10.4

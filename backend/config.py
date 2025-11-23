@@ -3,16 +3,16 @@ from pathlib import Path
 
 class Config:
     """Base configuration - shared across all environments"""
-    
-    # Security
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key')
+
+    # Security configuration - handled per environment
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SECURITY_PASSWORD_SALT = os.environ.get('SECURITY_PASSWORD_SALT', 'dev-salt')
     
     # Flask-Security settings
     SECURITY_REGISTERABLE = True
     SECURITY_SEND_REGISTER_EMAIL = False
     SECURITY_PASSWORD_HASH = 'pbkdf2_sha512'
+    SECURITY_PASSWORD_SCHEMES = ['pbkdf2_sha512']
+    SECURITY_PASSWORD_ITERATIONS = 100000  # Increased from default 29000 for better security
     SECURITY_TOKEN_AUTHENTICATION_HEADER = 'Authentication-Token'
     SECURITY_TOKEN_AUTHENTICATION_KEY = 'auth_token'
     SECURITY_RECOVERABLE = True
@@ -69,7 +69,12 @@ class DevConfig(Config):
     FLASK_HOST = '0.0.0.0'
     FLASK_PORT = 5000
     FRONTEND_URL = 'http://localhost:3000'
-    
+
+    # Development security - auto-fallback for easy development
+    SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key')
+    SECURITY_PASSWORD_SALT = os.environ.get('SECURITY_PASSWORD_SALT', 'dev-salt')
+    EMAIL_PASSWORD_KEY = os.environ.get('EMAIL_PASSWORD_KEY', 'BZABYtj8Uo4S6ZWcbAKCkRmQDYWdrEYxOG54vVXGuwg=')
+
     # Development database - SQLite with fallback
     DB_TYPE = 'sqlite'
     STORAGE_PATH = str(Path(__file__).resolve().parents[2] / "fleetwise-storage" / "database")
@@ -81,11 +86,18 @@ class StagingConfig(Config):
     DEBUG = False
     SESSION_COOKIE_SAMESITE = 'None'
     SESSION_COOKIE_SECURE = True
+    SESSION_PROTECTION = 'strong'
+    PREFERRED_URL_SCHEME = 'https'
     # Staging: Use IPv6 dual-stack on Linux server
     FLASK_HOST = '::'
     FLASK_PORT = 5000
     FRONTEND_URL = 'https://test.grepx.sg'
-    
+
+    # Staging security - auto-fallback for easy deployment
+    SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key')
+    SECURITY_PASSWORD_SALT = os.environ.get('SECURITY_PASSWORD_SALT', 'dev-salt')
+    EMAIL_PASSWORD_KEY = os.environ.get('EMAIL_PASSWORD_KEY', 'BZABYtj8Uo4S6ZWcbAKCkRmQDYWdrEYxOG54vVXGuwg=')
+
     # Staging database - MUST be set via environment
     DB_TYPE = 'sqlite'
     STORAGE_PATH = str(Path(__file__).resolve().parents[2] / "fleetwise-storage" / "database")
@@ -97,11 +109,18 @@ class ProductionConfig(Config):
     DEBUG = False
     SESSION_COOKIE_SAMESITE = 'None'
     SESSION_COOKIE_SECURE = True
-    # Staging: Use IPv6 dual-stack on Linux server
+    SESSION_PROTECTION = 'strong'
+    PREFERRED_URL_SCHEME = 'https'
+    # Production: Use IPv6 dual-stack on Linux server
     FLASK_HOST = '::'
     FLASK_PORT = 5000
     FRONTEND_URL = 'https://fleet.avant-garde.com.sg'
-    
+
+    # Production security - auto-fallback for easy deployment
+    SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key')
+    SECURITY_PASSWORD_SALT = os.environ.get('SECURITY_PASSWORD_SALT', 'dev-salt')
+    EMAIL_PASSWORD_KEY = os.environ.get('EMAIL_PASSWORD_KEY', 'BZABYtj8Uo4S6ZWcbAKCkRmQDYWdrEYxOG54vVXGuwg=')
+
     # Production database - MUST be set via environment
     DB_TYPE = 'sqlite'
     STORAGE_PATH = str(Path(__file__).resolve().parents[2] / "fleetwise-storage" / "database")
