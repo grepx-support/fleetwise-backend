@@ -39,7 +39,6 @@ class PasswordResetError(Exception):
 def get_admin_email_settings() -> Dict[str, Any]:
     """
     Fetch email settings from admin panel (UserSettings.preferences.email_settings)
-    with fallback to environment variables if not configured
 
     Returns:
         dict: Email configuration with keys:
@@ -50,58 +49,65 @@ def get_admin_email_settings() -> Dict[str, Any]:
             - username: SMTP username
             - password: SMTP password (decrypted)
             - sender_email: Default sender email
+
+    Raises:
+        ValueError: If email settings are not configured in admin panel
     """
     try:
-        # Try to get the first admin user's settings (user_id=1 is typically admin)
-        # In a multi-admin setup, you might want to use a system-wide settings table instead
+        # Get the first admin user's settings
         settings = UserSettings.query.first()
 
-        if settings and settings.preferences:
-            prefs = dict(settings.preferences)
-            email_settings = prefs.get('email_settings', {})
+        if not settings or not settings.preferences:
+            raise ValueError("Email settings not found. Please configure email settings in the admin panel.")
 
-            if email_settings and email_settings.get('smtp_host'):
-                # Decrypt password if encrypted
-                password = email_settings.get('password', '')
-                if password:
+        prefs = dict(settings.preferences)
+        email_settings = prefs.get('email_settings', {})
+
+        if not email_settings or not email_settings.get('smtp_host'):
+            raise ValueError("Email SMTP settings not configured. Please configure email settings in the admin panel.")
+
+        # Decrypt password if encrypted
+        password = email_settings.get('password', '')
+        if password:
+            try:
+                encryption_key = current_app.config.get('EMAIL_PASSWORD_KEY')
+                if encryption_key:
+                    f = Fernet(encryption_key.encode())
                     try:
-                        encryption_key = current_app.config.get('EMAIL_PASSWORD_KEY')
-                        if encryption_key:
-                            f = Fernet(encryption_key.encode())
-                            try:
-                                decrypted_password = f.decrypt(password.encode()).decode()
-                                password = decrypted_password
-                            except:
-                                # Password might already be decrypted or plain text
-                                pass
-                    except:
-                        # If decryption fails, use as is
-                        pass
+                        decrypted_password = f.decrypt(password.encode()).decode()
+                        password = decrypted_password
+                    except Exception as decrypt_error:
+                        logging.error(f"Password decryption failed: {decrypt_error}")
+                        raise ValueError("Email password decryption failed. Please reconfigure email settings in the admin panel.")
+            except ValueError:
+                raise
+            except Exception as e:
+                logging.error(f"Error processing email password: {e}")
+                raise ValueError("Error processing email password. Please reconfigure email settings in the admin panel.")
 
-                # Return admin panel settings
-                return {
-                    'smtp_host': email_settings.get('smtp_host', 'smtp.gmail.com'),
-                    'smtp_port': int(email_settings.get('smtp_port', 587)),
-                    'use_tls': email_settings.get('use_tls', True),
-                    'use_ssl': email_settings.get('use_ssl', False),
-                    'username': email_settings.get('username', ''),
-                    'password': password,
-                    'sender_email': email_settings.get('sender_email', 'noreply@fleetwise.com')
-                }
+        # Validate required fields
+        if not email_settings.get('username'):
+            raise ValueError("Email username not configured. Please configure email settings in the admin panel.")
+
+        if not password:
+            raise ValueError("Email password not configured. Please configure email settings in the admin panel.")
+
+        # Return admin panel settings
+        return {
+            'smtp_host': email_settings.get('smtp_host'),
+            'smtp_port': int(email_settings.get('smtp_port', 587)),
+            'use_tls': email_settings.get('use_tls', True),
+            'use_ssl': email_settings.get('use_ssl', False),
+            'username': email_settings.get('username'),
+            'password': password,
+            'sender_email': email_settings.get('sender_email', 'noreply@fleetwise.com')
+        }
+
+    except ValueError:
+        raise
     except Exception as e:
-        logging.warning(f"Could not fetch admin panel email settings: {e}")
-
-    # Fallback to environment variables (for backward compatibility)
-    logging.info("Using fallback email settings from environment variables")
-    return {
-        'smtp_host': os.environ.get('MAIL_SERVER', current_app.config.get('MAIL_SERVER', 'localhost')),
-        'smtp_port': int(os.environ.get('MAIL_PORT', current_app.config.get('MAIL_PORT', 587))),
-        'use_tls': os.environ.get('MAIL_USE_TLS', current_app.config.get('MAIL_USE_TLS', 'True')).lower() == 'true',
-        'use_ssl': False,
-        'username': os.environ.get('MAIL_USERNAME', current_app.config.get('MAIL_USERNAME', '')),
-        'password': os.environ.get('MAIL_PASSWORD', current_app.config.get('MAIL_PASSWORD', '')),
-        'sender_email': os.environ.get('MAIL_DEFAULT_SENDER', current_app.config.get('MAIL_DEFAULT_SENDER', 'noreply@fleetwise.com'))
-    }
+        logging.error(f"Error fetching admin panel email settings: {e}")
+        raise ValueError("Unable to fetch email settings. Please configure email settings in the admin panel.")
 
 
 class PasswordResetService:
@@ -347,20 +353,20 @@ class PasswordResetService:
         """
         Send password reset email using admin panel email settings with thread pool executor
         """
-        # Get email configuration from admin panel
-        email_config = get_admin_email_settings()
+        try:
+            # Get email configuration from admin panel
+            email_config = get_admin_email_settings()
 
-        smtp_server = email_config['smtp_host']
-        smtp_port = email_config['smtp_port']
-        use_tls = email_config['use_tls']
-        use_ssl = email_config['use_ssl']
-        smtp_username = email_config['username']
-        smtp_password = email_config['password']
-        mail_sender = email_config['sender_email']
-
-        # Validate that required credentials are provided
-        if not smtp_username or not smtp_password:
-            logging.error("Email service credentials not configured. Please configure email settings in admin panel.")
+            smtp_server = email_config['smtp_host']
+            smtp_port = email_config['smtp_port']
+            use_tls = email_config['use_tls']
+            use_ssl = email_config['use_ssl']
+            smtp_username = email_config['username']
+            smtp_password = email_config['password']
+            mail_sender = email_config['sender_email']
+        except ValueError as e:
+            # Email settings not configured
+            logging.error(f"Email configuration error: {str(e)}")
             return False
 
         # Capture user email as string to avoid Flask context issues
@@ -581,11 +587,6 @@ Please do not reply to this email.
 
             logging.info(f"Email config - SMTP: {smtp_server}:{smtp_port}, User: {smtp_username}, Sender: {mail_sender}")
 
-            # Validate that required credentials are provided
-            if not smtp_username or not smtp_password:
-                logging.error("Email service credentials not configured. Please configure email settings in admin panel.")
-                return False
-
             # Capture user email as string to avoid Flask context issues
             user_email = user.email
 
@@ -786,7 +787,11 @@ If you believe this email was sent in error, please contact our support team imm
             except Exception as e:
                 logging.error(f"Password reset confirmation email sending failed: {str(e)}")
                 return False
-                
+
+        except ValueError as e:
+            # Email settings not configured
+            logging.error(f"Email configuration error: {str(e)}")
+            return False
         except Exception as e:
             logging.error(f"Error in _send_password_reset_confirmation_email: {e}", exc_info=True)
             return False
@@ -989,7 +994,11 @@ If you believe this email was sent in error, please contact our support team imm
             except Exception as e:
                 logging.error(f"Password change confirmation email sending failed: {str(e)}")
                 return False
-                
+
+        except ValueError as e:
+            # Email settings not configured
+            logging.error(f"Email configuration error: {str(e)}")
+            return False
         except Exception as e:
             logging.error(f"Error in _send_password_change_confirmation_email: {e}", exc_info=True)
             return False
