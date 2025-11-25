@@ -372,10 +372,21 @@ class PasswordResetService:
         # Capture user email as string to avoid Flask context issues
         user_email = user.email
 
+        # Get company name from general settings (fallback to FleetWise)
+        company_name = "{company_name}"
+        try:
+            settings = UserSettings.query.first()
+            if settings and settings.preferences:
+                prefs = dict(settings.preferences)
+                general_settings = prefs.get('general_settings', {})
+                company_name = general_settings.get('company_name', '{company_name}')
+        except Exception as e:
+            logging.warning(f"Could not fetch company name from settings: {e}")
+
         # Debug: Log email config (without password)
         logging.info(f"Using admin panel email config - Server: {smtp_server}, Port: {smtp_port}, Sender: {mail_sender}")
-        
-        def send_reset_email_worker(user_email, reset_link, smtp_server, smtp_port, use_tls, use_ssl, smtp_username, smtp_password, mail_sender):
+
+        def send_reset_email_worker(user_email, reset_link, smtp_server, smtp_port, use_tls, use_ssl, smtp_username, smtp_password, mail_sender, company_name):
             """Worker function that runs in background thread"""
             try:
                 import smtplib
@@ -386,15 +397,15 @@ class PasswordResetService:
 
                 # Create multipart message
                 msg = MIMEMultipart('alternative')
-                msg['Subject'] = 'FleetWise - Password Reset Request'
-                msg['From'] = f"FleetWise Support <{mail_sender}>"
+                msg['Subject'] = f'{company_name} - Password Reset Request'
+                msg['From'] = f"{company_name} Support <{mail_sender}>"
                 msg['To'] = user_email
                 msg['Reply-To'] = mail_sender
 
                 # Essential email headers
                 msg['Date'] = time.strftime('%a, %d %b %Y %H:%M:%S %z', time.gmtime())
-                msg['Message-ID'] = f"<fleetwise-reset-{int(time.time())}-{hash(user_email) % 100000}@fleetwise.com>"
-                msg['X-Mailer'] = "FleetWise Password Reset System v2.0"
+                msg['Message-ID'] = f"<reset-{int(time.time())}-{hash(user_email) % 100000}@{mail_sender.split('@')[1]}>"
+                msg['X-Mailer'] = f"{company_name} Password Reset System"
                 msg['X-Priority'] = "3 (Normal)"
                 msg['Importance'] = "Normal"
                 msg['MIME-Version'] = "1.0"
@@ -414,17 +425,16 @@ class PasswordResetService:
 
                 # Security and classification
                 msg['X-Email-Type'] = "Security-Notification"
-                msg['X-FleetWise-Type'] = "Password-Reset-Request"
                 msg['X-Content-Category'] = "Transactional"
-                
-                # Create enhanced HTML content with GREPX branding
+
+                # Create enhanced HTML content with company branding
                 html_content = f"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Password Reset Request - FleetWise</title>
+    <title>Password Reset Request - {company_name}</title>
     <style>
         body {{ margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f5; }}
         .email-container {{ max-width: 600px; margin: 0 auto; background: white; }}
@@ -442,13 +452,13 @@ class PasswordResetService:
     <div class="email-container">
         <div class="header">
             <h1>🔒 Password Reset Request</h1>
-            <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">Secure password reset for your FleetWise account</p>
+            <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">Secure password reset for your {company_name} account</p>
         </div>
         
         <div class="content">
             <p style="font-size: 16px; margin-bottom: 20px;">Hello,</p>
             
-            <p style="font-size: 16px;">We received a request to reset the password for your <span class="brand">FleetWise</span> account: <strong>{user_email}</strong></p>
+            <p style="font-size: 16px;">We received a request to reset the password for your <span class="brand">{company_name}</span> account: <strong>{user_email}</strong></p>
             
             <div style="text-align: center; margin: 30px 0;">
                 <a href="{reset_link}" class="button">[RESET] Reset My Password</a>
@@ -475,14 +485,14 @@ class PasswordResetService:
             <p style="font-size: 16px;"><strong>Contact:</strong> <a href="mailto:{mail_sender}" style="color: #dc3545; text-decoration: none;">{mail_sender}</a></p>
             
             <div style="margin: 30px 0; text-align: center; padding: 20px; background: #f8f9fa; border-radius: 8px;">
-                <p style="font-size: 16px; margin: 0;">Thank you for using <span class="brand">FleetWise</span>.</p>
-                <p style="font-size: 16px; margin: 15px 0 0 0;"><strong>Best regards,<br>FleetWise Security Team<br><span class="brand">GREPX Technologies</span></strong></p>
+                <p style="font-size: 16px; margin: 0;">Thank you for using <span class="brand">{company_name}</span>.</p>
+                <p style="font-size: 16px; margin: 15px 0 0 0;"><strong>Best regards,<br>{company_name} Security Team<br><span class="brand">{company_name}</span></strong></p>
             </div>
         </div>
         
         <div class="footer">
-            <p style="margin: 0 0 5px 0;">This is an automated security notification from FleetWise.</p>
-            <p style="margin: 0 0 5px 0;">(c) 2024 GREPX Technologies. All rights reserved.</p>
+            <p style="margin: 0 0 5px 0;">This is an automated security notification from {company_name}.</p>
+            <p style="margin: 0 0 5px 0;">(c) 2024 {company_name}. All rights reserved.</p>
             <p style="margin: 0; font-style: italic;">Please do not reply to this email.</p>
         </div>
     </div>
@@ -492,11 +502,11 @@ class PasswordResetService:
                 
                 # Create professional text version
                 text_content = f"""
-FleetWise - Password Reset Request
+{company_name} - Password Reset Request
 
 Hello,
 
-We received a request to reset the password for your FleetWise account: {user_email}
+We received a request to reset the password for your {company_name} account: {user_email}
 
 PLEASE CLICK THIS LINK TO RESET YOUR PASSWORD:
 {reset_link}
@@ -511,15 +521,15 @@ NEED HELP?
 If you have any questions or didn't request this password reset, please contact our support team immediately.
 Contact: {mail_sender}
 
-Thank you for using FleetWise.
+Thank you for using {company_name}.
 
 Best regards,
-FleetWise Security Team
-GREPX Technologies
+{company_name} Security Team
+{company_name}
 
 ---
-This is an automated security notification from FleetWise.
-(c) 2024 GREPX Technologies. All rights reserved.
+This is an automated security notification from {company_name}.
+(c) 2024 {company_name}. All rights reserved.
 Please do not reply to this email.
                 """
                 
@@ -557,7 +567,7 @@ Please do not reply to this email.
             future = email_executor.submit(
                 send_reset_email_worker,
                 user_email, reset_link, smtp_server, smtp_port,
-                use_tls, use_ssl, smtp_username, smtp_password, mail_sender
+                use_tls, use_ssl, smtp_username, smtp_password, mail_sender, company_name
             )
             return future.result(timeout=30)  # Increased timeout to 30 seconds for reliable email delivery
         except FutureTimeoutError:
@@ -590,7 +600,18 @@ Please do not reply to this email.
             # Capture user email as string to avoid Flask context issues
             user_email = user.email
 
-            def send_confirmation_email_worker(user_email, smtp_server, smtp_port, use_tls, use_ssl, smtp_username, smtp_password, mail_sender):
+            # Get company name from general settings (fallback to FleetWise)
+            company_name = "FleetWise"
+            try:
+                settings = UserSettings.query.first()
+                if settings and settings.preferences:
+                    prefs = dict(settings.preferences)
+                    general_settings = prefs.get('general_settings', {})
+                    company_name = general_settings.get('company_name', 'FleetWise')
+            except Exception as e:
+                logging.warning(f"Could not fetch company name from settings: {e}")
+
+            def send_confirmation_email_worker(user_email, smtp_server, smtp_port, use_tls, use_ssl, smtp_username, smtp_password, mail_sender, company_name):
                 """Worker function that runs in background thread using only Zoho"""
                 try:
                     import smtplib
@@ -602,15 +623,15 @@ Please do not reply to this email.
                     
                     # Create multipart message with proper headers
                     msg = MIMEMultipart('alternative')
-                    msg['Subject'] = '🔒 Password Updated Successfully - FleetWise Security Alert'
-                    msg['From'] = f"FleetWise Security <{mail_sender}>"
+                    msg['Subject'] = '🔒 Password Updated Successfully - {company_name} Security Alert'
+                    msg['From'] = f"{company_name} Security <{mail_sender}>"
                     msg['To'] = user_email
                     msg['Reply-To'] = mail_sender
 
                     # Essential email headers
                     msg['Date'] = time.strftime('%a, %d %b %Y %H:%M:%S %z', time.gmtime())
                     msg['Message-ID'] = f"<fleetwise-{int(time.time())}-{hash(user_email) % 100000}@{mail_sender.split('@')[1]}>"
-                    msg['X-Mailer'] = "FleetWise"
+                    msg['X-Mailer'] = "{company_name}"
                     msg['MIME-Version'] = "1.0"
 
                     # Priority headers for notifications (IMPORTANT: Changed to High Priority)
@@ -631,11 +652,11 @@ Please do not reply to this email.
                     
                     # Professional text content
                     text_content = f"""
-Password Reset Successful - FleetWise Account Security
+Password Reset Successful - {company_name} Account Security
 
 Dear Valued Customer,
 
-This email confirms that your FleetWise account password has been successfully updated on {current_time}.
+This email confirms that your {company_name} account password has been successfully updated on {current_time}.
 
 ACCOUNT SECURITY CONFIRMATION:
 Account Email: {user_email}
@@ -644,13 +665,13 @@ Security Status: Password Successfully Updated
 Authentication: Verified Secure Connection
 
 SECURITY NOTIFICATION:
-Your FleetWise account is now protected with your new password. If you did not initiate this password reset, please contact our security team immediately at {mail_sender}.
+Your {company_name} account is now protected with your new password. If you did not initiate this password reset, please contact our security team immediately at {mail_sender}.
 
 ACCOUNT ACCESS:
-You can now log in to FleetWise using your new password credentials. We recommend enabling two-factor authentication for enhanced account security.
+You can now log in to {company_name} using your new password credentials. We recommend enabling two-factor authentication for enhanced account security.
 
 SECURITY RECOMMENDATIONS:
-- Use a strong, unique password for your FleetWise account
+- Use a strong, unique password for your {company_name} account
 - Never share your login credentials with anyone
 - Keep your password confidential and secure
 - Monitor your account for any suspicious activity
@@ -661,16 +682,16 @@ If you have any questions or need assistance, our support team is available 24/7
 Contact: {mail_sender}
 Website: https://fleetwise.grepx.co.in
 
-Thank you for using FleetWise.
+Thank you for using {company_name}.
 
 Best regards,
-FleetWise Security Team
-GREPX Technologies
+{company_name} Security Team
+{company_name}
 
 ---
-This is an automated security notification from FleetWise.
+This is an automated security notification from {company_name}.
 You received this email because a password reset was completed on your account.
-(c) 2024 GREPX Technologies. All rights reserved.
+(c) 2024 {company_name}. All rights reserved.
 
 If you believe this email was sent in error, please contact our support team immediately.
                     """
@@ -682,7 +703,7 @@ If you believe this email was sent in error, please contact our support team imm
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Password Reset Successful - FleetWise</title>
+    <title>Password Reset Successful - {company_name}</title>
     <style>
         body {{ margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f5; }}
         .email-container {{ max-width: 600px; margin: 0 auto; background: white; }}
@@ -701,13 +722,13 @@ If you believe this email was sent in error, please contact our support team imm
     <div class="email-container">
         <div class="header">
             <h1>[SECURE] Password Updated Successfully</h1>
-            <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">Your FleetWise account is now secure</p>
+            <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">Your {company_name} account is now secure</p>
         </div>
         
         <div class="content">
             <p style="font-size: 16px; margin-bottom: 20px;">Dear Valued Customer,</p>
             
-            <p style="font-size: 16px;">This email confirms that your <span class="brand">FleetWise</span> account password has been <span class="highlight">successfully updated</span> on <strong>{current_time}</strong>.</p>
+            <p style="font-size: 16px;">This email confirms that your <span class="brand">{company_name}</span> account password has been <span class="highlight">successfully updated</span> on <strong>{current_time}</strong>.</p>
             
             <div class="info-section">
                 <h3 style="margin-top: 0; color: #2c5aa0;">[INFO] Account Security Confirmation</h3>
@@ -719,26 +740,26 @@ If you believe this email was sent in error, please contact our support team imm
             
             <div class="security-section">
                 <h3 style="margin-top: 0; color: #155724;">[CONFIRMED] Security Confirmation</h3>
-                <p style="margin: 8px 0; color: #155724;">Your <span class="brand">FleetWise</span> account is now protected with your new password credentials.</p>
+                <p style="margin: 8px 0; color: #155724;">Your <span class="brand">{company_name}</span> account is now protected with your new password credentials.</p>
                 <p style="margin: 8px 0; color: #155724;"><strong>Important:</strong> If you did not initiate this password reset, please contact our security team immediately.</p>
             </div>
             
             <h3 style="color: #2c5aa0; font-size: 18px; margin: 25px 0 15px 0;">[ACCESS] Account Access</h3>
-            <p style="font-size: 16px;">You can now log in to <span class="brand">FleetWise</span> using your new password credentials. We recommend enabling two-factor authentication for enhanced account security.</p>
+            <p style="font-size: 16px;">You can now log in to <span class="brand">{company_name}</span> using your new password credentials. We recommend enabling two-factor authentication for enhanced account security.</p>
             
             <h3 style="color: #2c5aa0; font-size: 18px; margin: 25px 0 15px 0;">[SUPPORT] Support Assistance</h3>
             <p style="font-size: 16px;">If you have any questions or need assistance, our support team is available 24/7.</p>
             <p style="font-size: 16px;"><strong>Contact:</strong> <a href="mailto:{mail_sender}" style="color: #2c5aa0; text-decoration: none;">{mail_sender}</a></p>
             
             <div style="margin: 30px 0; text-align: center; padding: 20px; background: #f8f9fa; border-radius: 8px;">
-                <p style="font-size: 16px; margin: 0;">Thank you for using <span class="brand">FleetWise</span>.</p>
-                <p style="font-size: 16px; margin: 15px 0 0 0;"><strong>Best regards,<br>FleetWise Security Team<br><span class="brand">GREPX Technologies</span></strong></p>
+                <p style="font-size: 16px; margin: 0;">Thank you for using <span class="brand">{company_name}</span>.</p>
+                <p style="font-size: 16px; margin: 15px 0 0 0;"><strong>Best regards,<br>{company_name} Security Team<br><span class="brand">{company_name}</span></strong></p>
             </div>
         </div>
         
         <div class="footer">
-            <p style="margin: 0 0 5px 0;">This is an automated security notification from FleetWise.</p>
-            <p style="margin: 0 0 5px 0;">(c) 2024 GREPX Technologies. All rights reserved.</p>
+            <p style="margin: 0 0 5px 0;">This is an automated security notification from {company_name}.</p>
+            <p style="margin: 0 0 5px 0;">(c) 2024 {company_name}. All rights reserved.</p>
         </div>
     </div>
 </body>
@@ -778,7 +799,7 @@ If you believe this email was sent in error, please contact our support team imm
                 future = email_executor.submit(
                     send_confirmation_email_worker,
                     user_email, smtp_server, smtp_port, use_tls, use_ssl,
-                    smtp_username, smtp_password, mail_sender
+                    smtp_username, smtp_password, mail_sender, company_name
                 )
                 return future.result(timeout=30)  # Increased timeout to 30 seconds for reliable email delivery
             except FutureTimeoutError:
@@ -827,15 +848,15 @@ If you believe this email was sent in error, please contact our support team imm
                     
                     # Create multipart message with proper headers
                     msg = MIMEMultipart('alternative')
-                    msg['Subject'] = '🔒 Password Changed Successfully - FleetWise Security Alert'
-                    msg['From'] = f"FleetWise Security <{mail_sender}>"
+                    msg['Subject'] = '🔒 Password Changed Successfully - {company_name} Security Alert'
+                    msg['From'] = f"{company_name} Security <{mail_sender}>"
                     msg['To'] = user_email
                     msg['Reply-To'] = mail_sender
 
                     # Essential email headers
                     msg['Date'] = time.strftime('%a, %d %b %Y %H:%M:%S %z', time.gmtime())
                     msg['Message-ID'] = f"<fleetwise-change-{int(time.time())}-{hash(user_email) % 100000}@{mail_sender.split('@')[1]}>"
-                    msg['X-Mailer'] = "FleetWise"
+                    msg['X-Mailer'] = "{company_name}"
                     msg['MIME-Version'] = "1.0"
 
                     # Priority headers for notifications (High Priority)
@@ -870,7 +891,7 @@ If you believe this email was sent in error, please contact our support team imm
         <div style="padding: 20px;">
             <p>Hello,</p>
             
-            <p><strong>Your FleetWise account password has been successfully changed.</strong></p>
+            <p><strong>Your {company_name} account password has been successfully changed.</strong></p>
             
             <div style="background-color: #f8f9fa; padding: 15px; border-radius: 4px; margin: 15px 0;">
                 <p style="margin: 0;"><strong>Account Details:</strong></p>
@@ -900,11 +921,11 @@ If you believe this email was sent in error, please contact our support team imm
                 </ul>
             </div>
             
-            <p>This password change was initiated from your account settings. You can continue using FleetWise with your new password.</p>
+            <p>This password change was initiated from your account settings. You can continue using {company_name} with your new password.</p>
             
             <p>If you have any questions or concerns about this password change, please contact our support team immediately.</p>
             
-            <p>Best regards,<br>FleetWise Security Team</p>
+            <p>Best regards,<br>{company_name} Security Team</p>
         </div>
         <div style="font-size: 12px; color: #666; margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 4px;">
             <p style="margin: 0;">This is an automated security notification. Please do not reply to this email.</p>
@@ -917,11 +938,11 @@ If you believe this email was sent in error, please contact our support team imm
                     
                     # Create text version
                     text_content = f"""
-FleetWise - Password Changed Successfully
+{company_name} - Password Changed Successfully
 
 Hello,
 
-Your FleetWise account password has been successfully changed.
+Your {company_name} account password has been successfully changed.
 
 Account Details:
 - Email: {user_email}
@@ -941,12 +962,12 @@ Security Recommendations:
 - Log out from any shared or public devices
 - Monitor your account for any suspicious activity
 
-This password change was initiated from your account settings. You can continue using FleetWise with your new password.
+This password change was initiated from your account settings. You can continue using {company_name} with your new password.
 
 If you have any questions or concerns about this password change, please contact our support team immediately.
 
 Best regards,
-FleetWise Security Team
+{company_name} Security Team
 
 This is an automated security notification. Please do not reply to this email.
 If you believe this email was sent in error, please contact our support team immediately.
@@ -985,7 +1006,7 @@ If you believe this email was sent in error, please contact our support team imm
                 future = email_executor.submit(
                     send_change_confirmation_email_worker,
                     user_email, smtp_server, smtp_port, use_tls, use_ssl,
-                    smtp_username, smtp_password, mail_sender
+                    smtp_username, smtp_password, mail_sender, company_name
                 )
                 return future.result(timeout=30)  # Increased timeout to 30 seconds for reliable email delivery
             except FutureTimeoutError:
