@@ -1,15 +1,19 @@
 import logging
 import queue
 import threading
+import os
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, Any
 from flask import current_app, render_template_string
 from flask_mail import Message
 from flask_security.utils import hash_password, verify_password
+from cryptography.fernet import Fernet
 
 from backend.extensions import db, mail
 from backend.models.user import User
 from backend.models.password_reset_token import PasswordResetToken
+from backend.models.settings import UserSettings
+from backend.models.password_history import PasswordHistory
 from backend.utils.validation import (
     validate_password_change_data,
     validate_password_reset_request_data,
@@ -30,6 +34,80 @@ class PasswordResetError(Exception):
         super().__init__(message)
         self.message = message
         self.code = code
+
+
+def get_admin_email_settings() -> Dict[str, Any]:
+    """
+    Fetch email settings from admin panel (UserSettings.preferences.email_settings)
+
+    Returns:
+        dict: Email configuration with keys:
+            - smtp_host: SMTP server hostname
+            - smtp_port: SMTP port number
+            - use_tls: Whether to use TLS
+            - use_ssl: Whether to use SSL
+            - username: SMTP username
+            - password: SMTP password (decrypted)
+            - sender_email: Default sender email
+
+    Raises:
+        ValueError: If email settings are not configured in admin panel
+    """
+    try:
+        # Get the first admin user's settings
+        settings = UserSettings.query.first()
+
+        if not settings or not settings.preferences:
+            raise ValueError("Email settings not found. Please configure email settings in the admin panel.")
+
+        prefs = dict(settings.preferences)
+        email_settings = prefs.get('email_settings', {})
+
+        if not email_settings or not email_settings.get('smtp_host'):
+            raise ValueError("Email SMTP settings not configured. Please configure email settings in the admin panel.")
+
+        # Decrypt password if encrypted
+        password = email_settings.get('password', '')
+        if password:
+            try:
+                encryption_key = current_app.config.get('EMAIL_PASSWORD_KEY')
+                if encryption_key:
+                    f = Fernet(encryption_key.encode())
+                    try:
+                        decrypted_password = f.decrypt(password.encode()).decode()
+                        password = decrypted_password
+                    except Exception as decrypt_error:
+                        logging.error(f"Password decryption failed: {decrypt_error}")
+                        raise ValueError("Email password decryption failed. Please reconfigure email settings in the admin panel.")
+            except ValueError:
+                raise
+            except Exception as e:
+                logging.error(f"Error processing email password: {e}")
+                raise ValueError("Error processing email password. Please reconfigure email settings in the admin panel.")
+
+        # Validate required fields
+        if not email_settings.get('username'):
+            raise ValueError("Email username not configured. Please configure email settings in the admin panel.")
+
+        if not password:
+            raise ValueError("Email password not configured. Please configure email settings in the admin panel.")
+
+        # Return admin panel settings
+        return {
+            'smtp_host': email_settings.get('smtp_host'),
+            'smtp_port': int(email_settings.get('smtp_port', 587)),
+            'use_tls': email_settings.get('use_tls', True),
+            'use_ssl': email_settings.get('use_ssl', False),
+            'username': email_settings.get('username'),
+            'password': password,
+            'sender_email': email_settings.get('sender_email', 'noreply@fleetwise.com')
+        }
+
+    except ValueError:
+        raise
+    except Exception as e:
+        logging.error(f"Error fetching admin panel email settings: {e}")
+        raise ValueError("Unable to fetch email settings. Please configure email settings in the admin panel.")
 
 
 class PasswordResetService:
@@ -150,16 +228,31 @@ class PasswordResetService:
             user = User.query.get(reset_token.user_id)
             if not user or not user.active:
                 raise PasswordResetError("User account not found or inactive.", 400)
-            
+
+            # Check for password reuse
+            recent_passwords = PasswordHistory.get_recent_passwords(user.id, 5)
+            for old_password_hash in recent_passwords:
+                if verify_password(new_password, old_password_hash):
+                    raise PasswordResetError("Cannot reuse any of your last 5 passwords.", 400)
+
             # Update password
-            user.password = hash_password(new_password)
-            
+            hashed_password = hash_password(new_password)
+            user.password = hashed_password
+
+            # Add to password history
+            PasswordHistory.add_to_history(user.id, hashed_password)
+
             # Commit changes
             db.session.commit()
-            
+
             # Send password reset confirmation email
-            PasswordResetService._send_password_reset_confirmation_email(user)
-            
+            logging.info(f"Attempting to send password reset confirmation email to {user.email}")
+            email_sent = PasswordResetService._send_password_reset_confirmation_email(user)
+            if email_sent:
+                logging.info(f"Password reset confirmation email sent successfully to {user.email}")
+            else:
+                logging.error(f"Failed to send password reset confirmation email to {user.email}")
+
             logging.info(f"Password reset successful for user {user.email}")
             return True
             
@@ -207,10 +300,20 @@ class PasswordResetService:
             # Verify current password
             if not verify_password(current_password, user.password):
                 raise PasswordResetError("Current password is incorrect.", 400)
-            
+
+            # Check for password reuse
+            recent_passwords = PasswordHistory.get_recent_passwords(user_id, 5)
+            for old_password_hash in recent_passwords:
+                if verify_password(new_password, old_password_hash):
+                    raise PasswordResetError("Cannot reuse any of your last 5 passwords.", 400)
+
             # Update password
-            user.password = hash_password(new_password)
-            
+            hashed_password = hash_password(new_password)
+            user.password = hashed_password
+
+            # Add to password history
+            PasswordHistory.add_to_history(user_id, hashed_password)
+
             # Commit changes
             db.session.commit()
             
@@ -244,189 +347,94 @@ class PasswordResetService:
             db.session.rollback()
             logging.error(f"Error cleaning up expired tokens: {e}", exc_info=True)
             return 0
-    
-    @staticmethod
-    def _send_reset_email(user: User, token: str) -> None:
-        """
-        Send password reset email to user
-        
-        Args:
-            user: User object
-            token: Raw reset token
-            
-        Raises:
-            PasswordResetError: If email sending fails
-        """
-        try:
-            frontend_url = current_app.config.get('FRONTEND_URL', 'http://localhost:3000')
-            reset_link = f"{frontend_url}/reset-password/{token}"
-            
-            # Email template
-            email_template = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>Password Reset Request</title>
-    <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background-color: #f8f9fa; padding: 20px; text-align: center; }
-        .content { padding: 20px; }
-        .button { 
-            display: inline-block; 
-            padding: 12px 24px; 
-            background-color: #007bff; 
-            color: white; 
-            text-decoration: none; 
-            border-radius: 4px; 
-            margin: 20px 0; 
-        }
-        .footer { font-size: 12px; color: #666; margin-top: 20px; }
-        .warning { background-color: #fff3cd; padding: 10px; border-radius: 4px; margin: 10px 0; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>FleetWise - Password Reset</h1>
-        </div>
-        <div class="content">
-            <p>Hello,</p>
-            
-            <p>We received a request to reset the password for your FleetWise account ({{ email }}).</p>
-            
-            <p>Click the button below to reset your password:</p>
-            
-            <p><a href="{{ reset_link }}" class="button">Reset Password</a></p>
-            
-            <p>Or copy and paste this link into your browser:</p>
-            <p><a href="{{ reset_link }}">{{ reset_link }}</a></p>
-            
-            <div class="warning">
-                <strong>Important:</strong>
-                <ul>
-                    <li>This link will expire in {{ expiry_hours }} hour(s)</li>
-                    <li>This link can only be used once</li>
-                    <li>If you didn't request this password reset, please ignore this email</li>
-                </ul>
-            </div>
-            
-            <p>If you have any questions, please contact our support team.</p>
-            
-            <p>Best regards,<br>FleetWise Team</p>
-        </div>
-        <div class="footer">
-            <p>This is an automated message. Please do not reply to this email.</p>
-        </div>
-    </div>
-</body>
-</html>
-            """
-            
-            # Render email template
-            html_content = render_template_string(
-                email_template,
-                email=user.email,
-                reset_link=reset_link,
-                expiry_hours=current_app.config.get('PASSWORD_RESET_TOKEN_EXPIRY_HOURS', 1)
-            )
-            
-            # Create and send message
-            msg = Message(
-                subject='FleetWise - Password Reset Request',
-                recipients=[user.email],
-                html=html_content,
-                sender=current_app.config.get('MAIL_DEFAULT_SENDER')
-            )
-            
-            mail.send(msg)
-            
-        except Exception as e:
-            logging.error(f"Flask-Mail failed: {e}")
-            # Try direct SMTP as fallback
-            try:
-                PasswordResetService._send_with_direct_smtp(user, reset_link)
-                logging.info(f"Email sent successfully via direct SMTP to {user.email}")
-            except Exception as smtp_error:
-                logging.error(f"Direct SMTP also failed: {smtp_error}")
-                raise PasswordResetError("Unable to send reset email. Please try again later.", 500)
-    
+
     @staticmethod
     def _send_reset_email_threaded(user: User, reset_link: str) -> bool:
         """
-        Send password reset email using only Zoho credentials with thread pool executor
+        Send password reset email using admin panel email settings with thread pool executor
         """
-        import os
-        
-        # Use only Zoho credentials directly from environment (not Flask config)
-        smtp_server = 'smtp.zoho.com'
-        smtp_port = 587
-        smtp_username = os.getenv('ZOHO_USER')
-        smtp_password = os.getenv('ZOHO_PASSWORD')
-        mail_sender = smtp_username  # Use Zoho email as sender
-        
-        # Validate that required credentials are provided
-        if not smtp_username or not smtp_password:
-            logging.error("Email service credentials not configured. Please set ZOHO_USER and ZOHO_PASSWORD environment variables.")
+        try:
+            # Get email configuration from admin panel
+            email_config = get_admin_email_settings()
+
+            smtp_server = email_config['smtp_host']
+            smtp_port = email_config['smtp_port']
+            use_tls = email_config['use_tls']
+            use_ssl = email_config['use_ssl']
+            smtp_username = email_config['username']
+            smtp_password = email_config['password']
+            mail_sender = email_config['sender_email']
+        except ValueError as e:
+            # Email settings not configured
+            logging.error(f"Email configuration error: {str(e)}")
             return False
-        
+
         # Capture user email as string to avoid Flask context issues
         user_email = user.email
-        
-        # Debug: Log Zoho config (without password)
-        logging.info(f"Using Zoho config - Server: {smtp_server}, Port: {smtp_port}, Sender: {mail_sender}")
-        
-        def send_zoho_email_worker(user_email, reset_link, smtp_server, smtp_port, smtp_username, smtp_password, mail_sender):
-            """Worker function that runs in background thread using only Zoho"""
+
+        # Get company name from general settings (fallback to FleetWise)
+        company_name = "{company_name}"
+        try:
+            settings = UserSettings.query.first()
+            if settings and settings.preferences:
+                prefs = dict(settings.preferences)
+                general_settings = prefs.get('general_settings', {})
+                company_name = general_settings.get('company_name', '{company_name}')
+        except Exception as e:
+            logging.warning(f"Could not fetch company name from settings: {e}")
+
+        # Debug: Log email config (without password)
+        logging.info(f"Using admin panel email config - Server: {smtp_server}, Port: {smtp_port}, Sender: {mail_sender}")
+
+        def send_reset_email_worker(user_email, reset_link, smtp_server, smtp_port, use_tls, use_ssl, smtp_username, smtp_password, mail_sender, company_name):
+            """Worker function that runs in background thread"""
             try:
                 import smtplib
                 import ssl
                 import time
                 from email.mime.text import MIMEText
                 from email.mime.multipart import MIMEMultipart
-                
-                # Create multipart message with Zoho-specific headers
+
+                # Create multipart message
                 msg = MIMEMultipart('alternative')
-                msg['Subject'] = 'FleetWise - Password Reset Request'
-                msg['From'] = f"FleetWise Support <{mail_sender}>"
+                msg['Subject'] = f'{company_name} - Password Reset Request'
+                msg['From'] = f"{company_name} Support <{mail_sender}>"
                 msg['To'] = user_email
                 msg['Reply-To'] = mail_sender
-                
-                # Essential anti-spam headers for Zoho
+
+                # Essential email headers
                 msg['Date'] = time.strftime('%a, %d %b %Y %H:%M:%S %z', time.gmtime())
-                msg['Message-ID'] = f"<fleetwise-reset-{int(time.time())}-{hash(user_email) % 100000}@grepx.co.in>"
-                msg['X-Mailer'] = "FleetWise Password Reset System v2.0"
+                msg['Message-ID'] = f"<reset-{int(time.time())}-{hash(user_email) % 100000}@{mail_sender.split('@')[1]}>"
+                msg['X-Mailer'] = f"{company_name} Password Reset System"
                 msg['X-Priority'] = "3 (Normal)"
                 msg['Importance'] = "Normal"
                 msg['MIME-Version'] = "1.0"
-                
-                # Sender authentication headers for Zoho
+
+                # Sender authentication headers
                 msg['X-Original-Sender'] = mail_sender
                 msg['Return-Path'] = mail_sender
                 msg['Sender'] = mail_sender
-                
+
                 # Content classification headers
                 msg['X-Auto-Response-Suppress'] = "All"
                 msg['Auto-Submitted'] = "auto-generated"
-                
+
                 # List management (reduces spam score)
                 msg['List-Unsubscribe'] = f"<mailto:{mail_sender}?subject=Unsubscribe>"
                 msg['List-Unsubscribe-Post'] = "List-Unsubscribe=One-Click"
-                
+
                 # Security and classification
                 msg['X-Email-Type'] = "Security-Notification"
-                msg['X-FleetWise-Type'] = "Password-Reset-Request"
                 msg['X-Content-Category'] = "Transactional"
-                
-                # Create enhanced HTML content with GREPX branding
+
+                # Create enhanced HTML content with company branding
                 html_content = f"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Password Reset Request - FleetWise</title>
+    <title>Password Reset Request - {company_name}</title>
     <style>
         body {{ margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f5; }}
         .email-container {{ max-width: 600px; margin: 0 auto; background: white; }}
@@ -444,13 +452,13 @@ class PasswordResetService:
     <div class="email-container">
         <div class="header">
             <h1>🔒 Password Reset Request</h1>
-            <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">Secure password reset for your FleetWise account</p>
+            <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">Secure password reset for your {company_name} account</p>
         </div>
         
         <div class="content">
             <p style="font-size: 16px; margin-bottom: 20px;">Hello,</p>
             
-            <p style="font-size: 16px;">We received a request to reset the password for your <span class="brand">FleetWise</span> account: <strong>{user_email}</strong></p>
+            <p style="font-size: 16px;">We received a request to reset the password for your <span class="brand">{company_name}</span> account: <strong>{user_email}</strong></p>
             
             <div style="text-align: center; margin: 30px 0;">
                 <a href="{reset_link}" class="button">[RESET] Reset My Password</a>
@@ -477,14 +485,14 @@ class PasswordResetService:
             <p style="font-size: 16px;"><strong>Contact:</strong> <a href="mailto:{mail_sender}" style="color: #dc3545; text-decoration: none;">{mail_sender}</a></p>
             
             <div style="margin: 30px 0; text-align: center; padding: 20px; background: #f8f9fa; border-radius: 8px;">
-                <p style="font-size: 16px; margin: 0;">Thank you for using <span class="brand">FleetWise</span>.</p>
-                <p style="font-size: 16px; margin: 15px 0 0 0;"><strong>Best regards,<br>FleetWise Security Team<br><span class="brand">GREPX Technologies</span></strong></p>
+                <p style="font-size: 16px; margin: 0;">Thank you for using <span class="brand">{company_name}</span>.</p>
+                <p style="font-size: 16px; margin: 15px 0 0 0;"><strong>Best regards,<br>{company_name} Security Team<br><span class="brand">{company_name}</span></strong></p>
             </div>
         </div>
         
         <div class="footer">
-            <p style="margin: 0 0 5px 0;">This is an automated security notification from FleetWise.</p>
-            <p style="margin: 0 0 5px 0;">(c) 2024 GREPX Technologies. All rights reserved.</p>
+            <p style="margin: 0 0 5px 0;">This is an automated security notification from {company_name}.</p>
+            <p style="margin: 0 0 5px 0;">(c) 2024 {company_name}. All rights reserved.</p>
             <p style="margin: 0; font-style: italic;">Please do not reply to this email.</p>
         </div>
     </div>
@@ -494,11 +502,11 @@ class PasswordResetService:
                 
                 # Create professional text version
                 text_content = f"""
-FleetWise - Password Reset Request
+{company_name} - Password Reset Request
 
 Hello,
 
-We received a request to reset the password for your FleetWise account: {user_email}
+We received a request to reset the password for your {company_name} account: {user_email}
 
 PLEASE CLICK THIS LINK TO RESET YOUR PASSWORD:
 {reset_link}
@@ -513,15 +521,15 @@ NEED HELP?
 If you have any questions or didn't request this password reset, please contact our support team immediately.
 Contact: {mail_sender}
 
-Thank you for using FleetWise.
+Thank you for using {company_name}.
 
 Best regards,
-FleetWise Security Team
-GREPX Technologies
+{company_name} Security Team
+{company_name}
 
 ---
-This is an automated security notification from FleetWise.
-(c) 2024 GREPX Technologies. All rights reserved.
+This is an automated security notification from {company_name}.
+(c) 2024 {company_name}. All rights reserved.
 Please do not reply to this email.
                 """
                 
@@ -530,272 +538,80 @@ Please do not reply to this email.
                 html_part = MIMEText(html_content, 'html', 'utf-8')
                 msg.attach(text_part)
                 msg.attach(html_part)
-                
-                # Send email using only Zoho SMTP
+
+                # Send email using configured SMTP settings
                 context = ssl.create_default_context()
-                
-                with smtplib.SMTP(smtp_server, smtp_port, timeout=30) as server:
-                    server.starttls(context=context)
-                    server.login(smtp_username, smtp_password)
-                    
-                    # Send with Zoho sender address
-                    result = server.send_message(msg)
-                    
-                    if result:
-                        # Some recipients failed
-                        return False
-                    else:
-                        # All recipients succeeded
-                        return True
-                        
+
+                if use_ssl:
+                    # Use SMTP_SSL for SSL connections (port 465)
+                    with smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=30, context=context) as server:
+                        server.login(smtp_username, smtp_password)
+                        result = server.send_message(msg)
+                        return not bool(result)  # Empty dict means success
+                else:
+                    # Use regular SMTP with optional STARTTLS (port 587 or 25)
+                    with smtplib.SMTP(smtp_server, smtp_port, timeout=30) as server:
+                        if use_tls:
+                            server.starttls(context=context)
+                        server.login(smtp_username, smtp_password)
+                        result = server.send_message(msg)
+                        return not bool(result)  # Empty dict means success
+
             except Exception as e:
                 # Log the error and return False
-                logging.error(f"Zoho password reset email error: {str(e)}")
+                logging.error(f"Password reset email error: {str(e)}")
                 return False
-        
+
         # Submit the email sending task to the thread pool executor
         try:
-            future = email_executor.submit(send_zoho_email_worker, user_email, reset_link, smtp_server, smtp_port, smtp_username, smtp_password, mail_sender)
-            return future.result(timeout=8)  # Reasonable timeout for API response
+            future = email_executor.submit(
+                send_reset_email_worker,
+                user_email, reset_link, smtp_server, smtp_port,
+                use_tls, use_ssl, smtp_username, smtp_password, mail_sender, company_name
+            )
+            return future.result(timeout=30)  # Increased timeout to 30 seconds for reliable email delivery
         except FutureTimeoutError:
-            logging.warning("Email sending timeout")
+            logging.error("Password reset email sending timeout after 30 seconds")
             return False
         except Exception as e:
-            logging.error(f"Email sending failed: {str(e)}")
+            logging.error(f"Password reset email sending failed: {str(e)}")
             return False
-    
-    @staticmethod
-    def _send_password_reset_confirmation_email(user: User) -> None:
-        """
-        Send password reset confirmation email to user
-        
-        Args:
-            user: User object
-        """
-        try:
-            frontend_url = current_app.config.get('FRONTEND_URL', 'http://localhost:3000')
-            reset_link = f"{frontend_url}/login"
-            
-            # Email template
-            email_template = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>Password Reset Confirmation</title>
-    <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background-color: #f8f9fa; padding: 20px; text-align: center; }
-        .content { padding: 20px; }
-        .button { 
-            display: inline-block; 
-            padding: 12px 24px; 
-            background-color: #007bff; 
-            color: white; 
-            text-decoration: none; 
-            border-radius: 4px; 
-            margin: 20px 0; 
-        }
-        .footer { font-size: 12px; color: #666; margin-top: 20px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>FleetWise - Password Reset Confirmation</h1>
-        </div>
-        <div class="content">
-            <p>Hello,</p>
-            
-            <p>Your password has been successfully reset.</p>
-            
-            <p>Click the button below to log in:</p>
-            
-            <p><a href="{{ reset_link }}" class="button">Log In</a></p>
-            
-            <p>Or copy and paste this link into your browser:</p>
-            <p><a href="{{ reset_link }}">{{ reset_link }}</a></p>
-            
-            <p>If you have any questions, please contact our support team.</p>
-            
-            <p>Best regards,<br>FleetWise Team</p>
-        </div>
-        <div class="footer">
-            <p>This is an automated message. Please do not reply to this email.</p>
-        </div>
-    </div>
-</body>
-</html>
-            """
-            
-            # Render email template
-            html_content = render_template_string(
-                email_template,
-                reset_link=reset_link
-            )
-            
-            # Create and send message
-            msg = Message(
-                subject='FleetWise - Password Reset Confirmation',
-                recipients=[user.email],
-                html=html_content,
-                sender=current_app.config.get('MAIL_DEFAULT_SENDER')
-            )
-            
-            mail.send(msg)
-            
-        except Exception as e:
-            logging.error(f"Flask-Mail failed: {e}")
-            # Try direct SMTP as fallback
-            try:
-                PasswordResetService._send_with_direct_smtp(user, reset_link)
-                logging.info(f"Email sent successfully via direct SMTP to {user.email}")
-            except Exception as smtp_error:
-                logging.error(f"Direct SMTP also failed: {smtp_error}")
-                raise PasswordResetError("Unable to send reset confirmation email. Please try again later.", 500)
-    
-    @staticmethod
-    def _send_password_change_confirmation_email(user: User) -> None:
-        """
-        Send password change confirmation email to user
-        
-        Args:
-            user: User object
-        """
-        try:
-            frontend_url = current_app.config.get('FRONTEND_URL', 'http://localhost:3000')
-            reset_link = f"{frontend_url}/login"
-            
-            # Email template
-            email_template = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>Password Change Confirmation</title>
-    <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background-color: #f8f9fa; padding: 20px; text-align: center; }
-        .content { padding: 20px; }
-        .button { 
-            display: inline-block; 
-            padding: 12px 24px; 
-            background-color: #007bff; 
-            color: white; 
-            text-decoration: none; 
-            border-radius: 4px; 
-            margin: 20px 0; 
-        }
-        .footer { font-size: 12px; color: #666; margin-top: 20px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>FleetWise - Password Change Confirmation</h1>
-        </div>
-        <div class="content">
-            <p>Hello,</p>
-            
-            <p>Your password has been successfully changed.</p>
-            
-            <p>Click the button below to log in:</p>
-            
-            <p><a href="{{ reset_link }}" class="button">Log In</a></p>
-            
-            <p>Or copy and paste this link into your browser:</p>
-            <p><a href="{{ reset_link }}">{{ reset_link }}</a></p>
-            
-            <p>If you have any questions, please contact our support team.</p>
-            
-            <p>Best regards,<br>FleetWise Team</p>
-        </div>
-        <div class="footer">
-            <p>This is an automated message. Please do not reply to this email.</p>
-        </div>
-    </div>
-</body>
-</html>
-            """
-            
-            # Render email template
-            html_content = render_template_string(
-                email_template,
-                reset_link=reset_link
-            )
-            
-            # Create and send message
-            msg = Message(
-                subject='FleetWise - Password Change Confirmation',
-                recipients=[user.email],
-                html=html_content,
-                sender=current_app.config.get('MAIL_DEFAULT_SENDER')
-            )
-            
-            mail.send(msg)
-            
-        except Exception as e:
-            logging.error(f"Flask-Mail failed: {e}")
-            # Try direct SMTP as fallback
-            try:
-                PasswordResetService._send_with_direct_smtp(user, reset_link)
-                logging.info(f"Email sent successfully via direct SMTP to {user.email}")
-            except Exception as smtp_error:
-                logging.error(f"Direct SMTP also failed: {smtp_error}")
-                raise PasswordResetError("Unable to send change confirmation email. Please try again later.", 500)
-    
-    @staticmethod
-    def _send_with_direct_smtp(user: User, reset_link: str) -> None:
-        """
-        Send password reset email using only Zoho credentials with direct SMTP
-        
-        Args:
-            user: User object
-            reset_link: Reset link to be included in email
-            
-        Raises:
-            PasswordResetError: If email sending fails
-        """
-        import os
-        
-        # Use only Zoho credentials directly from environment (not Flask config)
-        smtp_server = 'smtp.zoho.com'
-        smtp_port = 587
-        smtp_username = os.getenv('ZOHO_USER')
-        smtp_password = os.getenv('ZOHO_PASSWORD')
-        mail_sender = smtp_username  # Use Zoho email as sender
-        
-        # Validate that required credentials are provided
-        if not smtp_username or not smtp_password:
-            logging.error("Email service credentials not configured")
-            return False
-        
+
     @staticmethod
     def _send_password_reset_confirmation_email(user: User) -> bool:
         """
-        Send confirmation email after successful password reset using Zoho credentials with thread pool executor
+        Send confirmation email after successful password reset using admin panel email settings with thread pool executor
         """
         try:
-            import os
-            
-            # Use only Zoho credentials directly from environment
-            smtp_server = 'smtp.zoho.com'
-            smtp_port = 587
-            smtp_username = os.getenv('ZOHO_USER')
-            smtp_password = os.getenv('ZOHO_PASSWORD')
-            mail_sender = smtp_username  # Use Zoho email as sender
-            
-            # Validate that required credentials are provided
-            if not smtp_username or not smtp_password:
-                logging.error("Email service credentials not configured")
-                return False
-            
+            # Get email configuration from admin panel
+            logging.info("Fetching email configuration for password reset confirmation")
+            email_config = get_admin_email_settings()
+
+            smtp_server = email_config['smtp_host']
+            smtp_port = email_config['smtp_port']
+            use_tls = email_config['use_tls']
+            use_ssl = email_config['use_ssl']
+            smtp_username = email_config['username']
+            smtp_password = email_config['password']
+            mail_sender = email_config['sender_email']
+
+            logging.info(f"Email config - SMTP: {smtp_server}:{smtp_port}, User: {smtp_username}, Sender: {mail_sender}")
+
             # Capture user email as string to avoid Flask context issues
             user_email = user.email
-            
-            def send_zoho_confirmation_email_worker(user_email, smtp_server, smtp_port, smtp_username, smtp_password, mail_sender):
+
+            # Get company name from general settings (fallback to FleetWise)
+            company_name = "FleetWise"
+            try:
+                settings = UserSettings.query.first()
+                if settings and settings.preferences:
+                    prefs = dict(settings.preferences)
+                    general_settings = prefs.get('general_settings', {})
+                    company_name = general_settings.get('company_name', 'FleetWise')
+            except Exception as e:
+                logging.warning(f"Could not fetch company name from settings: {e}")
+
+            def send_confirmation_email_worker(user_email, smtp_server, smtp_port, use_tls, use_ssl, smtp_username, smtp_password, mail_sender, company_name):
                 """Worker function that runs in background thread using only Zoho"""
                 try:
                     import smtplib
@@ -805,49 +621,42 @@ Please do not reply to this email.
                     from email.mime.multipart import MIMEMultipart
                     from datetime import datetime
                     
-                    # Create multipart message with Zoho-specific headers
+                    # Create multipart message with proper headers
                     msg = MIMEMultipart('alternative')
-                    msg['Subject'] = 'Password Updated Successfully - FleetWise Account Security'
-                    msg['From'] = f"FleetWise Support <{mail_sender}>"
+                    msg['Subject'] = '🔒 Password Updated Successfully - {company_name} Security Alert'
+                    msg['From'] = f"{company_name} Security <{mail_sender}>"
                     msg['To'] = user_email
                     msg['Reply-To'] = mail_sender
-                    
-                    # Essential anti-spam headers for Zoho
+
+                    # Essential email headers
                     msg['Date'] = time.strftime('%a, %d %b %Y %H:%M:%S %z', time.gmtime())
-                    msg['Message-ID'] = f"<fleetwise-{int(time.time())}-{hash(user_email) % 100000}@grepx.co.in>"
-                    msg['X-Mailer'] = "FleetWise Security System v2.0"
-                    msg['X-Priority'] = "3 (Normal)"
-                    msg['Importance'] = "Normal"
+                    msg['Message-ID'] = f"<fleetwise-{int(time.time())}-{hash(user_email) % 100000}@{mail_sender.split('@')[1]}>"
+                    msg['X-Mailer'] = "{company_name}"
                     msg['MIME-Version'] = "1.0"
-                    
-                    # Sender authentication headers for Zoho
-                    msg['X-Original-Sender'] = mail_sender
+
+                    # Priority headers for notifications (IMPORTANT: Changed to High Priority)
+                    msg['X-Priority'] = "1 (Highest)"
+                    msg['Priority'] = "urgent"
+                    msg['Importance'] = "high"
+
+                    # Sender authentication headers
                     msg['Return-Path'] = mail_sender
-                    msg['Sender'] = mail_sender
-                    
-                    # Content classification headers
-                    msg['X-Auto-Response-Suppress'] = "All"
-                    msg['Auto-Submitted'] = "auto-generated"
-                    
-                    # List management (reduces spam score)
-                    msg['List-Unsubscribe'] = f"<mailto:{mail_sender}?subject=Unsubscribe>"
-                    msg['List-Unsubscribe-Post'] = "List-Unsubscribe=One-Click"
-                    
-                    # Security and classification
-                    msg['X-Email-Type'] = "Security-Notification"
-                    msg['X-FleetWise-Type'] = "Password-Reset-Confirmation"
+
+                    # Mark as transactional (not promotional) to avoid spam
+                    msg['Precedence'] = "bulk"
                     msg['X-Content-Category'] = "Transactional"
+                    msg['X-Email-Type'] = "Account-Security-Notification"
                     
                     # Get current timestamp
                     current_time = datetime.now().strftime("%B %d, %Y at %I:%M %p")
                     
                     # Professional text content
                     text_content = f"""
-Password Reset Successful - FleetWise Account Security
+Password Reset Successful - {company_name} Account Security
 
 Dear Valued Customer,
 
-This email confirms that your FleetWise account password has been successfully updated on {current_time}.
+This email confirms that your {company_name} account password has been successfully updated on {current_time}.
 
 ACCOUNT SECURITY CONFIRMATION:
 Account Email: {user_email}
@@ -856,13 +665,13 @@ Security Status: Password Successfully Updated
 Authentication: Verified Secure Connection
 
 SECURITY NOTIFICATION:
-Your FleetWise account is now protected with your new password. If you did not initiate this password reset, please contact our security team immediately at {mail_sender}.
+Your {company_name} account is now protected with your new password. If you did not initiate this password reset, please contact our security team immediately at {mail_sender}.
 
 ACCOUNT ACCESS:
-You can now log in to FleetWise using your new password credentials. We recommend enabling two-factor authentication for enhanced account security.
+You can now log in to {company_name} using your new password credentials. We recommend enabling two-factor authentication for enhanced account security.
 
 SECURITY RECOMMENDATIONS:
-- Use a strong, unique password for your FleetWise account
+- Use a strong, unique password for your {company_name} account
 - Never share your login credentials with anyone
 - Keep your password confidential and secure
 - Monitor your account for any suspicious activity
@@ -873,16 +682,16 @@ If you have any questions or need assistance, our support team is available 24/7
 Contact: {mail_sender}
 Website: https://fleetwise.grepx.co.in
 
-Thank you for using FleetWise.
+Thank you for using {company_name}.
 
 Best regards,
-FleetWise Security Team
-GREPX Technologies
+{company_name} Security Team
+{company_name}
 
 ---
-This is an automated security notification from FleetWise.
+This is an automated security notification from {company_name}.
 You received this email because a password reset was completed on your account.
-(c) 2024 GREPX Technologies. All rights reserved.
+(c) 2024 {company_name}. All rights reserved.
 
 If you believe this email was sent in error, please contact our support team immediately.
                     """
@@ -894,7 +703,7 @@ If you believe this email was sent in error, please contact our support team imm
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Password Reset Successful - FleetWise</title>
+    <title>Password Reset Successful - {company_name}</title>
     <style>
         body {{ margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f5; }}
         .email-container {{ max-width: 600px; margin: 0 auto; background: white; }}
@@ -913,13 +722,13 @@ If you believe this email was sent in error, please contact our support team imm
     <div class="email-container">
         <div class="header">
             <h1>[SECURE] Password Updated Successfully</h1>
-            <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">Your FleetWise account is now secure</p>
+            <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">Your {company_name} account is now secure</p>
         </div>
         
         <div class="content">
             <p style="font-size: 16px; margin-bottom: 20px;">Dear Valued Customer,</p>
             
-            <p style="font-size: 16px;">This email confirms that your <span class="brand">FleetWise</span> account password has been <span class="highlight">successfully updated</span> on <strong>{current_time}</strong>.</p>
+            <p style="font-size: 16px;">This email confirms that your <span class="brand">{company_name}</span> account password has been <span class="highlight">successfully updated</span> on <strong>{current_time}</strong>.</p>
             
             <div class="info-section">
                 <h3 style="margin-top: 0; color: #2c5aa0;">[INFO] Account Security Confirmation</h3>
@@ -931,26 +740,26 @@ If you believe this email was sent in error, please contact our support team imm
             
             <div class="security-section">
                 <h3 style="margin-top: 0; color: #155724;">[CONFIRMED] Security Confirmation</h3>
-                <p style="margin: 8px 0; color: #155724;">Your <span class="brand">FleetWise</span> account is now protected with your new password credentials.</p>
+                <p style="margin: 8px 0; color: #155724;">Your <span class="brand">{company_name}</span> account is now protected with your new password credentials.</p>
                 <p style="margin: 8px 0; color: #155724;"><strong>Important:</strong> If you did not initiate this password reset, please contact our security team immediately.</p>
             </div>
             
             <h3 style="color: #2c5aa0; font-size: 18px; margin: 25px 0 15px 0;">[ACCESS] Account Access</h3>
-            <p style="font-size: 16px;">You can now log in to <span class="brand">FleetWise</span> using your new password credentials. We recommend enabling two-factor authentication for enhanced account security.</p>
+            <p style="font-size: 16px;">You can now log in to <span class="brand">{company_name}</span> using your new password credentials. We recommend enabling two-factor authentication for enhanced account security.</p>
             
             <h3 style="color: #2c5aa0; font-size: 18px; margin: 25px 0 15px 0;">[SUPPORT] Support Assistance</h3>
             <p style="font-size: 16px;">If you have any questions or need assistance, our support team is available 24/7.</p>
             <p style="font-size: 16px;"><strong>Contact:</strong> <a href="mailto:{mail_sender}" style="color: #2c5aa0; text-decoration: none;">{mail_sender}</a></p>
             
             <div style="margin: 30px 0; text-align: center; padding: 20px; background: #f8f9fa; border-radius: 8px;">
-                <p style="font-size: 16px; margin: 0;">Thank you for using <span class="brand">FleetWise</span>.</p>
-                <p style="font-size: 16px; margin: 15px 0 0 0;"><strong>Best regards,<br>FleetWise Security Team<br><span class="brand">GREPX Technologies</span></strong></p>
+                <p style="font-size: 16px; margin: 0;">Thank you for using <span class="brand">{company_name}</span>.</p>
+                <p style="font-size: 16px; margin: 15px 0 0 0;"><strong>Best regards,<br>{company_name} Security Team<br><span class="brand">{company_name}</span></strong></p>
             </div>
         </div>
         
         <div class="footer">
-            <p style="margin: 0 0 5px 0;">This is an automated security notification from FleetWise.</p>
-            <p style="margin: 0 0 5px 0;">(c) 2024 GREPX Technologies. All rights reserved.</p>
+            <p style="margin: 0 0 5px 0;">This is an automated security notification from {company_name}.</p>
+            <p style="margin: 0 0 5px 0;">(c) 2024 {company_name}. All rights reserved.</p>
         </div>
     </div>
 </body>
@@ -962,40 +771,48 @@ If you believe this email was sent in error, please contact our support team imm
                     html_part = MIMEText(html_content, 'html', 'utf-8')
                     msg.attach(text_part)
                     msg.attach(html_part)
-                    
-                    # Send email using only Zoho SMTP
+
+                    # Send email using configured SMTP settings
                     context = ssl.create_default_context()
-                    
-                    with smtplib.SMTP(smtp_server, smtp_port, timeout=30) as server:
-                        server.starttls(context=context)
-                        server.login(smtp_username, smtp_password)
-                        
-                        # Send with Zoho sender address
-                        server.sendmail(
-                            from_addr=mail_sender,
-                            to_addrs=[user_email],
-                            msg=msg.as_string()
-                        )
-                        
-                        server.quit()
-                        
-                        return True
-                        
+
+                    if use_ssl:
+                        # Use SMTP_SSL for SSL connections (port 465)
+                        with smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=30, context=context) as server:
+                            server.login(smtp_username, smtp_password)
+                            server.sendmail(from_addr=mail_sender, to_addrs=[user_email], msg=msg.as_string())
+                            return True
+                    else:
+                        # Use regular SMTP with optional STARTTLS (port 587 or 25)
+                        with smtplib.SMTP(smtp_server, smtp_port, timeout=30) as server:
+                            if use_tls:
+                                server.starttls(context=context)
+                            server.login(smtp_username, smtp_password)
+                            server.sendmail(from_addr=mail_sender, to_addrs=[user_email], msg=msg.as_string())
+                            return True
+
                 except Exception as e:
-                    logging.warning(f"Zoho password reset confirmation email error: {str(e)}")
+                    logging.warning(f"Password reset confirmation email error: {str(e)}")
                     return False
-            
+
             # Submit the email sending task to the thread pool executor
             try:
-                future = email_executor.submit(send_zoho_confirmation_email_worker, user_email, smtp_server, smtp_port, smtp_username, smtp_password, mail_sender)
-                return future.result(timeout=8)  # Reasonable timeout for API response
+                future = email_executor.submit(
+                    send_confirmation_email_worker,
+                    user_email, smtp_server, smtp_port, use_tls, use_ssl,
+                    smtp_username, smtp_password, mail_sender, company_name
+                )
+                return future.result(timeout=30)  # Increased timeout to 30 seconds for reliable email delivery
             except FutureTimeoutError:
-                logging.warning("Email sending timeout")
+                logging.error("Password reset confirmation email sending timeout after 30 seconds")
                 return False
             except Exception as e:
-                logging.warning(f"Email sending failed: {str(e)}")
+                logging.error(f"Password reset confirmation email sending failed: {str(e)}")
                 return False
-                
+
+        except ValueError as e:
+            # Email settings not configured
+            logging.error(f"Email configuration error: {str(e)}")
+            return False
         except Exception as e:
             logging.error(f"Error in _send_password_reset_confirmation_email: {e}", exc_info=True)
             return False
@@ -1003,20 +820,24 @@ If you believe this email was sent in error, please contact our support team imm
     @staticmethod
     def _send_password_change_confirmation_email(user: User) -> bool:
         """
-        Send confirmation email after successful password change by authenticated user with thread pool executor
+        Send confirmation email after successful password change by authenticated user using admin panel email settings with thread pool executor
         """
         try:
-            # Capture config values from Flask context before threading
-            smtp_server = current_app.config.get('MAIL_SERVER')
-            smtp_port = current_app.config.get('MAIL_PORT')
-            smtp_username = current_app.config.get('MAIL_USERNAME')
-            smtp_password = current_app.config.get('MAIL_PASSWORD')
-            mail_sender = current_app.config.get('MAIL_DEFAULT_SENDER')
-            
+            # Get email configuration from admin panel
+            email_config = get_admin_email_settings()
+
+            smtp_server = email_config['smtp_host']
+            smtp_port = email_config['smtp_port']
+            use_tls = email_config['use_tls']
+            use_ssl = email_config['use_ssl']
+            smtp_username = email_config['username']
+            smtp_password = email_config['password']
+            mail_sender = email_config['sender_email']
+
             # Capture user email as string to avoid Flask context issues
             user_email = user.email
-            
-            def send_change_confirmation_email_worker(user_email, smtp_server, smtp_port, smtp_username, smtp_password, mail_sender):
+
+            def send_change_confirmation_email_worker(user_email, smtp_server, smtp_port, use_tls, use_ssl, smtp_username, smtp_password, mail_sender):
                 """Worker function that runs in background thread"""
                 try:
                     import smtplib
@@ -1025,11 +846,31 @@ If you believe this email was sent in error, please contact our support team imm
                     from email.mime.multipart import MIMEMultipart
                     from datetime import datetime
                     
-                    # Create multipart message
+                    # Create multipart message with proper headers
                     msg = MIMEMultipart('alternative')
-                    msg['Subject'] = 'FleetWise - Password Changed Successfully'
-                    msg['From'] = mail_sender
+                    msg['Subject'] = '🔒 Password Changed Successfully - {company_name} Security Alert'
+                    msg['From'] = f"{company_name} Security <{mail_sender}>"
                     msg['To'] = user_email
+                    msg['Reply-To'] = mail_sender
+
+                    # Essential email headers
+                    msg['Date'] = time.strftime('%a, %d %b %Y %H:%M:%S %z', time.gmtime())
+                    msg['Message-ID'] = f"<fleetwise-change-{int(time.time())}-{hash(user_email) % 100000}@{mail_sender.split('@')[1]}>"
+                    msg['X-Mailer'] = "{company_name}"
+                    msg['MIME-Version'] = "1.0"
+
+                    # Priority headers for notifications (High Priority)
+                    msg['X-Priority'] = "1 (Highest)"
+                    msg['Priority'] = "urgent"
+                    msg['Importance'] = "high"
+
+                    # Sender authentication headers
+                    msg['Return-Path'] = mail_sender
+
+                    # Mark as transactional
+                    msg['Precedence'] = "bulk"
+                    msg['X-Content-Category'] = "Transactional"
+                    msg['X-Email-Type'] = "Account-Security-Notification"
                     
                     # Get current timestamp
                     current_time = datetime.now().strftime("%B %d, %Y at %I:%M %p")
@@ -1050,7 +891,7 @@ If you believe this email was sent in error, please contact our support team imm
         <div style="padding: 20px;">
             <p>Hello,</p>
             
-            <p><strong>Your FleetWise account password has been successfully changed.</strong></p>
+            <p><strong>Your {company_name} account password has been successfully changed.</strong></p>
             
             <div style="background-color: #f8f9fa; padding: 15px; border-radius: 4px; margin: 15px 0;">
                 <p style="margin: 0;"><strong>Account Details:</strong></p>
@@ -1080,11 +921,11 @@ If you believe this email was sent in error, please contact our support team imm
                 </ul>
             </div>
             
-            <p>This password change was initiated from your account settings. You can continue using FleetWise with your new password.</p>
+            <p>This password change was initiated from your account settings. You can continue using {company_name} with your new password.</p>
             
             <p>If you have any questions or concerns about this password change, please contact our support team immediately.</p>
             
-            <p>Best regards,<br>FleetWise Security Team</p>
+            <p>Best regards,<br>{company_name} Security Team</p>
         </div>
         <div style="font-size: 12px; color: #666; margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 4px;">
             <p style="margin: 0;">This is an automated security notification. Please do not reply to this email.</p>
@@ -1097,11 +938,11 @@ If you believe this email was sent in error, please contact our support team imm
                     
                     # Create text version
                     text_content = f"""
-FleetWise - Password Changed Successfully
+{company_name} - Password Changed Successfully
 
 Hello,
 
-Your FleetWise account password has been successfully changed.
+Your {company_name} account password has been successfully changed.
 
 Account Details:
 - Email: {user_email}
@@ -1121,12 +962,12 @@ Security Recommendations:
 - Log out from any shared or public devices
 - Monitor your account for any suspicious activity
 
-This password change was initiated from your account settings. You can continue using FleetWise with your new password.
+This password change was initiated from your account settings. You can continue using {company_name} with your new password.
 
 If you have any questions or concerns about this password change, please contact our support team immediately.
 
 Best regards,
-FleetWise Security Team
+{company_name} Security Team
 
 This is an automated security notification. Please do not reply to this email.
 If you believe this email was sent in error, please contact our support team immediately.
@@ -1137,35 +978,48 @@ If you believe this email was sent in error, please contact our support team imm
                     html_part = MIMEText(html_content, 'html')
                     msg.attach(text_part)
                     msg.attach(html_part)
-                    
-                    # Send email with SSL context
+
+                    # Send email using configured SMTP settings
                     context = ssl.create_default_context()
-                    
-                    with smtplib.SMTP(smtp_server, smtp_port, timeout=30) as server:
-                        server.starttls(context=context)
-                        server.login(smtp_username, smtp_password)
-                        result = server.send_message(msg)
-                        
-                        if result:
-                            return False
-                        else:
-                            return True
-                            
+
+                    if use_ssl:
+                        # Use SMTP_SSL for SSL connections (port 465)
+                        with smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=30, context=context) as server:
+                            server.login(smtp_username, smtp_password)
+                            result = server.send_message(msg)
+                            return not bool(result)  # Empty dict means success
+                    else:
+                        # Use regular SMTP with optional STARTTLS (port 587 or 25)
+                        with smtplib.SMTP(smtp_server, smtp_port, timeout=30) as server:
+                            if use_tls:
+                                server.starttls(context=context)
+                            server.login(smtp_username, smtp_password)
+                            result = server.send_message(msg)
+                            return not bool(result)  # Empty dict means success
+
                 except Exception as e:
                     logging.warning(f"Password change confirmation email error: {str(e)}")
                     return False
-            
+
             # Submit the email sending task to the thread pool executor
             try:
-                future = email_executor.submit(send_change_confirmation_email_worker, user_email, smtp_server, smtp_port, smtp_username, smtp_password, mail_sender)
-                return future.result(timeout=8)  # Reasonable timeout for API response
+                future = email_executor.submit(
+                    send_change_confirmation_email_worker,
+                    user_email, smtp_server, smtp_port, use_tls, use_ssl,
+                    smtp_username, smtp_password, mail_sender, company_name
+                )
+                return future.result(timeout=30)  # Increased timeout to 30 seconds for reliable email delivery
             except FutureTimeoutError:
-                logging.warning("Email sending timeout")
+                logging.error("Password change confirmation email sending timeout after 30 seconds")
                 return False
             except Exception as e:
-                logging.warning(f"Email sending failed: {str(e)}")
+                logging.error(f"Password change confirmation email sending failed: {str(e)}")
                 return False
-                
+
+        except ValueError as e:
+            # Email settings not configured
+            logging.error(f"Email configuration error: {str(e)}")
+            return False
         except Exception as e:
             logging.error(f"Error in _send_password_change_confirmation_email: {e}", exc_info=True)
             return False
