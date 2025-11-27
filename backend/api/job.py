@@ -1595,6 +1595,10 @@ def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=
 
             if pickup_time_val:
                 try:
+                    # Normalize time format: handle both HH:MM and HH:MM:SS formats
+                    if pickup_time_val.count(':') == 2:  # HH:MM:SS format
+                        pickup_time_val = ':'.join(pickup_time_val.split(':')[:2])  # Strip seconds
+                        row_data['pickup_time'] = pickup_time_val  # Update with normalized value
                     datetime.strptime(pickup_time_val, '%H:%M')
                 except ValueError:
                     row_data['is_valid'] = False
@@ -1819,6 +1823,9 @@ def confirm_upload():
                 if pickup_time:
                     try:
                         from datetime import datetime
+                        # Normalize time format: handle both HH:MM and HH:MM:SS formats
+                        if pickup_time.count(':') == 2:  # HH:MM:SS format
+                            pickup_time = ':'.join(pickup_time.split(':')[:2])  # Strip seconds
                         datetime.strptime(pickup_time, '%H:%M')
                     except ValueError:
                         row_errors.append(f"Invalid pickup_time format: '{pickup_time}'. Expected HH:MM (24-hour)")
