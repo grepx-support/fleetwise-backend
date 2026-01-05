@@ -37,20 +37,6 @@ def upgrade() -> None:
     op.create_index(op.f('ix_bill_driver_id'), 'bill', ['driver_id'], unique=False)
     op.create_index(op.f('ix_bill_status'), 'bill', ['status'], unique=False)
     
-    # Create table for OTP storage with expiration
-    op.create_table('otp_storage',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('email', sa.String(length=128), nullable=False),
-    sa.Column('otp', sa.String(length=6), nullable=False),
-    sa.Column('expires_at', sa.DateTime(), nullable=False),
-    sa.Column('used', sa.Boolean(), nullable=False, default=False),
-    sa.Column('created_at', sa.DateTime(), nullable=False, server_default=sa.text('now()')),
-    sa.PrimaryKeyConstraint('id')
-    )
-    op.create_index(op.f('ix_otp_storage_email'), 'otp_storage', ['email'], unique=False)
-    op.create_index(op.f('ix_otp_storage_otp'), 'otp_storage', ['otp'], unique=False)
-    op.create_index(op.f('ix_otp_storage_expires_at'), 'otp_storage', ['expires_at'], unique=False)
-    
     # Use batch mode for SQLite to modify job table
     with op.batch_alter_table('job', schema=None, copy_from=None) as batch_op:
         batch_op.drop_index('ix_job_sub_customer_id')
@@ -82,10 +68,4 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_bill_driver_id'), table_name='bill')
     op.drop_index(op.f('ix_bill_contractor_id'), table_name='bill')
     op.drop_table('bill')
-    
-    # Drop OTP storage table
-    op.drop_index(op.f('ix_otp_storage_expires_at'), table_name='otp_storage')
-    op.drop_index(op.f('ix_otp_storage_otp'), table_name='otp_storage')
-    op.drop_index(op.f('ix_otp_storage_email'), table_name='otp_storage')
-    op.drop_table('otp_storage')
     # ### end Alembic commands ###
