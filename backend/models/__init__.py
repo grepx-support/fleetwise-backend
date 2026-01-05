@@ -16,3 +16,4 @@ from backend.models.job_audit import JobAudit
 from backend.models.bill import Bill
 from backend.models.driver_leave import DriverLeave
 from backend.models.job_reassignment import JobReassignment 
+from backend.models.otp_storage import OTPStorage
