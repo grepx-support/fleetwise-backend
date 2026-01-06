@@ -68,5 +68,4 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_bill_driver_id'), table_name='bill')
     op.drop_index(op.f('ix_bill_contractor_id'), table_name='bill')
     op.drop_table('bill')
-    
     # ### end Alembic commands ###
