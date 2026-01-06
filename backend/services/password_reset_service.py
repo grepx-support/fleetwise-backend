@@ -161,7 +161,7 @@ class PasswordResetService:
             db.session.commit()
             
             # Generate reset link - using the correct frontend route
-            frontend_url = current_app.config.get('FRONTEND_URL', 'http://localhost:3000')
+            frontend_url = current_app.config.get('FRONTEND_URL')
             reset_link = f"{frontend_url}/reset-password/{raw_token}"
             
             # Attempt email delivery without affecting token validity

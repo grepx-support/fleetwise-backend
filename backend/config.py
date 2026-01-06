@@ -68,7 +68,7 @@ class DevConfig(Config):
     # Development: Use 0.0.0.0 for cross-platform compatibility (Windows/Mac/Linux)
     FLASK_HOST = '0.0.0.0'
     FLASK_PORT = 5000
-    FRONTEND_URL = 'http://localhost:3000'
+    FRONTEND_URL = os.environ.get('NEXT_PUBLIC_API_URL', 'http://localhost:3000')
 
     # Development security - auto-fallback for easy development
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key')
@@ -91,7 +91,7 @@ class StagingConfig(Config):
     # Staging: Use IPv6 dual-stack on Linux server
     FLASK_HOST = '::'
     FLASK_PORT = 5000
-    FRONTEND_URL = 'https://test.grepx.sg'
+    FRONTEND_URL = os.environ.get('NEXT_PUBLIC_API_URL', 'https://test.grepx.sg')
 
     # Staging security - auto-fallback for easy deployment
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key')
@@ -114,7 +114,7 @@ class ProductionConfig(Config):
     # Production: Use IPv6 dual-stack on Linux server
     FLASK_HOST = '::'
     FLASK_PORT = 5000
-    FRONTEND_URL = 'https://fleet.avant-garde.com.sg'
+    FRONTEND_URL = os.environ.get('NEXT_PUBLIC_API_URL', 'https://fleet.avant-garde.com.sg')
 
     # Production security - auto-fallback for easy deployment
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key')
