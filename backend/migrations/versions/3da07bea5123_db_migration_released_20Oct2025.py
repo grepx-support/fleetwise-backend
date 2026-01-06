@@ -69,9 +69,4 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_bill_contractor_id'), table_name='bill')
     op.drop_table('bill')
     
-    # Drop OTP storage table
-    op.drop_index(op.f('ix_otp_storage_expires_at'), table_name='otp_storage')
-    op.drop_index(op.f('ix_otp_storage_otp'), table_name='otp_storage')
-    op.drop_index(op.f('ix_otp_storage_email'), table_name='otp_storage')
-    op.drop_table('otp_storage')
     # ### end Alembic commands ###
