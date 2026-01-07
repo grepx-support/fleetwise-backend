@@ -504,7 +504,30 @@ def test_email_settings():
     msg['To'] = test_recipient
     msg['Subject'] = "FleetOps Email Configuration Test"
     
-    body = f"This is a test email from FleetOps sent to {test_recipient}. Your email notification settings are configured correctly."
+    # Determine the appropriate URL based on environment
+    api_url = os.environ.get('NEXT_PUBLIC_API_URL', 'http://localhost:3000')
+    
+    # Format the body with the new template
+    body = f"""Hello,
+
+
+This is a test email from FleetOps, sent to {test_recipient}.
+
+
+Your email notification settings have been successfully configured and are working as expected.
+
+
+You can now start receiving important updates and alerts without any issues.
+
+
+For more information, please visit:
+👉 {api_url}
+
+
+If you did not expect this email, you may safely ignore it.
+
+
+Best regards,"""
     msg.attach(MIMEText(body, 'plain'))
     
     # Create SMTP connection with proper protocol selection
