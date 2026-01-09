@@ -78,7 +78,7 @@ class DevConfig(Config):
     # Development database - SQLite with fallback
     DB_TYPE = 'sqlite'
     STORAGE_PATH = str(Path(__file__).resolve().parents[2] / "fleetwise-storage" / "database")
-    DB_PATH = os.path.join(STORAGE_PATH, 'fleetwise_new.db')
+    DB_PATH = os.path.join(STORAGE_PATH, 'fleetwise.db')
     SQLALCHEMY_DATABASE_URI = os.environ.get('SQLALCHEMY_DATABASE_URI', f"sqlite:///{DB_PATH}")
 
 class StagingConfig(Config):
