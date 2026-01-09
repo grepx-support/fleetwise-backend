@@ -78,7 +78,7 @@ class DevConfig(Config):
     # Development database - SQLite with fallback
     DB_TYPE = 'sqlite'
     STORAGE_PATH = str(Path(__file__).resolve().parents[2] / "fleetwise-storage" / "database")
-    DB_PATH = os.path.join(STORAGE_PATH, 'fleetwise.db')
+    DB_PATH = os.path.join(STORAGE_PATH, 'fleetwise_new.db')
     SQLALCHEMY_DATABASE_URI = os.environ.get('SQLALCHEMY_DATABASE_URI', f"sqlite:///{DB_PATH}")
 
 class StagingConfig(Config):
@@ -86,7 +86,7 @@ class StagingConfig(Config):
     DEBUG = False
     SESSION_COOKIE_SAMESITE = 'None'
     SESSION_COOKIE_SECURE = True
-    SESSION_PROTECTION = 'strong'
+    SESSION_PROTECTION = 'basic'
     PREFERRED_URL_SCHEME = 'https'
     # Staging: Use IPv6 dual-stack on Linux server
     FLASK_HOST = '::'
