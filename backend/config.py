@@ -109,7 +109,7 @@ class ProductionConfig(Config):
     DEBUG = False
     SESSION_COOKIE_SAMESITE = 'None'
     SESSION_COOKIE_SECURE = True
-    SESSION_PROTECTION = 'strong'
+    SESSION_PROTECTION = 'basic'
     PREFERRED_URL_SCHEME = 'https'
     # Production: Use IPv6 dual-stack on Linux server
     FLASK_HOST = '::'
