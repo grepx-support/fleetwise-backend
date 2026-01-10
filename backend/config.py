@@ -86,7 +86,7 @@ class StagingConfig(Config):
     DEBUG = False
     SESSION_COOKIE_SAMESITE = 'None'
     SESSION_COOKIE_SECURE = True
-    SESSION_PROTECTION = 'strong'
+    SESSION_PROTECTION = 'basic'
     PREFERRED_URL_SCHEME = 'https'
     # Staging: Use IPv6 dual-stack on Linux server
     FLASK_HOST = '::'
