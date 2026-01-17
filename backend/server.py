@@ -10,6 +10,17 @@ from flask_limiter.util import get_remote_address
 from flask import jsonify
 from flask_security.decorators import auth_required
 from flask_security.utils import current_user
+
+# Add libs directory to Python path to allow importing py_doc_generator
+libs_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'libs')
+if libs_path not in sys.path:
+    sys.path.insert(0, libs_path)
+
+# Add py-doc-generator directory to Python path
+py_doc_generator_path = os.path.join(libs_path, 'py-doc-generator')
+if py_doc_generator_path not in sys.path:
+    sys.path.insert(0, py_doc_generator_path)
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -356,6 +367,82 @@ def root():
 def health_check():
     return {'status': 'ok', 'message': 'Backend for Next.js is running.'}
 
+@app.route('/api/navigation')
+@auth_required()
+def navigation_permissions():
+    """Return navigation permissions for the current user based on their roles."""
+    try:
+        user_roles = [role.name for role in current_user.roles]
+        
+        # Define navigation restrictions based on roles
+        blocked_nav = []
+        
+        # Example: Non-admin users may have restricted access to certain admin functions
+        if not any(role in user_roles for role in ['admin', 'manager']):
+            # Block admin-specific routes for non-admin users
+            blocked_nav.extend([
+                '/admin/*',
+                '/settings/*',  # Some settings may be restricted
+                '/billing/contractor-billing',  # May be restricted based on role
+            ])
+            
+            # Non-admin users may have limited access to some driver functions
+            if 'driver' not in user_roles:  # For non-driver users who aren't admin/manager
+                blocked_nav.extend([
+                    '/drivers/leave/apply',  # Only drivers should apply for leave
+                ])
+        
+        # Drivers have limited navigation
+        if 'driver' in user_roles:
+            blocked_nav.extend([
+                '/jobs/manage',
+                '/billing/*',
+                '/admin/*',
+                '/reports/driver',  # Maybe drivers shouldn't see all reports
+                '/customers',
+                '/drivers',  # Block main drivers page
+                '/drivers/new',  # Drivers shouldn't create new drivers
+                '/drivers/edit',  # Drivers shouldn't edit other drivers
+                '/drivers/leave',  # Drivers should use specific leave apply route
+                '/drivers/calendar',  # Block driver calendar access - only for admin/manager
+                # Add more specific restrictions as needed
+            ])
+        
+        # Add print role to valid roles
+        if 'print' not in VALID_ROLES:
+            VALID_ROLES.add('print')
+        
+        # Handle print role access
+        if 'print' in user_roles:
+            # Print role may need access to specific print-related functionality
+            # For now, don't block anything specifically for print role
+            pass
+        
+        # Customers have very limited navigation
+        if 'customer' in user_roles:
+            blocked_nav.extend([
+                '/jobs/manage',
+                '/billing/*',
+                '/admin/*',
+                '/drivers',  # Customers don't need to see driver management
+                '/vehicles',
+                '/reports/*',
+            ])
+            
+            # Specific customer restrictions
+            blocked_nav.extend([
+                '/drivers/leave/apply',  # Only drivers can apply for leave
+            ])
+        
+        # No special handling needed for drivers since calendar access is explicitly blocked above
+        
+        # Log the blocked navigation for debugging
+        logger.info(f"User {current_user.email} (roles: {user_roles}) has blocked navigation: {blocked_nav}")
+        return jsonify({'blockedNav': blocked_nav})
+    except Exception as e:
+        logger.error(f"Error in navigation permissions: {e}")
+        return jsonify({'blockedNav': []}), 500
+
 
 VALID_ROLES = {'admin', 'manager', 'accountant', 'customer', 'driver', 'guest'}
 
@@ -369,6 +456,10 @@ def auth_me():
         ]
         
         primary_role = roles[0]["name"] if roles else "guest"
+        
+        # Print user roles for debugging
+        user_roles = [role.name for role in current_user.roles]
+        logger.info(f"User {current_user.email} (ID: {current_user.id}) has roles: {user_roles}")
         
         # Validate role name
         if primary_role not in VALID_ROLES:
