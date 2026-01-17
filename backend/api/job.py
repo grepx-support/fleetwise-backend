@@ -2308,6 +2308,11 @@ def bulk_cancel_jobs():
             
             # Add all audit records to database
             db.session.add_all(audit_records)
+            
+            # Clear monitoring alerts for canceled jobs
+            from backend.models.job_monitoring_alert import JobMonitoringAlert
+            JobMonitoringAlert.clear_alerts_for_canceled_jobs([job.id for job in jobs])
+            
             # Commit to get the audit record IDs
             db.session.commit()
             
@@ -3409,6 +3414,11 @@ def update_job_status(job_id):
         
         # Update job status
         job.status = new_status
+        
+        # Clear monitoring alerts if job status is updated to OTW
+        if new_status == JobStatus.OTW.value:
+            from backend.models.job_monitoring_alert import JobMonitoringAlert
+            JobMonitoringAlert.clear_alert(job_id)
         
         # Add audit record to database
         db.session.add(audit_record)
