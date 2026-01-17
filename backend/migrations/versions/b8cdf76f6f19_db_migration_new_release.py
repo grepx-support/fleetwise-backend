@@ -33,10 +33,39 @@ def upgrade() -> None:
     op.create_index(op.f('ix_otp_storage_email'), 'otp_storage', ['email'], unique=False)
     op.create_index(op.f('ix_otp_storage_otp'), 'otp_storage', ['otp'], unique=False)
     op.create_index(op.f('ix_otp_storage_expires_at'), 'otp_storage', ['expires_at'], unique=False)
+
+    # Create table for driver leave overrides
+    op.create_table('leave_override',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('driver_leave_id', sa.Integer(), nullable=False),
+    sa.Column('created_by', sa.Integer(), nullable=False),
+    sa.Column('override_date', sa.Date(), nullable=False),
+    sa.Column('start_time', sa.Time(), nullable=False),
+    sa.Column('end_time', sa.Time(), nullable=False),
+    sa.Column('override_reason', sa.String(length=512), nullable=False),
+    sa.Column('created_at', sa.DateTime(), nullable=False, server_default=sa.text('now()')),
+    sa.Column('updated_at', sa.DateTime(), nullable=False, server_default=sa.text('now()')),
+    sa.Column('is_deleted', sa.Boolean(), nullable=False, server_default='0'),
+    sa.ForeignKeyConstraint(['driver_leave_id'], ['driver_leave.id'], ),
+    sa.ForeignKeyConstraint(['created_by'], ['user.id'], ),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('driver_leave_id', 'override_date', 'start_time', 'end_time', name='uq_leave_override_no_duplicate')
+    )
+    op.create_index('idx_leave_override_leave_id', 'leave_override', ['driver_leave_id'], unique=False)
+    op.create_index('idx_leave_override_date_time', 'leave_override', ['override_date', 'start_time', 'end_time'], unique=False)
+    op.create_index('idx_leave_override_leave_date', 'leave_override', ['driver_leave_id', 'override_date'], unique=False)
+    op.create_index('idx_leave_override_created_by', 'leave_override', ['created_by'], unique=False)
     # ### end Alembic commands ###
 
 def downgrade() -> None:
     """Downgrade schema."""
+    # Drop leave_override table
+    op.drop_index('idx_leave_override_created_by', table_name='leave_override')
+    op.drop_index('idx_leave_override_leave_date', table_name='leave_override')
+    op.drop_index('idx_leave_override_date_time', table_name='leave_override')
+    op.drop_index('idx_leave_override_leave_id', table_name='leave_override')
+    op.drop_table('leave_override')
+
     # Drop OTP storage table
     op.drop_index(op.f('ix_otp_storage_expires_at'), table_name='otp_storage')
     op.drop_index(op.f('ix_otp_storage_otp'), table_name='otp_storage')

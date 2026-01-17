@@ -16,6 +16,7 @@ from backend.models.vehicle_type import VehicleType
 from backend.models.driver_leave import DriverLeave
 from datetime import datetime
 from backend.services.push_notification_service import PushNotificationService
+from backend.services.leave_override_service import LeaveOverrideService
 from decimal import Decimal
 from flask_security import current_user
 
@@ -220,6 +221,47 @@ class JobService:
             return None
 
     @staticmethod
+    def check_driver_availability_with_overrides(driver_id, pickup_date, pickup_time="09:00"):
+        """
+        Check if a driver is available for job assignment, considering leave overrides.
+
+        If driver is on leave but has an override during the job time, returns (True, None).
+        If driver is on leave without override, returns (False, leave_object).
+        If driver is not on leave, returns (True, None).
+
+        Args:
+            driver_id: ID of the driver to check
+            pickup_date: Date of the job (YYYY-MM-DD format)
+            pickup_time: Time of the job (HH:MM format, default "09:00")
+
+        Returns:
+            Tuple (is_available: bool, leave: DriverLeave or None)
+        """
+        try:
+            leave = JobService.check_driver_on_leave(driver_id, pickup_date)
+
+            if not leave:
+                return (True, None)
+
+            # Driver is on leave, check for overrides
+            try:
+                from datetime import datetime
+                check_datetime = datetime.strptime(f"{pickup_date} {pickup_time}:00", '%Y-%m-%d %H:%M:%S')
+                is_available = LeaveOverrideService.is_driver_available_during_override(leave.id, check_datetime)
+
+                if is_available:
+                    return (True, None)
+            except Exception as e:
+                logging.warning(f"Error checking override availability: {e}")
+
+            # Driver is on leave and has no override for this time
+            return (False, leave)
+
+        except Exception as e:
+            logging.error(f"Error checking driver availability with overrides: {e}", exc_info=True)
+            return (False, None)
+
+    @staticmethod
     def get_all():
         try:
             # Load vehicle_type relationship for table view
@@ -284,13 +326,14 @@ class JobService:
             # Use the shared validation method
             JobService._validate_driver_vehicle_assignment(driver_id, vehicle_id)
 
-            # Check if driver is on leave during the job date
+            # Check if driver is on leave during the job date (considering overrides)
             if driver_id and pickup_date:
-                driver_leave = JobService.check_driver_on_leave(driver_id, pickup_date)
-                if driver_leave:
+                pickup_time = data.get('pickup_time', '09:00')
+                is_available, driver_leave = JobService.check_driver_availability_with_overrides(driver_id, pickup_date, pickup_time)
+                if not is_available:
                     raise ServiceError(
                         f"Driver is on {driver_leave.leave_type.replace('_', ' ')} leave from "
-                        f"{driver_leave.start_date} to {driver_leave.end_date}. Please select a different driver."
+                        f"{driver_leave.start_date} to {driver_leave.end_date} with no override for this time. Please select a different driver."
                     )
 
             # Enforce contractor requirement for confirmed status
@@ -544,11 +587,12 @@ class JobService:
                 check_pickup_date = data.get('pickup_date') if data.get('pickup_date') is not None else job.pickup_date
 
                 if check_driver_id and check_pickup_date:
-                    driver_leave = JobService.check_driver_on_leave(check_driver_id, check_pickup_date)
-                    if driver_leave:
+                    check_pickup_time = data.get('pickup_time') if data.get('pickup_time') is not None else job.pickup_time or '09:00'
+                    is_available, driver_leave = JobService.check_driver_availability_with_overrides(check_driver_id, check_pickup_date, check_pickup_time)
+                    if not is_available:
                         raise ServiceError(
                             f"Driver is on {driver_leave.leave_type.replace('_', ' ')} leave from "
-                            f"{driver_leave.start_date} to {driver_leave.end_date}. Please select a different driver."
+                            f"{driver_leave.start_date} to {driver_leave.end_date} with no override for this time. Please select a different driver."
                         )
 
             # Enforce contractor requirement for confirmed status
