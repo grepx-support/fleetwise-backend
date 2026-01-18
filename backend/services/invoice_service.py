@@ -146,6 +146,14 @@ class InvoiceService:
             raise ServiceError("Could not fetch invoice. Please try again later.")
 
     @staticmethod
+    def get_by_customer_id(customer_id):
+        try:
+            return Invoice.query.filter_by(customer_id=customer_id).all()
+        except Exception as e:
+            logging.error(f"Error fetching invoices for customer {customer_id}: {e}", exc_info=True)
+            raise ServiceError("Could not fetch invoices. Please try again later.")
+
+    @staticmethod
     def create(data):
         try:
             invoice = Invoice(**data)
