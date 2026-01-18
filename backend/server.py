@@ -428,12 +428,22 @@ def navigation_permissions():
                 '/drivers',  # Customers don't need to see driver management
                 '/vehicles',
                 '/reports/*',
+                '/jobs/new',
+                '/jobs/bulk-upload',
+                '/jobs/audit-trail',
+                # Block other job-related pages that aren't relevant to customers
+                '/jobs/manage/*',
+                '/jobs/audit-trail/*',
             ])
             
             # Specific customer restrictions
             blocked_nav.extend([
                 '/drivers/leave/apply',  # Only drivers can apply for leave
             ])
+            
+            # Ensure customer dashboard is accessible - remove any potential blocks
+            # The customer dashboard should be available to customers
+            # Don't add /jobs/dashboard/* to blocked list for customers
         
         # No special handling needed for drivers since calendar access is explicitly blocked above
         
