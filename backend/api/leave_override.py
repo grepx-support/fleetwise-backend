@@ -48,6 +48,7 @@ def get_overrides_for_leave(leave_id):
 
 
 @leave_override_bp.route('/driver-leaves/<int:leave_id>/overrides/<int:override_id>', methods=['GET'])
+@auth_required()
 @roles_accepted('admin', 'manager', 'accountant')
 def get_override(leave_id, override_id):
     """Get a specific override."""
@@ -68,6 +69,7 @@ def get_override(leave_id, override_id):
 
 
 @leave_override_bp.route('/driver-leaves/<int:leave_id>/overrides', methods=['POST'])
+@auth_required()
 @roles_accepted('admin', 'manager')
 def create_override(leave_id):
     """Create a new leave override for a specific leave."""
@@ -106,9 +108,10 @@ def create_override(leave_id):
         return jsonify({'error': 'An unexpected error occurred'}), 500
 
 
-@leave_override_bp.route('/driver-leaves/<int:leave_id>/overrides/bulk', methods=['POST'])
+@leave_override_bp.route('/driver-leaves/overrides/bulk', methods=['POST'])
+@auth_required()
 @roles_accepted('admin', 'manager')
-def bulk_create_overrides(leave_id):
+def bulk_create_overrides():
     """Create overrides for multiple leaves (bulk operation)."""
     try:
         data = request.get_json()
@@ -153,10 +156,11 @@ def bulk_create_overrides(leave_id):
         return jsonify({'error': 'An unexpected error occurred'}), 500
 
 
-@leave_override_bp.route('/driver-leaves/<int:leave_id>/overrides/<int:override_id>', methods=['DELETE'])
+@leave_override_bp.route('/driver-leaves/<int:leave_id>/overrides/<int:override_id>/affected-jobs', methods=['GET'])
+@auth_required()
 @roles_accepted('admin', 'manager')
-def delete_override(leave_id, override_id):
-    """Delete (soft delete) an override, restoring full leave status."""
+def get_override_affected_jobs(leave_id, override_id):
+    """Get affected jobs for an override without deleting it."""
     try:
         leave = DriverLeave.query_active().filter_by(id=leave_id).first()
         if not leave:
@@ -166,13 +170,47 @@ def delete_override(leave_id, override_id):
         if not override or override.driver_leave_id != leave_id:
             return jsonify({'error': 'Override not found'}), 404
 
-        success = LeaveOverrideService.delete_override(override_id)
-        if not success:
+        affected_jobs = LeaveOverrideService.get_affected_jobs(override)
+        affected_jobs_info = [
+            {
+                'job_id': job.id,
+                'customer': job.customer.name if job.customer else 'Unknown',
+                'pickup_date': str(job.pickup_date),
+                'pickup_time': str(job.pickup_time),
+                'status': job.status,
+                'service': job.service.name if job.service else 'Unknown'
+            }
+            for job in affected_jobs
+        ]
+        return jsonify(affected_jobs_info), 200
+
+    except Exception as e:
+        logger.error(f"Error getting affected jobs for override {override_id}: {e}", exc_info=True)
+        return jsonify({'error': 'An unexpected error occurred'}), 500
+
+
+@leave_override_bp.route('/driver-leaves/<int:leave_id>/overrides/<int:override_id>', methods=['DELETE'])
+@auth_required()
+@roles_accepted('admin', 'manager')
+def delete_override(leave_id, override_id):
+    """Delete (soft delete) an override, restoring full leave status. Returns affected jobs info."""
+    try:
+        leave = DriverLeave.query_active().filter_by(id=leave_id).first()
+        if not leave:
+            return jsonify({'error': 'Leave not found'}), 404
+
+        override = LeaveOverrideService.get_override(override_id)
+        if not override or override.driver_leave_id != leave_id:
+            return jsonify({'error': 'Override not found'}), 404
+
+        result = LeaveOverrideService.delete_override(override_id)
+        if not result['success']:
             return jsonify({'error': 'Override not found'}), 404
 
         return jsonify({
             'message': 'Override deleted successfully. Leave now shows as full leave period.',
-            'override_id': override_id
+            'override_id': override_id,
+            'affected_jobs': result['affected_jobs']
         }), 200
 
     except ServiceError as se:
@@ -184,6 +222,7 @@ def delete_override(leave_id, override_id):
 
 
 @leave_override_bp.route('/driver-leaves/<int:leave_id>/availability-windows', methods=['GET'])
+@auth_required()
 @roles_accepted('admin', 'manager', 'accountant')
 def get_availability_windows(leave_id):
     """Get all availability windows (overrides) for a leave on a specific date. Query param: date (YYYY-MM-DD)"""
@@ -216,6 +255,7 @@ def get_availability_windows(leave_id):
 
 
 @leave_override_bp.route('/driver-leaves/<int:leave_id>/check-availability', methods=['POST'])
+@auth_required()
 @roles_accepted('admin', 'manager', 'accountant')
 def check_driver_availability(leave_id):
     """Check if driver is available during a specific datetime. Used for job assignment validation."""

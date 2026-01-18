@@ -232,7 +232,7 @@ class JobService:
         Args:
             driver_id: ID of the driver to check
             pickup_date: Date of the job (YYYY-MM-DD format)
-            pickup_time: Time of the job (HH:MM format, default "09:00")
+            pickup_time: Time of the job (HH:MM format string or time object, default "09:00")
 
         Returns:
             Tuple (is_available: bool, leave: DriverLeave or None)
@@ -245,8 +245,15 @@ class JobService:
 
             # Driver is on leave, check for overrides
             try:
-                from datetime import datetime
-                check_datetime = datetime.strptime(f"{pickup_date} {pickup_time}:00", '%Y-%m-%d %H:%M:%S')
+                from datetime import datetime, time as time_type
+
+                # Ensure pickup_time is a string in HH:MM format
+                if isinstance(pickup_time, time_type):
+                    pickup_time_str = pickup_time.strftime('%H:%M')
+                else:
+                    pickup_time_str = str(pickup_time)
+
+                check_datetime = datetime.strptime(f"{pickup_date} {pickup_time_str}:00", '%Y-%m-%d %H:%M:%S')
                 is_available = LeaveOverrideService.is_driver_available_during_override(leave.id, check_datetime)
 
                 if is_available:

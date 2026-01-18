@@ -5,6 +5,7 @@ from backend.extensions import db
 from backend.models.leave_override import LeaveOverride
 from backend.models.driver_leave import DriverLeave
 from backend.models.user import User
+from backend.models.job import Job
 from backend.services.push_notification_service import PushNotificationService
 
 logger = logging.getLogger(__name__)
@@ -155,18 +156,122 @@ class LeaveOverrideService:
         ).order_by(LeaveOverride.start_time).all()
 
     @staticmethod
+    def get_affected_jobs(override):
+        """Get list of jobs that fall within the override's time period."""
+        try:
+            # Get the driver from the leave
+            driver_leave = override.driver_leave
+            if not driver_leave:
+                logger.warning(f"Override {override.id} has no associated driver_leave")
+                return []
+
+            driver_id = driver_leave.driver_id
+            override_date = str(override.override_date)  # Ensure it's a string for comparison
+
+            logger.info(f"Checking affected jobs for override {override.id}")
+            logger.info(f"   Driver ID: {driver_id}, Date: {override_date}")
+            logger.info(f"   Time window: {override.start_time} - {override.end_time}")
+
+            # Find jobs assigned to this driver on the override date within the time window
+            affected_jobs = Job.query.filter(
+                Job.driver_id == driver_id,
+                Job.pickup_date == override_date,
+                Job.is_deleted == False
+            ).all()
+
+            logger.info(f"   Found {len(affected_jobs)} total jobs for driver {driver_id} on {override_date}")
+
+            # Helper function to parse time from multiple formats
+            def parse_time_flexible(time_value):
+                """Parse time from multiple formats: HH:MM:SS, HH:MM:SS.ffffff, HH:MM, or time object"""
+                if isinstance(time_value, time):
+                    return time_value
+
+                time_str = str(time_value).strip()
+
+                # Try multiple formats
+                formats_to_try = [
+                    '%H:%M:%S.%f',  # With microseconds
+                    '%H:%M:%S',     # Standard format
+                    '%H:%M',        # Short format
+                ]
+
+                for fmt in formats_to_try:
+                    try:
+                        return datetime.strptime(time_str, fmt).time()
+                    except ValueError:
+                        continue
+
+                # If all formats fail, raise an error
+                raise ValueError(f"Unable to parse time: {time_str}")
+
+            # Filter jobs that fall within the override time window
+            jobs_in_window = []
+            for job in affected_jobs:
+                try:
+                    if not job.pickup_time:
+                        logger.debug(f"   Job {job.id}: No pickup_time set - SKIPPED")
+                        continue
+
+                    # Convert time objects to comparable format using flexible parser
+                    job_time = parse_time_flexible(job.pickup_time)
+                    override_start = parse_time_flexible(override.start_time)
+                    override_end = parse_time_flexible(override.end_time)
+
+                    logger.info(f"   Job {job.id}: pickup_time={job_time}, override={override_start}-{override_end}")
+
+                    # Check if job time falls within override window (inclusive of both start and end)
+                    if override_start <= job_time <= override_end:
+                        jobs_in_window.append(job)
+                        logger.info(f"   [AFFECTED] Job {job.id} is affected")
+                    else:
+                        logger.debug(f"   ✗ Job {job.id} is outside window")
+
+                except Exception as time_error:
+                    logger.error(f"   Error parsing times for job {job.id}: {time_error}", exc_info=True)
+
+            logger.info(f"[SUCCESS] Override {override.id} affects {len(jobs_in_window)} jobs")
+            return jobs_in_window
+
+        except Exception as e:
+            logger.error(f"[ERROR] Error getting affected jobs for override {override.id}: {e}", exc_info=True)
+            return []
+
+    @staticmethod
     def delete_override(override_id):
-        """Delete (soft delete) an override. Returns True if successful, False if not found."""
+        """
+        Delete (soft delete) an override and return affected jobs info.
+        Returns dict with 'success' (bool) and 'affected_jobs' (list).
+        """
         override = LeaveOverride.query_active().filter_by(id=override_id).first()
         if not override:
-            return False
+            return {'success': False, 'affected_jobs': []}
 
         try:
+            # Get affected jobs before deleting
+            affected_jobs = LeaveOverrideService.get_affected_jobs(override)
+            affected_jobs_info = [
+                {
+                    'job_id': job.id,
+                    'customer': job.customer.name if job.customer else 'Unknown',
+                    'pickup_date': str(job.pickup_date),
+                    'pickup_time': str(job.pickup_time),
+                    'status': job.status,
+                    'service': job.service.name if job.service else 'Unknown'
+                }
+                for job in affected_jobs
+            ]
+
+            # Perform soft delete
             override.is_deleted = True
             override.updated_at = datetime.utcnow()
             db.session.commit()
-            logger.info(f"Override {override_id} deleted")
-            return True
+            logger.info(f"Override {override_id} deleted. {len(affected_jobs)} job(s) affected.")
+
+            return {
+                'success': True,
+                'affected_jobs': affected_jobs_info
+            }
         except Exception as e:
             db.session.rollback()
             logger.error(f"Error deleting override {override_id}: {e}")
@@ -202,13 +307,28 @@ class LeaveOverrideService:
         if not isinstance(driver_leave_ids, list):
             raise ServiceError("driver_leave_ids must be a list")
 
-        if len(driver_leave_ids) > 100:
+        # Remove duplicates while preserving order
+        unique_leave_ids = []
+        seen = set()
+        for leave_id in driver_leave_ids:
+            if leave_id not in seen:
+                unique_leave_ids.append(leave_id)
+                seen.add(leave_id)
+
+        # Log if duplicates were removed
+        if len(unique_leave_ids) != len(driver_leave_ids):
+            logger.warning(
+                f"Duplicate leave IDs removed from bulk request. Original: {len(driver_leave_ids)}, "
+                f"Unique: {len(unique_leave_ids)}"
+            )
+
+        if len(unique_leave_ids) > 100:
             raise ServiceError("Cannot bulk create more than 100 overrides at once")
 
         success = []
         failed = []
 
-        for leave_id in driver_leave_ids:
+        for leave_id in unique_leave_ids:
             try:
                 override = LeaveOverrideService.create_override(
                     driver_leave_id=leave_id,
