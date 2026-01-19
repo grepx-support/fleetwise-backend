@@ -191,9 +191,9 @@ with app.app_context():
     # Import all models with clear error handling
     try:
         from backend.models import (
-            user, role, customer, sub_customer, vehicle, driver, 
-            job, invoice, password_reset_token, contractor, 
-            contractor_service_pricing
+            user, role, customer, sub_customer, vehicle, driver,
+            job, invoice, password_reset_token, contractor,
+            contractor_service_pricing, driver_leave, leave_override
         )
         logger.info("Models imported successfully")
     except ImportError as e:
@@ -255,6 +255,7 @@ blueprints = [
     ('bill', '/api'),
     ('reports', '/api'),
     ('driver_leave', '/api'),
+    ('leave_override', '/api'),
     ('pipeline', '/api')
 ]
 
