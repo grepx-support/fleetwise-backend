@@ -630,6 +630,9 @@ def jobs_table():
                 elif key == 'pickup_time':
                     # Filter by pickup time - use parameterized query
                     query = apply_safe_filter(query, Job.pickup_time, value)
+                elif key == 'passenger_name':
+                    # Filter by passenger name - use parameterized query
+                    query = apply_safe_filter(query, Job.passenger_name, value)
                 elif key == 'status':
                     # Filter by status - use exact match for enum values
                     query = query.filter(Job.status == value)
