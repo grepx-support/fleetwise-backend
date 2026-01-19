@@ -1,4 +1,4 @@
-"""db_migration_new_release
+"""db migration released 23Nov2025
 
 Revision ID: 8537e815aa61
 Revises: d1b5284f3617
