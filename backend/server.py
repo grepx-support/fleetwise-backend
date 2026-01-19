@@ -11,6 +11,9 @@ from flask import jsonify
 from flask_security.decorators import auth_required
 from flask_security.utils import current_user
 
+# Define valid roles as a constant to prevent race conditions and security issues
+VALID_ROLES = {'admin', 'manager', 'accountant', 'customer', 'driver', 'guest', 'print'}
+
 # Add libs directory to Python path to allow importing py_doc_generator
 libs_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'libs')
 if libs_path not in sys.path:
@@ -409,9 +412,7 @@ def navigation_permissions():
                 # Add more specific restrictions as needed
             ])
         
-        # Add print role to valid roles
-        if 'print' not in VALID_ROLES:
-            VALID_ROLES.add('print')
+        # Print role is already included in VALID_ROLES constant
         
         # Handle print role access
         if 'print' in user_roles:
@@ -451,11 +452,13 @@ def navigation_permissions():
         logger.info(f"User {current_user.email} (roles: {user_roles}) has blocked navigation: {blocked_nav}")
         return jsonify({'blockedNav': blocked_nav})
     except Exception as e:
-        logger.error(f"Error in navigation permissions: {e}")
-        return jsonify({'blockedNav': []}), 500
+        logger.error(f"Error in navigation permissions: {e}", exc_info=True)
+        # Fail secure - block all routes on error
+        return jsonify({
+            'error': 'Failed to determine permissions',
+            'blockedNav': ['/*']  # Block everything
+        }), 500
 
-
-VALID_ROLES = {'admin', 'manager', 'accountant', 'customer', 'driver', 'guest'}
 
 @app.route("/api/auth/me", methods=["GET"])
 @auth_required()
