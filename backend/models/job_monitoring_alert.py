@@ -150,8 +150,14 @@ class JobMonitoringAlert(db.Model):
         import pytz
         from datetime import timedelta
         from dateutil.parser import parse
+        import logging
         
-        cutoff_time = datetime.now(pytz.UTC) - timedelta(minutes=threshold_minutes)
+        # Use Singapore timezone for monitoring as per application configuration
+        singapore_tz = pytz.timezone('Asia/Singapore')
+        current_time_sgt = datetime.now(singapore_tz)
+        # Convert to UTC for consistency with database storage
+        current_time = current_time_sgt.astimezone(pytz.UTC)
+        logging.info(f"Job monitoring check at {current_time_sgt.strftime('%Y-%m-%d %H:%M:%S %Z')} (Singapore time), threshold: {threshold_minutes} minutes")
         
         # Find confirmed jobs where pickup_time + threshold_minutes < current_time
         overdue_jobs = []
@@ -162,19 +168,42 @@ class JobMonitoringAlert(db.Model):
             Job.pickup_time.isnot(None)
         ).all()
         
+        logging.info(f"Found {len(jobs)} confirmed jobs to check for overdue status")
+        
         for job in jobs:
             try:
                 # Construct full pickup datetime
                 pickup_str = f"{job.pickup_date} {job.pickup_time}"
                 pickup_datetime = parse(pickup_str)
-                # Convert to UTC for comparison
-                pickup_datetime = pickup_datetime.replace(tzinfo=pytz.UTC)
+                # If the parsed datetime doesn't have timezone info, assume it's local time
+                if pickup_datetime.tzinfo is None:
+                    # Use local timezone (assumes the pickup time is in local time, not UTC)
+                    local_tz = pytz.timezone('Asia/Singapore')  # Assuming Singapore timezone
+                    pickup_datetime = local_tz.localize(pickup_datetime)
+                    # Convert to UTC for comparison
+                    pickup_datetime = pickup_datetime.astimezone(pytz.UTC)
+                else:
+                    # If timezone info exists, convert to UTC for comparison
+                    pickup_datetime = pickup_datetime.astimezone(pytz.UTC)
                 
-                # Check if pickup time + 15 minutes is before current time
-                if pickup_datetime <= cutoff_time:
+                # Calculate the deadline: pickup time + threshold minutes
+                deadline = pickup_datetime + timedelta(minutes=threshold_minutes)
+                
+                # Calculate elapsed time for logging
+                elapsed_since_pickup = (current_time - pickup_datetime).total_seconds() / 60
+                
+                logging.info(f"Job {job.id}: pickup {pickup_datetime}, deadline {deadline}, current {current_time}, elapsed {elapsed_since_pickup:.1f} min")
+                
+                # Check if the deadline has passed (current time is after deadline)
+                if deadline <= current_time:
+                    logging.info(f"Job {job.id} is overdue - deadline {deadline} <= current {current_time}")
                     overdue_jobs.append(job)
-            except:
+                else:
+                    logging.info(f"Job {job.id} is not overdue - deadline {deadline} > current {current_time}")
+            except Exception as e:
                 # If parsing fails, skip this job
+                logging.error(f"Failed to parse date for job {job.id}: {job.pickup_date} {job.pickup_time}, error: {e}")
                 continue
         
+        logging.info(f"Total overdue jobs found: {len(overdue_jobs)}")
         return overdue_jobs

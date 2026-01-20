@@ -61,12 +61,26 @@ class SchedulerService:
             db.session.rollback()
 
     def monitor_overdue_jobs(self):
-        """Monitor jobs that haven't started within 15 minutes of pickup time"""
+        """Monitor jobs that haven't started within the configured threshold minutes of pickup time"""
         try:
             from flask import current_app
             with current_app.app_context():
-                # Find jobs that are overdue (confirmed but not started within 15 minutes of pickup time)
-                overdue_jobs = JobMonitoringAlert.find_overdue_jobs(threshold_minutes=15)
+                # Get custom monitoring settings
+                from backend.api.job_monitoring import get_monitoring_settings_from_db
+                settings = get_monitoring_settings_from_db()
+                threshold_minutes = settings.get('pickup_threshold_minutes', 15)
+                
+                logger.info(f"Using pickup threshold: {threshold_minutes} minutes")
+                
+                # Find jobs that are overdue (confirmed but not started within threshold minutes of pickup time)
+                overdue_jobs = JobMonitoringAlert.find_overdue_jobs(threshold_minutes=threshold_minutes)
+                
+                # Get reminder settings
+                max_reminders = settings.get('max_alert_reminders', 2)
+                reminder_interval = settings.get('reminder_interval_minutes', 10)
+                
+                logger.info(f"Using max reminders: {max_reminders}, reminder interval: {reminder_interval} minutes")
+                logger.info(f"Note: Scheduler runs every 10 minutes, but your reminder interval is set to {reminder_interval} minutes")
                 
                 for job in overdue_jobs:
                     # Check if there's already an active alert for this job
@@ -76,8 +90,8 @@ class SchedulerService:
                     ).first()
                     
                     if existing_alert:
-                        # Check if we should send another reminder (every 10 mins, max 3 reminders)
-                        if existing_alert.reminder_count < 3:
+                        # Check if we should send another reminder (based on custom interval and max reminders)
+                        if existing_alert.reminder_count < max_reminders:
                             # Update the alert to increment reminder count
                             JobMonitoringAlert.create_or_update_alert(job.id, job.driver_id)
                             logger.info(f"Sent reminder #{existing_alert.reminder_count + 1} for job {job.id}")
