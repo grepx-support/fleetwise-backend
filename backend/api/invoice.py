@@ -9,15 +9,13 @@ from backend.models.invoice import Invoice, Payment
 import logging
 from flask_security import roles_required, roles_accepted, auth_required, current_user
 from backend.extensions import db
+import os
+from werkzeug.utils import secure_filename
 
 invoice_bp = Blueprint('invoice', __name__)
 schema = InvoiceSchema(session=db.session)
 schema_many = InvoiceSchema(many=True, session=db.session)
-import os
-from backend.models.invoice import Invoice
-from backend.models.invoice import Payment
- 
-from werkzeug.utils import secure_filename
+
 @invoice_bp.route('/invoices', methods=['GET'])
 @auth_required()
 def list_invoices():
@@ -56,8 +54,9 @@ def list_invoices():
         if not hasattr(current_user, 'customer_id') or not current_user.customer_id:
             return jsonify({'error': 'No customer association found'}), 403
         invoices = InvoiceService.get_by_customer_id(current_user.customer_id)
-        return jsonify(schema_many.dump(invoices)), 200
         
+        return jsonify(schema_many.dump(invoices)), 200
+    
     except ServiceError as se:
         return jsonify({'error': se.message}), 400
     except Exception as e:
@@ -456,7 +455,7 @@ def add_payment(invoice_id):
 #         if not payment:
 #             return jsonify({"error": "Payment not found"}), 404
 
-        # Delete the payment
+#         # Delete the payment
 #         # payment = Payment.query.get(payment_id)
 #         db.session.delete(payment)
 #         db.session.flush()
