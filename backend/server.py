@@ -15,14 +15,14 @@ from flask_security.utils import current_user
 VALID_ROLES = {'admin', 'manager', 'accountant', 'customer', 'driver', 'guest', 'print'}
 
 # Add libs directory to Python path to allow importing py_doc_generator
-libs_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'libs')
-if libs_path not in sys.path:
-    sys.path.insert(0, libs_path)
+libs_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'libs'))
+if os.path.isdir(libs_path) and libs_path not in sys.path:
+    sys.path.append(libs_path)
 
 # Add py-doc-generator directory to Python path
 py_doc_generator_path = os.path.join(libs_path, 'py-doc-generator')
-if py_doc_generator_path not in sys.path:
-    sys.path.insert(0, py_doc_generator_path)
+if os.path.isdir(py_doc_generator_path) and py_doc_generator_path not in sys.path:
+    sys.path.append(py_doc_generator_path)
 
 # Load environment variables from .env file
 load_dotenv()
