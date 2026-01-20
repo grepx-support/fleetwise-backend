@@ -46,6 +46,19 @@ job_bp = Blueprint('job', __name__)
 schema = JobSchema(session=db.session)
 schema_many = JobSchema(many=True, session=db.session)
 
+# Track processed preview IDs to prevent duplicate processing (for network failure recovery)
+# Maps preview_id -> (created_job_ids, timestamp)
+_processed_previews = {}
+
+def _cleanup_old_previews():
+    """Remove previews older than 30 minutes"""
+    from datetime import datetime, timedelta
+    now = datetime.now()
+    cutoff = now - timedelta(minutes=30)
+    expired = [pid for pid, (_, ts) in _processed_previews.items() if ts < cutoff]
+    for pid in expired:
+        del _processed_previews[pid]
+
 def sanitize_filter_value(value):
     """
     Sanitize filter values to prevent SQL injection.
@@ -1285,6 +1298,10 @@ def download_job_template():
 def upload_excel_file():
     """Handle Excel file upload and processing"""
     try:
+        # Generate unique preview_id for this upload session (idempotency and timeout tracking)
+        import uuid
+        preview_id = str(uuid.uuid4())
+        
         # Check if file was uploaded
         if 'file' not in request.files:
             return jsonify({'error': 'No file selected'}), 400
@@ -1335,7 +1352,7 @@ def upload_excel_file():
 
 
             # Process the Excel file for preview with user role
-            preview_data = process_excel_file_preview(temp_file_path, is_customer_user=is_customer_user)
+            preview_data = process_excel_file_preview(temp_file_path, is_customer_user=is_customer_user, preview_id=preview_id)
             
             return jsonify(preview_data)
                 
@@ -1356,7 +1373,7 @@ def upload_excel_file():
         return jsonify({'error': 'An error occurred while processing the file. Please try again.'}), 500
 
 
-def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=False):
+def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=False, preview_id=None):
     """Process the uploaded Excel file for preview with validation and column mapping"""
     try:
         # Read Excel file with pandas
@@ -1776,13 +1793,37 @@ def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=
         
 
         
+        # Run duplicate detection on valid rows only
+        valid_rows_for_dup_check = [row for row in preview_rows if row.get('is_valid')]
+        
+        # Prepare job data for duplicate detection (must include customer_name for response)
+        jobs_for_dup_check = []
+        for row in valid_rows_for_dup_check:
+            # Get customer object to fetch customer_name
+            customer_obj = Customer.query.filter_by(name=row.get('customer')).first()
+            jobs_for_dup_check.append({
+                'row_number': row.get('row_number'),
+                'customer_id': customer_obj.id if customer_obj else None,
+                'customer_name': row.get('customer', ''),
+                'passenger_name': row.get('passenger_name', ''),
+                'pickup_location': row.get('pickup_location', ''),
+                'dropoff_location': row.get('dropoff_location', ''),
+                'pickup_date': row.get('pickup_date', ''),
+                'pickup_time': row.get('pickup_time', ''),
+                'service_type': row.get('service', '')
+            })
+        
+        duplicates = JobService.detect_duplicates_in_upload(jobs_for_dup_check)
+        
         return {
             'valid_count': valid_count,
             'error_count': error_count,
             'rows': preview_rows,
             'json_data': json.dumps(preview_rows),
             'column_mapping': column_map,
-            'available_columns': actual_columns
+            'available_columns': actual_columns,
+            'duplicates': duplicates,
+            'preview_id': preview_id
         }
         
     except Exception as e:
@@ -1812,7 +1853,9 @@ def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=
             }],
             'json_data': json.dumps([]),
             'column_mapping': {},
-            'available_columns': []
+            'available_columns': [],
+            'duplicates': [],
+            'preview_id': preview_id
         }
 
 
@@ -1821,6 +1864,32 @@ def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=
 def confirm_upload():
     """Handle confirmation of preview data and create jobs"""
     try:
+        # Get the preview data from the request
+        preview_data = request.get_json()
+        if not preview_data or 'rows' not in preview_data:
+            return jsonify({'error': 'No preview data found'}), 400
+
+        # Check for idempotency using preview_id (EC15: Network failure recovery)
+        preview_id = preview_data.get('preview_id')
+        if preview_id and preview_id in _processed_previews:
+            # This preview was already processed, return cached result
+            created_job_ids, _ = _processed_previews[preview_id]
+            logging.info(f"Returning cached result for preview_id {preview_id}: {created_job_ids}")
+            return jsonify({
+                'success': True,
+                'processed_count': len(created_job_ids),
+                'duplicate_count': 0,
+                'skipped_count': 0,
+                'skipped_rows': [],
+                'errors': [],
+                'created_jobs': [{'job_id': f"JOB-{jid}"} for jid in created_job_ids],
+                'job_ids': created_job_ids,
+                'message': f"Successfully created {len(created_job_ids)} jobs (retry - using cached result)"
+            }), 200
+
+        # Cleanup old previews periodically (EC14: Session timeout)
+        _cleanup_old_previews()
+        
         # Check if user is a Customer role
         is_customer_user = current_user.has_role('customer')
         customer_user_customer_id = None
@@ -1830,11 +1899,6 @@ def confirm_upload():
             customer_user_customer_id = getattr(current_user, 'customer_id', None)
             if not customer_user_customer_id:
                 return jsonify({'error': 'Customer user does not have a customer_id assigned'}), 403
-
-        # Get the preview data from the request
-        preview_data = request.get_json()
-        if not preview_data or 'rows' not in preview_data:
-            return jsonify({'error': 'No preview data found'}), 400
 
         # Get optional parameter to allow duplicate jobs (for recurring uploads)
         allow_duplicates = preview_data.get('allow_duplicates', False)
@@ -2070,12 +2134,23 @@ def confirm_upload():
                 logging.error(error_msg, exc_info=True)
                 errors.append(error_msg)
 
+        # Cache result for idempotency (EC15: Network failure recovery)
+        job_ids = [int(job['job_id'].split('-')[1]) for job in created_jobs]
+        if preview_id:
+            from datetime import datetime
+            _processed_previews[preview_id] = (job_ids, datetime.now())
+            logging.info(f"Cached result for preview_id {preview_id}: {job_ids}")
+
         return jsonify({
+            'success': True,
             'processed_count': processed_count,
+            'duplicate_count': len([row for row in created_jobs if row.get('row_number') in [sr['row_number'] for sr in skipped_rows]]) if allow_duplicates else 0,
             'skipped_count': len(skipped_rows),
             'skipped_rows': skipped_rows,
             'errors': errors,
-            'created_jobs': created_jobs
+            'created_jobs': created_jobs,
+            'job_ids': job_ids,
+            'message': f"Successfully created {processed_count} jobs" + (f" (including {len([row for row in created_jobs if row.get('row_number') in [sr['row_number'] for sr in skipped_rows]])} that matched existing jobs)" if allow_duplicates else "")
         }), 200
 
     except Exception as e:

@@ -120,6 +120,104 @@ class JobService:
                 else:
                     logging.warning(f"User {getattr(current_user, 'email', 'unknown')} is overriding driver-vehicle assignment for driver_id={driver_id}, vehicle_id={vehicle_id}")
     @staticmethod
+    def detect_duplicates_in_upload(jobs_data):
+        """
+        Detect potential duplicate jobs in an upload against existing database jobs 
+        and within the uploaded file itself.
+        
+        Args:
+            jobs_data: List of job dictionaries with validated data
+            
+        Returns:
+            List of duplicate records with structure:
+            {
+                'row_number': int,
+                'duplicate_type': 'existing_db' | 'within_file' | 'both',
+                'customer_name': str,
+                'customer_id': int,
+                'passenger_name': str,
+                'pickup_location': str,
+                'dropoff_location': str,
+                'pickup_date': str (YYYY-MM-DD),
+                'pickup_time': str (HH:MM),
+                'service_type': str,
+                'matching_jobs': [{'job_id': int, 'passenger_name': str, 'created_at': str}, ...],
+                'matching_rows': [row_number, ...]
+            }
+        """
+        duplicates = []
+        
+        # Index jobs by their duplicate detection key for within-file comparison
+        seen_keys = {}
+        
+        for idx, job_data in enumerate(jobs_data):
+            # Create normalized key for duplicate detection (all matching criteria)
+            dup_key = (
+                job_data.get('customer_id'),
+                job_data.get('pickup_location', ''),
+                job_data.get('dropoff_location', ''),
+                job_data.get('pickup_date', ''),
+                job_data.get('pickup_time', ''),
+                job_data.get('service_type', '')
+            )
+            
+            # Track for within-file duplicate detection
+            db_matches = []
+            file_matches = []
+            
+            # Check against database
+            try:
+                existing_job = Job.query.filter_by(
+                    customer_id=job_data.get('customer_id'),
+                    pickup_location=job_data.get('pickup_location', ''),
+                    dropoff_location=job_data.get('dropoff_location', ''),
+                    pickup_date=job_data.get('pickup_date', ''),
+                    pickup_time=job_data.get('pickup_time', ''),
+                    service_type=job_data.get('service_type', ''),
+                    is_deleted=False
+                ).first()
+                
+                if existing_job:
+                    db_matches.append({
+                        'job_id': existing_job.id,
+                        'passenger_name': existing_job.passenger_name or 'Unknown',
+                        'created_at': existing_job.created_at.isoformat() if existing_job.created_at else ''
+                    })
+            except Exception as e:
+                logging.error(f"Error checking database duplicates: {e}")
+            
+            # Check within file
+            if dup_key in seen_keys:
+                file_matches.extend(seen_keys[dup_key])
+            
+            # If any duplicates found, record them
+            if db_matches or file_matches:
+                row_num = job_data.get('row_number', idx + 2)
+                duplicate_type = 'both' if (db_matches and file_matches) else ('existing_db' if db_matches else 'within_file')
+                
+                duplicates.append({
+                    'row_number': row_num,
+                    'duplicate_type': duplicate_type,
+                    'customer_name': job_data.get('customer_name', ''),
+                    'customer_id': job_data.get('customer_id'),
+                    'passenger_name': job_data.get('passenger_name', ''),
+                    'pickup_location': job_data.get('pickup_location', ''),
+                    'dropoff_location': job_data.get('dropoff_location', ''),
+                    'pickup_date': job_data.get('pickup_date', ''),
+                    'pickup_time': job_data.get('pickup_time', ''),
+                    'service_type': job_data.get('service_type', ''),
+                    'matching_jobs': db_matches,
+                    'matching_rows': file_matches
+                })
+            
+            # Add to seen keys for future within-file comparisons
+            if dup_key not in seen_keys:
+                seen_keys[dup_key] = []
+            seen_keys[dup_key].append(job_data.get('row_number', idx + 2))
+        
+        return duplicates
+
+    @staticmethod
     def check_driver_conflict(driver_id, pickup_date, pickup_time, job_id=None, time_buffer_minutes=60):
         """
         Check if a driver already has a job scheduled at the same date and time with a configurable buffer.
