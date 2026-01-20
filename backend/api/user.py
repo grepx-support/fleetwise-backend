@@ -29,6 +29,9 @@ def init_app(app):
 @auth_required()
 def get_me():
     try:
+        # Print user roles for debugging
+        user_roles = [role.name for role in current_user.roles]
+        logging.info(f"User {current_user.email} has roles: {user_roles}")
         return jsonify(schema.dump(current_user)), 200
     except Exception as e:
         logging.error(f"Unhandled error in get_me: {e}", exc_info=True)

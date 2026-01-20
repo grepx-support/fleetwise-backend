@@ -1,4 +1,4 @@
-"""empty_migration
+"""db migration released 15Jan2026
 
 Revision ID: b8cdf76f6f19
 Revises: 8537e815aa61

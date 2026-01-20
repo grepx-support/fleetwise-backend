@@ -592,16 +592,27 @@ def jobs_table():
         # Parse filters and pagination
         page = int(request.args.get('page', 1))
         page_size = int(request.args.get('pageSize', 50))
+        # Limit page size to maximum 100 results as per acceptance criteria
+        page_size = min(page_size, 100)
         filters = {}
+        search_term = None
         for key in request.args:
             if key not in ['page', 'pageSize']:
-                filters[key] = request.args.get(key)
+                value = request.args.get(key)
+                if key == 'search':
+                    search_term = value
+                else:
+                    filters[key] = value
         
         # Query with filters
         query = Job.query.filter(Job.is_deleted.is_(False))
         query = scoped_jobs_query(query)
 
         joined_customer = False
+        joined_driver = False
+        joined_vehicle = False
+        joined_contractor = False
+        joined_vehicle_type = False
         
         # Handle computed field filters by joining with related tables
         for key, value in filters.items():
@@ -633,9 +644,98 @@ def jobs_table():
                 elif key == 'status':
                     # Filter by status - use exact match for enum values
                     query = query.filter(Job.status == value)
+                elif key == 'vehicle_number':
+                    # Filter by vehicle number - join Vehicle table if not already joined
+                    if not joined_vehicle:
+                        query = query.outerjoin(Vehicle, Job.vehicle_id == Vehicle.id)
+                        joined_vehicle = True
+                    query = apply_safe_filter(query, Vehicle.number, value)
+                elif key == 'passenger_email':
+                    # Filter by passenger email - use parameterized query
+                    query = apply_safe_filter(query, Job.passenger_email, value)
+                elif key == 'customer_email':
+                    # Filter by customer email - join Customer table if not already joined
+                    if not joined_customer:
+                        query = query.join(Customer)
+                        joined_customer = True
+                    query = apply_safe_filter(query, Customer.email, value)
                 elif hasattr(Job, key):
                     # For other direct Job model fields - use exact match
                     query = query.filter(getattr(Job, key) == value)
+        
+        # Apply comprehensive search if search term is provided
+        if search_term:
+            search_term_sanitized = sanitize_filter_value(search_term.strip() if search_term else '')
+            if search_term_sanitized:
+                # Convert search term to different date formats if needed
+                converted_term = search_term_sanitized
+                try:
+                    from datetime import datetime
+                    date_formats = ['%d/%m/%Y', '%d-%m-%Y']
+                    for fmt in date_formats:
+                        try:
+                            search_date = datetime.strptime(search_term_sanitized, fmt)
+                            converted_term = search_date.strftime('%Y-%m-%d')
+                            break
+                        except ValueError:
+                            continue
+                except Exception:
+                    pass
+                
+                # Create a search pattern for LIKE queries
+                search_pattern = f'%{converted_term}%'
+                
+                # For numeric-only search terms, match exact job ID and partial booking_ref (as per acceptance criteria)
+                if search_term_sanitized.isdigit():
+                    exact_job_id = int(search_term_sanitized)
+                    search_pattern = f'%{search_term_sanitized}%'
+                    query = query.filter(
+                        or_(
+                            Job.id == exact_job_id,
+                            Job.booking_ref.ilike(search_pattern)
+                        )
+                    )
+                else:
+                    # For non-numeric searches, join tables as needed for related fields
+                    if not joined_customer:
+                        query = query.join(Customer)
+                        joined_customer = True
+                    if not joined_driver:
+                        query = query.outerjoin(Driver, Job.driver_id == Driver.id)
+                        joined_driver = True
+                    if not joined_vehicle:
+                        query = query.outerjoin(Vehicle, Job.vehicle_id == Vehicle.id)
+                        joined_vehicle = True
+                    if not joined_contractor:
+                        query = query.outerjoin(Contractor, Job.contractor_id == Contractor.id)
+                        joined_contractor = True
+                    if not joined_vehicle_type:
+                        query = query.outerjoin(VehicleType, Job.vehicle_type_id == VehicleType.id)
+                        joined_vehicle_type = True
+                    
+                    # Apply search across multiple fields using OR condition
+                    search_conditions = [
+                        Job.id.cast(db.String).ilike(search_pattern),  # job_id
+                        Job.passenger_name.ilike(search_pattern),  # passenger_name
+                        func.coalesce(Job.passenger_email, '').ilike(search_pattern),  # passenger_email
+                        func.coalesce(Job.passenger_mobile, '').ilike(search_pattern),  # passenger_mobile
+                        Job.booking_ref.ilike(search_pattern),  # booking_ref
+                        Job.pickup_location.ilike(search_pattern),  # pickup_location
+                        Job.dropoff_location.ilike(search_pattern),  # dropoff_location
+                        func.coalesce(Job.service_type, '').ilike(search_pattern),  # service_type
+                        Job.pickup_date.ilike(search_pattern),  # pickup_date
+                        func.coalesce(Job.pickup_time, '').ilike(search_pattern),  # pickup_time
+                        Customer.name.ilike(search_pattern),  # customer_name
+                        func.coalesce(Customer.email, '').ilike(search_pattern),  # customer_email
+                        func.coalesce(Job.sub_customer_name, '').ilike(search_pattern),  # sub_customer_name
+                        func.coalesce(Driver.name, '').ilike(search_pattern),  # driver_name
+                        func.coalesce(Vehicle.number, '').ilike(search_pattern),  # vehicle_name
+                        func.coalesce(Contractor.name, '').ilike(search_pattern),  # contractor_name
+                        func.coalesce(VehicleType.name, '').ilike(search_pattern)  # vehicle_type_name
+                    ]
+                    
+                    # For non-numeric searches, apply search across multiple fields
+                    query = query.filter(or_(*search_conditions))
         
         total = query.count()
         
@@ -669,11 +769,17 @@ def jobs_table():
                             }
                             for r in remarks
                 ]
+        # Determine if results were limited
+        # isLimited should indicate if the results were artificially capped
+        is_limited = len(job_items) == page_size and page_size >= 100
+        
         return jsonify({
             'items': job_items,
             'total': total,
             'page': page,
-            'pageSize': page_size
+            'pageSize': page_size,
+            'isLimited': is_limited,
+            'search': search_term or ''
         }), 200
     except Exception as e:
         logging.error(f"Unhandled error in jobs_table: {e}", exc_info=True)

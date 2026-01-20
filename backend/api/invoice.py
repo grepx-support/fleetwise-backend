@@ -19,10 +19,32 @@ from backend.models.invoice import Payment
  
 from werkzeug.utils import secure_filename
 @invoice_bp.route('/invoices', methods=['GET'])
-@roles_accepted('admin','accountant', 'manager')
+@auth_required()
 def list_invoices():
     try:
-        invoices = InvoiceService.get_all()
+        # Check if user is admin/manager/accountant - allow all invoices
+        if (current_user.has_role('admin') or current_user.has_role('manager') or 
+            current_user.has_role('accountant')):
+            invoices = InvoiceService.get_all()
+        else:
+            # For other users (like customers), filter by their associated customer_id
+            # Get the customer_id from query parameters
+            requested_customer_id = request.args.get('customer_id', type=int)
+            
+            # For customer users, we need to check if they're requesting their own invoices
+            # Customer users typically have a customer_id property or are linked to a customer
+            user_customer_id = getattr(current_user, 'customer_id', None)
+            
+            # Allow access if:
+            # 1. The requested customer_id matches the user's customer_id, OR
+            # 2. The user is a customer and no specific customer_id was requested (default to their own)
+            if (requested_customer_id and user_customer_id and requested_customer_id == user_customer_id) or \
+               (not requested_customer_id and user_customer_id):
+                target_customer_id = requested_customer_id or user_customer_id
+                invoices = InvoiceService.get_by_customer_id(target_customer_id)
+            else:
+                invoices = []  # Return empty list if not authorized
+        
         return jsonify(schema_many.dump(invoices)), 200
     except ServiceError as se:
         return jsonify({'error': se.message}), 400
