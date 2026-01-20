@@ -259,7 +259,6 @@ blueprints = [
     ('reports', '/api'),
     ('driver_leave', '/api'),
     ('leave_override', '/api'),
-    ('pipeline', '/api')
     ('pipeline', '/api'),
     ('job_monitoring', '/api')
 ]
