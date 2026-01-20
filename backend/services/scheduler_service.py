@@ -27,7 +27,7 @@ class SchedulerService:
         )
         logger.info("Scheduled job: Token cleanup at 2:00 AM daily")
         
-        # Run job monitoring every 10 minutes to check for overdue jobs
+        # Run job monitoring every 10 minutes to check for overdue jobs (temporarily for testing)
         self.scheduler.add_job(
             func=self.monitor_overdue_jobs,
             trigger="interval",
@@ -63,8 +63,9 @@ class SchedulerService:
     def monitor_overdue_jobs(self):
         """Monitor jobs that haven't started within the configured threshold minutes of pickup time"""
         try:
-            from flask import current_app
-            with current_app.app_context():
+            # Import the app instance directly from the module
+            from backend.server import app
+            with app.app_context():
                 # Get custom monitoring settings
                 from backend.api.job_monitoring import get_monitoring_settings_from_db
                 settings = get_monitoring_settings_from_db()
@@ -80,7 +81,7 @@ class SchedulerService:
                 reminder_interval = settings.get('reminder_interval_minutes', 10)
                 
                 logger.info(f"Using max reminders: {max_reminders}, reminder interval: {reminder_interval} minutes")
-                logger.info(f"Note: Scheduler runs every 10 minutes, but your reminder interval is set to {reminder_interval} minutes")
+                logger.info(f"Note: Scheduler runs every 2 minutes, but your reminder interval is set to {reminder_interval} minutes")
                 
                 for job in overdue_jobs:
                     # Check if there's already an active alert for this job
@@ -106,7 +107,14 @@ class SchedulerService:
                 logger.info(f"Job monitoring completed: checked {len(overdue_jobs)} jobs")
         except Exception as e:
             logger.error(f"Job monitoring failed: {e}", exc_info=True)
-            db.session.rollback()
+            # Create a new app context just for the rollback
+            try:
+                from backend.server import app
+                with app.app_context():
+                    db.session.rollback()
+            except:
+                # If we can't get app context for rollback, log and continue
+                logger.error("Could not perform rollback due to app context issues")
 
     def cleanup_old_alerts(self):
         """Clean up alerts that are older than 24 hours and have been acknowledged/cleared"""
