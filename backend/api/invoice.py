@@ -9,43 +9,54 @@ from backend.models.invoice import Invoice, Payment
 import logging
 from flask_security import roles_required, roles_accepted, auth_required, current_user
 from backend.extensions import db
+import os
+from werkzeug.utils import secure_filename
 
 invoice_bp = Blueprint('invoice', __name__)
 schema = InvoiceSchema(session=db.session)
 schema_many = InvoiceSchema(many=True, session=db.session)
-import os
-from backend.models.invoice import Invoice
-from backend.models.invoice import Payment
- 
-from werkzeug.utils import secure_filename
+
 @invoice_bp.route('/invoices', methods=['GET'])
 @auth_required()
 def list_invoices():
     try:
-        # Check if user is admin/manager/accountant - allow all invoices
-        if (current_user.has_role('admin') or current_user.has_role('manager') or 
+        # Early validation - ensure user has appropriate role or customer association
+        has_privileged_role = (current_user.has_role('admin') or 
+                              current_user.has_role('manager') or 
+                              current_user.has_role('accountant'))
+        has_customer_access = hasattr(current_user, 'customer_id') and current_user.customer_id is not None
+        if not has_privileged_role and not has_customer_access:
+            return jsonify({'error': 'Insufficient permissions'}), 403
+        
+        # Check if user is requesting their own invoices (customer role)
+        customer_id = request.args.get('customer_id', type=int)
+        
+        # If customer_id is provided, verify ownership or admin access
+        if customer_id:
+            # Allow if user is admin/manager/accountant OR if they're the customer requesting their own data
+            if (current_user.has_role('admin') or 
+                current_user.has_role('manager') or 
+                current_user.has_role('accountant') or 
+                (hasattr(current_user, 'customer_id') and current_user.customer_id and current_user.customer_id == customer_id)):
+                invoices = InvoiceService.get_by_customer_id(customer_id)
+                return jsonify(schema_many.dump(invoices)), 200
+            else:
+                return jsonify({'error': 'Forbidden - cannot access other customers invoices'}), 403
+        
+        # If no customer_id provided, check user role for general access
+        if (current_user.has_role('admin') or 
+            current_user.has_role('manager') or 
             current_user.has_role('accountant')):
             invoices = InvoiceService.get_all()
-        else:
-            # For other users (like customers), filter by their associated customer_id
-            # Get the customer_id from query parameters
-            requested_customer_id = request.args.get('customer_id', type=int)
-            
-            # For customer users, we need to check if they're requesting their own invoices
-            # Customer users typically have a customer_id property or are linked to a customer
-            user_customer_id = getattr(current_user, 'customer_id', None)
-            
-            # Allow access if:
-            # 1. The requested customer_id matches the user's customer_id, OR
-            # 2. The user is a customer and no specific customer_id was requested (default to their own)
-            if (requested_customer_id and user_customer_id and requested_customer_id == user_customer_id) or \
-               (not requested_customer_id and user_customer_id):
-                target_customer_id = requested_customer_id or user_customer_id
-                invoices = InvoiceService.get_by_customer_id(target_customer_id)
-            else:
-                invoices = []  # Return empty list if not authorized
+            return jsonify(schema_many.dump(invoices)), 200
+        
+        # Regular customers without customer_id parameter get their own invoices
+        if not hasattr(current_user, 'customer_id') or not current_user.customer_id:
+            return jsonify({'error': 'No customer association found'}), 403
+        invoices = InvoiceService.get_by_customer_id(current_user.customer_id)
         
         return jsonify(schema_many.dump(invoices)), 200
+    
     except ServiceError as se:
         return jsonify({'error': se.message}), 400
     except Exception as e:
@@ -59,8 +70,8 @@ def get_invoice(invoice_id):
         invoice = InvoiceService.get_by_id(invoice_id)
         if not invoice:
             return jsonify({'error': 'Invoice not found'}), 404
-        # Only allow access if admin/manager or the customer who owns the invoice
-        if current_user.has_role('admin') or current_user.has_role('manager') or invoice.customer_id == current_user.id:
+        # Only allow access if admin/manager/accountant or the customer who owns the invoice
+        if current_user.has_role('admin') or current_user.has_role('manager') or current_user.has_role('accountant') or (hasattr(current_user, 'customer_id') and current_user.customer_id and invoice.customer_id == current_user.customer_id):
             return jsonify(schema.dump(invoice)), 200
         return jsonify({'error': 'Forbidden'}), 403
     except ServiceError as se:
@@ -143,8 +154,17 @@ def generate_invoice():
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @invoice_bp.route('/invoices/report', methods=['GET'])
+@auth_required()
 def billing_report():
     try:
+        # Early validation - ensure user has appropriate role or customer association
+        has_privileged_role = (current_user.has_role('admin') or 
+                              current_user.has_role('manager') or 
+                              current_user.has_role('accountant'))
+        has_customer_access = hasattr(current_user, 'customer_id') and current_user.customer_id is not None
+        if not has_privileged_role and not has_customer_access:
+            return jsonify({'error': 'Insufficient permissions'}), 403
+        
         customer_id = request.args.get('customer_id', type=int)
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
@@ -278,10 +298,11 @@ def get_invoice_payments(invoice_id):
     try:
         invoice = Invoice.query.get_or_404(invoice_id)
 
-        # Check permission
+        # Check permission - allow admin/manager/accountant or customer who owns the invoice
         if not (current_user.has_role('admin') or 
                 current_user.has_role('manager') or 
-                invoice.customer_id == current_user.id):
+                current_user.has_role('accountant') or 
+                (hasattr(current_user, 'customer_id') and current_user.customer_id and invoice.customer_id == current_user.customer_id)):
             return jsonify({"error": "Forbidden"}), 403
 
         payments = [
@@ -328,6 +349,12 @@ def add_payment(invoice_id):
         # Lock the invoice row to avoid race conditions
         invoice = Invoice.query.with_for_update().filter_by(id=invoice_id).first_or_404()
 
+        # Check authorization - allow admin/accountant/manager or customer who owns the invoice
+        if not (current_user.has_role('admin') or 
+                current_user.has_role('accountant') or 
+                current_user.has_role('manager') or 
+                (hasattr(current_user, 'customer_id') and current_user.customer_id and invoice.customer_id == current_user.customer_id)):
+            return jsonify({'error': 'Forbidden - cannot add payment to this invoice'}), 403
 
         # Calculate current paid and remaining dynamically
         current_paid = sum(Decimal(str(p.amount)) for p in invoice.payments)
@@ -428,7 +455,7 @@ def add_payment(invoice_id):
 #         if not payment:
 #             return jsonify({"error": "Payment not found"}), 404
 
-        # Delete the payment
+#         # Delete the payment
 #         # payment = Payment.query.get(payment_id)
 #         db.session.delete(payment)
 #         db.session.flush()
@@ -473,9 +500,8 @@ def delete_payment(invoice_id, payment_id):
         if not payment:
             return jsonify({'error': 'Payment not found'}), 404
         #payment = Payment.query.filter_by(id=payment_id, invoice_id=invoice_id).first()
-        if not current_user.has_role('admin') and invoice.customer_id != current_user.id and not payment:
-            return jsonify({'error': 'Forbidden'}), 403
-
+        
+        # Authorization is handled by the @roles_accepted decorator
         # Find the associated invoice
         # invoice = Invoice.query.get_or_404(invoice_id)
 
