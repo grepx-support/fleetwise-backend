@@ -2,7 +2,8 @@ import os
 import sys
 
 # Change to the project root directory
-project_root = r"D:\arti_workspace\GREPX _PROJECTS\fleetwise_backend_clone\orchestrator\repos\fleetwise-backend"
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.environ.get("PROJECT_ROOT", script_dir)
 os.chdir(project_root)
 
 # Add project root to Python path

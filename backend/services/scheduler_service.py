@@ -27,16 +27,17 @@ class SchedulerService:
         )
         logger.info("Scheduled job: Token cleanup at 2:00 AM daily")
         
-        # Run job monitoring every 10 minutes to check for overdue jobs (temporarily for testing)
+        # Run job monitoring with interval from system settings
+        trigger_interval = self._get_trigger_interval()
         self.scheduler.add_job(
             func=self.monitor_overdue_jobs,
             trigger="interval",
-            minutes=10,
+            minutes=trigger_interval,
             id='monitor_overdue_jobs',
             name='Monitor jobs that are overdue to start',
             replace_existing=True
         )
-        logger.info("Scheduled job: Job monitoring every 10 minutes")
+        logger.info(f"Scheduled job: Job monitoring every {trigger_interval} minutes (from system settings)")
         
         # Run alert cleanup daily at 3:00 AM (clear alerts older than 24 hours)
         self.scheduler.add_job(
@@ -47,6 +48,55 @@ class SchedulerService:
             replace_existing=True
         )
         logger.info("Scheduled job: Alert cleanup at 3:00 AM daily")
+
+    def _get_trigger_interval(self):
+        """Get the trigger interval from settings, with fallback to default"""
+        logger.info("Attempting to load trigger interval from system settings...")
+        try:
+            # Import the app instance directly from the module
+            from backend.server import app
+            with app.app_context():
+                logger.info("App context acquired, attempting to load monitoring settings...")
+                from backend.api.job_monitoring import get_monitoring_settings_from_db
+                settings = get_monitoring_settings_from_db()
+                logger.info(f"Raw settings from DB: {settings}")
+                interval = settings.get('trigger_frequency_minutes', 10)
+                logger.info(f"Extracted trigger interval: {interval} minutes")
+                logger.info(f"Full settings loaded: {settings}")
+                return interval
+        except Exception as e:
+            logger.warning(f"Could not load monitoring settings, using default interval (10 min): {e}")
+            logger.exception("Exception details:")
+            return 10
+
+    def update_monitoring_schedule(self):
+        """Update the monitoring job schedule based on current settings"""
+        try:
+            from flask import current_app
+            with current_app.app_context():
+                new_interval = self._get_trigger_interval()
+                
+                # Get the current job
+                job = self.scheduler.get_job('monitor_overdue_jobs')
+                if job:
+                    # Get current interval in minutes (convert from seconds)
+                    current_minutes = int(job.trigger.interval.total_seconds() / 60)
+                    
+                    # Check if the interval has changed
+                    if current_minutes != new_interval:
+                        # Reschedule the job with the new interval
+                        self.scheduler.reschedule_job(
+                            'monitor_overdue_jobs',
+                            trigger='interval',
+                            minutes=new_interval
+                        )
+                        logger.info(f"Rescheduled monitoring job to run every {new_interval} minutes (was {current_minutes})")
+                    else:
+                        logger.debug(f"Monitoring job schedule unchanged: still {new_interval} minutes")
+                else:
+                    logger.warning("Could not find monitoring job to reschedule")
+        except Exception as e:
+            logger.error(f"Error updating monitoring schedule: {e}", exc_info=True)
 
     def cleanup_expired_tokens(self):
         """Clean up expired and used password reset tokens"""
@@ -62,6 +112,7 @@ class SchedulerService:
 
     def monitor_overdue_jobs(self):
         """Monitor jobs that haven't started within the configured threshold minutes of pickup time"""
+        logger.info("=== Starting job monitoring cycle ===")
         try:
             # Import the app instance directly from the module
             from backend.server import app
@@ -72,6 +123,22 @@ class SchedulerService:
                 threshold_minutes = settings.get('pickup_threshold_minutes', 15)
                 
                 logger.info(f"Using pickup threshold: {threshold_minutes} minutes")
+                logger.info(f"Full settings: {settings}")
+                
+                # Check if we need to reschedule ourselves based on the trigger frequency setting
+                desired_interval = settings.get('trigger_frequency_minutes', 10)
+                current_job = self.scheduler.get_job('monitor_overdue_jobs')
+                
+                if current_job:
+                    # Get current interval in minutes
+                    current_interval = int(current_job.trigger.interval.total_seconds() / 60)
+                    if current_interval != desired_interval:
+                        logger.info(f"Rescheduling monitoring job from {current_interval} to {desired_interval} minutes")
+                        self.scheduler.reschedule_job(
+                            'monitor_overdue_jobs',
+                            trigger='interval',
+                            minutes=desired_interval
+                        )
                 
                 # Find jobs that are overdue (confirmed but not started within threshold minutes of pickup time)
                 overdue_jobs = JobMonitoringAlert.find_overdue_jobs(threshold_minutes=threshold_minutes)
@@ -81,7 +148,9 @@ class SchedulerService:
                 reminder_interval = settings.get('reminder_interval_minutes', 10)
                 
                 logger.info(f"Using max reminders: {max_reminders}, reminder interval: {reminder_interval} minutes")
-                logger.info(f"Note: Scheduler runs every 2 minutes, but your reminder interval is set to {reminder_interval} minutes")
+                logger.info(f"Scheduler trigger frequency: {settings.get('trigger_frequency_minutes', 10)} minutes")
+                
+                logger.info(f"Found {len(overdue_jobs)} overdue jobs to process")
                 
                 for job in overdue_jobs:
                     # Check if there's already an active alert for this job
@@ -93,9 +162,18 @@ class SchedulerService:
                     if existing_alert:
                         # Check if we should send another reminder (based on custom interval and max reminders)
                         if existing_alert.reminder_count < max_reminders:
-                            # Update the alert to increment reminder count
-                            JobMonitoringAlert.create_or_update_alert(job.id, job.driver_id)
-                            logger.info(f"Sent reminder #{existing_alert.reminder_count + 1} for job {job.id}")
+                            # Check if enough time has passed since the last reminder
+                            from datetime import datetime
+                            # Use last_reminder_at if available, otherwise fall back to created_at for backward compatibility
+                            last_reminder_time = existing_alert.last_reminder_at or existing_alert.created_at
+                            time_since_last_reminder = (datetime.utcnow() - last_reminder_time).total_seconds() / 60
+                            
+                            if time_since_last_reminder >= reminder_interval:
+                                # Update the alert to increment reminder count
+                                JobMonitoringAlert.create_or_update_alert(job.id, job.driver_id)
+                                logger.info(f"Sent reminder #{existing_alert.reminder_count + 1} for job {job.id} (elapsed: {time_since_last_reminder:.1f} minutes)")
+                            else:
+                                logger.info(f"Skipping reminder for job {job.id} - only {time_since_last_reminder:.1f} minutes elapsed, need {reminder_interval} minutes")
                         else:
                             logger.info(f"Max reminders reached for job {job.id}, skipping")
                     else:
@@ -105,16 +183,13 @@ class SchedulerService:
                 
                 db.session.commit()
                 logger.info(f"Job monitoring completed: checked {len(overdue_jobs)} jobs")
+                logger.info("=== Job monitoring cycle completed ===")
         except Exception as e:
             logger.error(f"Job monitoring failed: {e}", exc_info=True)
-            # Create a new app context just for the rollback
             try:
-                from backend.server import app
-                with app.app_context():
-                    db.session.rollback()
-            except:
-                # If we can't get app context for rollback, log and continue
-                logger.error("Could not perform rollback due to app context issues")
+                db.session.rollback()
+            except Exception as rollback_error:
+                logger.error(f"Job monitoring rollback failed: {rollback_error}", exc_info=True)
 
     def cleanup_old_alerts(self):
         """Clean up alerts that are older than 24 hours and have been acknowledged/cleared"""
@@ -125,12 +200,19 @@ class SchedulerService:
                 cutoff_time = datetime.utcnow() - timedelta(hours=24)
                 
                 # Find alerts that are older than 24 hours and have been acknowledged or cleared
-                from sqlalchemy import and_
+                from sqlalchemy import and_, or_
                 old_alerts = JobMonitoringAlert.query.filter(
-                    JobMonitoringAlert.status.in_(['acknowledged', 'cleared']),
-                    and_(
-                        JobMonitoringAlert.acknowledged_at.isnot(None),
-                        JobMonitoringAlert.acknowledged_at < cutoff_time
+                    or_(
+                        and_(
+                            JobMonitoringAlert.status == 'acknowledged',
+                            JobMonitoringAlert.acknowledged_at.isnot(None),
+                            JobMonitoringAlert.acknowledged_at < cutoff_time,
+                        ),
+                        and_(
+                            JobMonitoringAlert.status == 'cleared',
+                            JobMonitoringAlert.cleared_at.isnot(None),
+                            JobMonitoringAlert.cleared_at < cutoff_time,
+                        ),
                     )
                 ).all()
                 
@@ -148,7 +230,10 @@ class SchedulerService:
         """Start the scheduler"""
         if not self.scheduler.running:
             self.scheduler.start()
-            logger.info("Scheduler service started")
+            logger.info("Scheduler service started successfully")
+            logger.info(f"Scheduler jobs: {[job.id for job in self.scheduler.get_jobs()]}")
+        else:
+            logger.info("Scheduler service was already running")
 
     def shutdown(self):
         """Shutdown the scheduler gracefully"""

@@ -50,8 +50,17 @@ def acknowledge_job_monitoring_alert():
         data = request.get_json()
         alert_id = data.get('alert_id')
         
+        # Validate that alert_id is provided
         if not alert_id:
             return jsonify({'error': 'Alert ID is required'}), 400
+        
+        # Validate that alert_id is a valid integer
+        try:
+            alert_id = int(alert_id)
+            if alert_id <= 0:
+                return jsonify({'error': 'Alert ID must be a positive integer'}), 400
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Alert ID must be a valid integer'}), 400
         
         success = JobMonitoringAlert.acknowledge_alert(alert_id)
         
@@ -211,6 +220,14 @@ def job_monitoring_settings():
                 # Verify the save by reading back immediately
                 verified_settings = get_monitoring_settings_from_db()
                 logger.info(f"Verified settings after save: {verified_settings}")
+                
+                # Update the scheduler with the new settings
+                try:
+                    from backend.services.scheduler_service import scheduler_service
+                    scheduler_service.update_monitoring_schedule()
+                except Exception as e:
+                    logger.error(f"Failed to update scheduler schedule: {e}", exc_info=True)
+                
                 return jsonify({
                     'message': 'Settings updated successfully',
                     'settings': verified_settings
@@ -226,6 +243,45 @@ def job_monitoring_settings():
         return jsonify({'error': 'An error occurred'}), 500
 
 
+@job_monitoring_bp.route('/job-monitoring/debug-settings', methods=['GET'])
+@auth_required()
+@roles_accepted('admin', 'manager')
+def debug_monitoring_settings():
+    """
+    Debug endpoint to check current monitoring settings in database
+    """
+    try:
+        logger.info("=== DEBUG SETTINGS REQUEST ===")
+        
+        # Direct database query
+        all_settings = SystemSettings.query.all()
+        logger.info(f"All system settings records: {len(all_settings)}")
+        
+        for setting in all_settings:
+            logger.info(f"Setting ID: {setting.id}, Key: {setting.setting_key}, Value: {setting.setting_value}")
+        
+        # Specific query for job monitoring config
+        job_settings = SystemSettings.query.filter_by(setting_key='job_monitoring_config').first()
+        if job_settings:
+            logger.info(f"Found job monitoring settings: {job_settings.setting_value}")
+            return jsonify({
+                'found': True,
+                'settings': job_settings.setting_value,
+                'record_id': job_settings.id,
+                'updated_at': job_settings.updated_at.isoformat() if job_settings.updated_at else None
+            }), 200
+        else:
+            logger.info("No job monitoring settings found in database")
+            return jsonify({
+                'found': False,
+                'message': 'No job_monitoring_config settings found'
+            }), 200
+            
+    except Exception as e:
+        logger.error(f"Debug settings error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
 def get_monitoring_settings_from_db():
     """Get current job monitoring settings from database or return defaults"""
     try:
@@ -237,25 +293,35 @@ def get_monitoring_settings_from_db():
         logger.info(f"Database query result: {settings_record}")
         if settings_record:
             logger.info(f"Retrieved setting_value: {settings_record.setting_value}")
+            logger.info(f"Setting record ID: {settings_record.id}")
+            logger.info(f"Updated by user ID: {settings_record.updated_by}")
+            logger.info(f"Updated at: {settings_record.updated_at}")
             # Return the setting_value if it exists, even if it's an empty dict
             if hasattr(settings_record, 'setting_value') and settings_record.setting_value is not None:
+                logger.info(f"Returning settings from database: {settings_record.setting_value}")
                 return settings_record.setting_value
+            else:
+                logger.info("Setting value is None, returning defaults")
         else:
             logger.info("No settings record found in database")
     except Exception as e:
         logger.error(f"Failed to load settings from DB: {e}")
+        logger.exception("Full traceback:")
     
     # Return defaults
     logger.info("Returning default settings")
-    return {
+    defaults = {
         'alert_history_retention_hours': 24,
         'alert_volume': 70,
         'enable_audio_notifications': True,
         'enable_visual_alerts': True,
         'max_alert_reminders': 2,
         'pickup_threshold_minutes': 15,
-        'reminder_interval_minutes': 10
+        'reminder_interval_minutes': 10,
+        'trigger_frequency_minutes': 10
     }
+    logger.info(f"Default settings: {defaults}")
+    return defaults
 
 
 def validate_monitoring_settings(settings):
@@ -268,7 +334,8 @@ def validate_monitoring_settings(settings):
         'alert_volume': (0, 100),  # 0-100%
         'max_alert_reminders': (0, 10),  # 0-10 reminders
         'pickup_threshold_minutes': (1, 120),  # 1-120 minutes
-        'reminder_interval_minutes': (1, 60)  # 1-60 minutes
+        'reminder_interval_minutes': (1, 60),  # 1-60 minutes
+        'trigger_frequency_minutes': (1, 120)  # 1-120 minutes
     }
     
     for field, (min_val, max_val) in numeric_fields.items():

@@ -16,6 +16,7 @@ class JobMonitoringAlert(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     acknowledged_at = db.Column(db.DateTime, nullable=True)
     cleared_at = db.Column(db.DateTime, nullable=True)
+    last_reminder_at = db.Column(db.DateTime, nullable=True)  # Track when last reminder was sent (added via migration)
     
     # Relationships
     job = db.relationship('Job', backref='monitoring_alerts')
@@ -24,28 +25,51 @@ class JobMonitoringAlert(db.Model):
     @classmethod
     def create_or_update_alert(cls, job_id, driver_id):
         """Create a new alert or update existing alert for a job"""
-        # Check if an active alert already exists for this job
-        existing_alert = cls.query.filter_by(
-            job_id=job_id,
-            status='active'
-        ).first()
+        from sqlalchemy.exc import IntegrityError
         
-        if existing_alert:
-            # Update reminder count
-            existing_alert.reminder_count += 1
-            existing_alert.created_at = datetime.utcnow()
-            db.session.commit()
-            return existing_alert
-        else:
-            # Create new alert
-            alert = cls(
+        try:
+            # Use database-level locking to prevent race conditions
+            existing_alert = cls.query.filter_by(
                 job_id=job_id,
-                driver_id=driver_id,
                 status='active'
-            )
-            db.session.add(alert)
-            db.session.commit()
-            return alert
+            ).with_for_update().first()
+            
+            if existing_alert:
+                # Update reminder count only - don't modify created_at to preserve semantic meaning
+                existing_alert.reminder_count += 1
+                # Update the last reminder timestamp
+                existing_alert.last_reminder_at = datetime.utcnow()
+                db.session.commit()
+                return existing_alert
+            else:
+                # Create new alert
+                alert = cls(
+                    job_id=job_id,
+                    driver_id=driver_id,
+                    status='active'
+                )
+                db.session.add(alert)
+                db.session.commit()
+                return alert
+                
+        except IntegrityError as e:
+            # Handle case where another process created the alert between our check and insert
+            db.session.rollback()
+            # Try to get the existing alert that was just created
+            existing_alert = cls.query.filter_by(
+                job_id=job_id,
+                status='active'
+            ).first()
+            if existing_alert:
+                # Update the existing alert - don't modify created_at to preserve semantic meaning
+                existing_alert.reminder_count += 1
+                # Update the last reminder timestamp
+                existing_alert.last_reminder_at = datetime.utcnow()
+                db.session.commit()
+                return existing_alert
+            else:
+                # If still no alert found, re-raise the exception
+                raise
     
     @classmethod
     def get_active_alerts(cls):

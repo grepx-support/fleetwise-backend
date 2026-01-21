@@ -44,6 +44,7 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.Column('acknowledged_at', sa.DateTime(), nullable=True),
     sa.Column('cleared_at', sa.DateTime(), nullable=True),
+    sa.Column('last_reminder_at', sa.DateTime(), nullable=True),  # Track when last reminder was sent
     sa.ForeignKeyConstraint(['driver_id'], ['driver.id'], ondelete='SET NULL'),
     sa.ForeignKeyConstraint(['job_id'], ['job.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
@@ -52,6 +53,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_job_monitoring_alert_driver_id'), 'job_monitoring_alert', ['driver_id'], unique=False)
     op.create_index(op.f('ix_job_monitoring_alert_status'), 'job_monitoring_alert', ['status'], unique=False)
     # ### end Alembic commands ###
+
 
 def downgrade() -> None:
     """Downgrade schema."""
@@ -67,4 +69,3 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_otp_storage_email'), table_name='otp_storage')
     op.drop_table('otp_storage')
     # ### end Alembic commands ###
-
