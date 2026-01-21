@@ -26,23 +26,28 @@ Identify Blocker/Critical/Major issues in changed code only. Flag: functional bu
 
 ## Evidence Standard
 - Reference exact line numbers: `file.js:42-44`
-- Quote ≤3 lines of offending code
+- Quote <=3 lines of offending code
 - Deduplicate identical issues across files
 
 ## Output Format
 For each issue:
 
 [SEVERITY] Brief title
+
 Code:
 ```
 [quoted offending code]
 ```
+
 Impact: Concrete consequence (e.g., "NULL pointer dereference on empty cart causes checkout crash")
+
 Root Cause: Fundamental flaw using first principles
+
 Fix:
 ```
 [corrected code]
 ```
+
 Rationale: Why fix works (2-3 sentences max)
 
 ## Exclusions
