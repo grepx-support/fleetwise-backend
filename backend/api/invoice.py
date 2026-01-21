@@ -16,14 +16,19 @@ invoice_bp = Blueprint('invoice', __name__)
 schema = InvoiceSchema(session=db.session)
 schema_many = InvoiceSchema(many=True, session=db.session)
 
+# Helper function to check if user has privileged role
+def _has_privileged_role(user):
+    """Check if user has admin, manager, or accountant role"""
+    return (user.has_role('admin') or 
+            user.has_role('manager') or 
+            user.has_role('accountant'))
+
 @invoice_bp.route('/invoices', methods=['GET'])
 @auth_required()
 def list_invoices():
     try:
         # Early validation - ensure user has appropriate role or customer association
-        has_privileged_role = (current_user.has_role('admin') or 
-                              current_user.has_role('manager') or 
-                              current_user.has_role('accountant'))
+        has_privileged_role = _has_privileged_role(current_user)
         has_customer_access = hasattr(current_user, 'customer_id') and current_user.customer_id is not None
         if not has_privileged_role and not has_customer_access:
             return jsonify({'error': 'Insufficient permissions'}), 403
@@ -34,19 +39,15 @@ def list_invoices():
         # If customer_id is provided, verify ownership or admin access
         if customer_id:
             # Allow if user is admin/manager/accountant OR if they're the customer requesting their own data
-            if (current_user.has_role('admin') or 
-                current_user.has_role('manager') or 
-                current_user.has_role('accountant') or 
+            if (_has_privileged_role(current_user) or 
                 (hasattr(current_user, 'customer_id') and current_user.customer_id and current_user.customer_id == customer_id)):
                 invoices = InvoiceService.get_by_customer_id(customer_id)
                 return jsonify(schema_many.dump(invoices)), 200
             else:
-                return jsonify({'error': 'Forbidden - cannot access other customers invoices'}), 403
+                return jsonify({'error': "Forbidden - cannot access other customer's invoices"}), 403
         
         # If no customer_id provided, check user role for general access
-        if (current_user.has_role('admin') or 
-            current_user.has_role('manager') or 
-            current_user.has_role('accountant')):
+        if _has_privileged_role(current_user):
             invoices = InvoiceService.get_all()
             return jsonify(schema_many.dump(invoices)), 200
         
@@ -71,7 +72,7 @@ def get_invoice(invoice_id):
         if not invoice:
             return jsonify({'error': 'Invoice not found'}), 404
         # Only allow access if admin/manager/accountant or the customer who owns the invoice
-        if current_user.has_role('admin') or current_user.has_role('manager') or current_user.has_role('accountant') or (hasattr(current_user, 'customer_id') and current_user.customer_id and invoice.customer_id == current_user.customer_id):
+        if _has_privileged_role(current_user) or (hasattr(current_user, 'customer_id') and current_user.customer_id and invoice.customer_id == current_user.customer_id):
             return jsonify(schema.dump(invoice)), 200
         return jsonify({'error': 'Forbidden'}), 403
     except ServiceError as se:

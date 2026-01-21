@@ -148,14 +148,6 @@ class InvoiceService:
     @staticmethod
     def get_by_customer_id(customer_id):
         try:
-            return Invoice.query.filter_by(customer_id=customer_id).all()
-        except Exception as e:
-            logging.error(f"Error fetching invoices by customer_id: {e}", exc_info=True)
-            raise ServiceError("Could not fetch invoices. Please try again later.")
-
-    @staticmethod
-    def get_by_customer_id(customer_id):
-        try:
             if customer_id is None:
                 raise ServiceError("Customer ID is required")
             if not isinstance(customer_id, int) or customer_id <= 0:
