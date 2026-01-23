@@ -33,14 +33,39 @@ def upgrade() -> None:
     op.create_index(op.f('ix_otp_storage_email'), 'otp_storage', ['email'], unique=False)
     op.create_index(op.f('ix_otp_storage_otp'), 'otp_storage', ['otp'], unique=False)
     op.create_index(op.f('ix_otp_storage_expires_at'), 'otp_storage', ['expires_at'], unique=False)
+    
+    # Create table for job monitoring alerts
+    op.create_table('job_monitoring_alert',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('job_id', sa.Integer(), nullable=False),
+    sa.Column('driver_id', sa.Integer(), nullable=True),
+    sa.Column('status', sa.String(length=32), nullable=False),
+    sa.Column('reminder_count', sa.Integer(), nullable=False),
+    sa.Column('created_at', sa.DateTime(), nullable=True),
+    sa.Column('acknowledged_at', sa.DateTime(), nullable=True),
+    sa.Column('cleared_at', sa.DateTime(), nullable=True),
+    sa.Column('last_reminder_at', sa.DateTime(), nullable=True),  # Track when last reminder was sent
+    sa.ForeignKeyConstraint(['driver_id'], ['driver.id'], ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['job_id'], ['job.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_job_monitoring_alert_job_id'), 'job_monitoring_alert', ['job_id'], unique=False)
+    op.create_index(op.f('ix_job_monitoring_alert_driver_id'), 'job_monitoring_alert', ['driver_id'], unique=False)
+    op.create_index(op.f('ix_job_monitoring_alert_status'), 'job_monitoring_alert', ['status'], unique=False)
     # ### end Alembic commands ###
+
 
 def downgrade() -> None:
     """Downgrade schema."""
+    # Drop job monitoring alert table
+    op.drop_index(op.f('ix_job_monitoring_alert_status'), table_name='job_monitoring_alert')
+    op.drop_index(op.f('ix_job_monitoring_alert_driver_id'), table_name='job_monitoring_alert')
+    op.drop_index(op.f('ix_job_monitoring_alert_job_id'), table_name='job_monitoring_alert')
+    op.drop_table('job_monitoring_alert')
+    
     # Drop OTP storage table
     op.drop_index(op.f('ix_otp_storage_expires_at'), table_name='otp_storage')
     op.drop_index(op.f('ix_otp_storage_otp'), table_name='otp_storage')
     op.drop_index(op.f('ix_otp_storage_email'), table_name='otp_storage')
     op.drop_table('otp_storage')
     # ### end Alembic commands ###
-
