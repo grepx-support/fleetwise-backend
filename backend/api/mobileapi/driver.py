@@ -288,6 +288,9 @@ def update_driver_job_status():
             if new_status == JobStatus.OTW.value:
                 if job.start_time is None:
                     job.start_time = datetime.now(timezone.utc)
+                # Clear monitoring alerts when job status is updated to OTW
+                from backend.models.job_monitoring_alert import JobMonitoringAlert
+                JobMonitoringAlert.clear_alert(job_id)
             if new_status in [JobStatus.JC.value, JobStatus.SD.value]:
                 if job.end_time is None:
                     job.end_time = datetime.now(timezone.utc)

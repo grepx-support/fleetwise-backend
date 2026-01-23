@@ -154,6 +154,20 @@ class InvoiceService:
             raise ServiceError("Could not fetch invoices. Please try again later.")
 
     @staticmethod
+    def get_by_customer_id(customer_id):
+        try:
+            if customer_id is None:
+                raise ServiceError("Customer ID is required")
+            if not isinstance(customer_id, int) or customer_id <= 0:
+                raise ServiceError("Invalid customer ID")
+            return Invoice.query.filter_by(customer_id=customer_id).all()
+        except ServiceError:
+            raise
+        except Exception as e:
+            logging.error(f"Error fetching invoices for customer {customer_id}: {e}", exc_info=True)
+            raise ServiceError("Could not fetch invoices. Please try again later.")
+
+    @staticmethod
     def create(data):
         try:
             invoice = Invoice(**data)
@@ -257,7 +271,9 @@ class InvoiceService:
     def get_billing_report(customer_id=None, start_date=None, end_date=None, status=None):
         try:
             query = Invoice.query
-            if customer_id:
+            if customer_id is not None:
+                if not isinstance(customer_id, int) or customer_id <= 0:
+                    raise ServiceError("Invalid customer ID")
                 query = query.filter_by(customer_id=customer_id)
             if status:
                 query = query.filter_by(status=status)
