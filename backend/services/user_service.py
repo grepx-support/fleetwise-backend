@@ -226,11 +226,50 @@ class UserService:
                 roles_to_assign = roles
                 
             if roles_to_assign is not None:
+                # Get old roles before clearing
+                old_roles = [role.name for role in user.roles]
+                
                 user.roles.clear()
                 for role_name in roles_to_assign:
                     role = Role.query.filter_by(name=role_name).first()
                     if role:
                         user.roles.append(role)
+                
+                # After role assignment, check if we need to clear customer_id/driver_id
+                # If user is changing from customer/driver to manager/admin/accountant
+                new_roles = [role.name for role in user.roles]
+                
+                # Check if user had customer or driver role previously but doesn't anymore
+                had_customer_role = 'customer' in old_roles
+                had_driver_role = 'driver' in old_roles
+                has_customer_role = 'customer' in new_roles
+                has_driver_role = 'driver' in new_roles
+                
+                # If user is no longer customer/driver but was before, clear the IDs
+                if not has_customer_role and had_customer_role:
+                    user.customer_id = None
+                if not has_driver_role and had_driver_role:
+                    user.driver_id = None
+                
+                # If user is becoming admin/manager but was customer/driver, clear the IDs
+                is_admin_or_manager = any(role in ['admin', 'manager', 'accountant'] for role in new_roles)
+                was_customer_or_driver = any(role in ['customer', 'driver'] for role in old_roles)
+                
+                if is_admin_or_manager and was_customer_or_driver:
+                    user.customer_id = None
+                    user.driver_id = None
+                
+                # If user is becoming customer/driver but was admin/manager, ensure they select customer/driver
+                is_becoming_customer_or_driver = any(role in ['customer', 'driver'] for role in new_roles)
+                was_admin_or_manager = any(role in ['admin', 'manager', 'accountant'] for role in old_roles)
+                
+                if is_becoming_customer_or_driver and was_admin_or_manager:
+                    # Check if customer_id or driver_id is provided in the data
+                    if 'customer_id' in data and data['customer_id'] is not None:
+                        user.customer_id = data['customer_id']
+                    if 'driver_id' in data and data['driver_id'] is not None:
+                        user.driver_id = data['driver_id']
+
             db.session.commit()
             return user
         except Exception as e:
