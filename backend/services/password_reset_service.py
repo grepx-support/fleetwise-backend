@@ -18,7 +18,8 @@ from backend.utils.validation import (
     validate_password_change_data,
     validate_password_reset_request_data,
     validate_password_reset_data,
-    validate_password_strength
+    validate_password_strength,
+    validate_admin_password_change_data
 )
 
 # Add the import for ThreadPoolExecutor and FutureTimeoutError
@@ -328,6 +329,72 @@ class PasswordResetService:
         except Exception as e:
             db.session.rollback()
             logging.error(f"Error in change_password: {e}", exc_info=True)
+            raise PasswordResetError("Unable to change password. Please try again later.", 500)
+    
+    @staticmethod
+    def admin_change_password(user_id: int, new_password: str) -> bool:
+        """
+        Admin function to change any user's password
+        
+        Args:
+            user_id: ID of the user whose password to change
+            new_password: New password
+            
+        Returns:
+            bool: True if password was changed successfully
+            
+        Raises:
+            PasswordResetError: If validation fails or user not found
+        """
+        try:
+            # Validate input data using admin-specific validation
+            # Create a temporary structure to validate the password
+            temp_validation_data = {
+                'new_password': new_password,
+                'confirm_password': new_password  # We validate strength, not equality with current
+            }
+            is_valid, errors = validate_admin_password_change_data(temp_validation_data)
+            if not is_valid:
+                error_messages = []
+                # Collect only new_password related errors
+                for field, field_errors in errors.items():
+                    if field == 'new_password':
+                        error_messages.extend(field_errors)
+                if error_messages:
+                    raise PasswordResetError(f"Validation failed: {'; '.join(error_messages)}")
+            
+            # Get user
+            user = User.query.get(user_id)
+            if not user or not user.active:
+                raise PasswordResetError("User account not found or inactive.", 400)
+
+            # Check for password reuse
+            recent_passwords = PasswordHistory.get_recent_passwords(user_id, 5)
+            for old_password_hash in recent_passwords:
+                if verify_password(new_password, old_password_hash):
+                    raise PasswordResetError("Cannot reuse any of the last 5 passwords.", 400)
+
+            # Update password
+            hashed_password = hash_password(new_password)
+            user.password = hashed_password
+
+            # Add to password history
+            PasswordHistory.add_to_history(user_id, hashed_password)
+
+            # Commit changes
+            db.session.commit()
+            
+            # Send password change confirmation email
+            PasswordResetService._send_password_change_confirmation_email(user)
+            
+            logging.info(f"Password changed successfully for user {user.email} by admin")
+            return True
+            
+        except PasswordResetError:
+            raise
+        except Exception as e:
+            db.session.rollback()
+            logging.error(f"Error in admin_change_password: {e}", exc_info=True)
             raise PasswordResetError("Unable to change password. Please try again later.", 500)
     
     @staticmethod

@@ -393,3 +393,34 @@ def validate_password_reset_data(data: Dict[str, Any]) -> Tuple[bool, Dict[str, 
         errors['confirm_password'] = ['Password confirmation does not match new password']
     
     return len(errors) == 0, errors
+
+
+def validate_admin_password_change_data(data: Dict[str, Any]) -> Tuple[bool, Dict[str, List[str]]]:
+    """
+    Validate admin password change request data.
+    
+    Args:
+        data: Dictionary containing new_password and confirm_password
+        
+    Returns:
+        Tuple of (is_valid, dict_of_field_errors)
+    """
+    errors = {}
+    
+    # Validate new password
+    new_password = data.get('new_password', '').strip()
+    if not new_password:
+        errors['new_password'] = ['New password is required']
+    else:
+        is_valid, password_errors = validate_password_strength(new_password)
+        if not is_valid:
+            errors['new_password'] = password_errors
+    
+    # Validate confirm password
+    confirm_password = data.get('confirm_password', '').strip()
+    if not confirm_password:
+        errors['confirm_password'] = ['Password confirmation is required']
+    elif new_password and confirm_password != new_password:
+        errors['confirm_password'] = ['Password confirmation does not match new password']
+    
+    return len(errors) == 0, errors
