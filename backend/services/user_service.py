@@ -251,14 +251,6 @@ class UserService:
                 if not has_driver_role and had_driver_role:
                     user.driver_id = None
                 
-                # If user is becoming admin/manager but was customer/driver, clear the IDs
-                is_admin_or_manager = any(role in ['admin', 'manager', 'accountant'] for role in new_roles)
-                was_customer_or_driver = any(role in ['customer', 'driver'] for role in old_roles)
-                
-                if is_admin_or_manager and was_customer_or_driver:
-                    user.customer_id = None
-                    user.driver_id = None
-                
                 # If user is becoming customer/driver but was admin/manager, ensure they select customer/driver
                 is_becoming_customer_or_driver = any(role in ['customer', 'driver'] for role in new_roles)
                 was_admin_or_manager = any(role in ['admin', 'manager', 'accountant'] for role in old_roles)

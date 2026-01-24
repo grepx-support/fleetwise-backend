@@ -175,8 +175,9 @@ def admin_change_password(user_id):
             return jsonify({'error': 'Passwords do not match'}), 400
         
         # Validate password strength
-        if not validate_password_strength(new_password):
-            return jsonify({'error': 'Password must be at least 8 characters with 1 uppercase, 1 lowercase, and 1 number'}), 400
+        is_valid_password, _ = validate_password_strength(new_password)
+        if not is_valid_password:
+            return jsonify({'error': 'Password must be at least 8 characters with 1 uppercase, 1 lowercase, 1 number, and 1 special character'}), 400
         
         success = PasswordResetService.admin_change_password(user_id, new_password)
         
