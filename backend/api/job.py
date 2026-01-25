@@ -2530,7 +2530,12 @@ def reinstate_job(job_id):
 @auth_required()
 def jobs_calendar():
     """
-    Return jobs grouped by driver and date for the next *n* days (default 2).
+    Return jobs grouped by driver and date for the next *n* days (default 2) from a given start date.
+    If no start_date is provided, defaults to today.
+
+    Query parameters:
+    - days: number of days to show (default 2, max 7)
+    - start_date: YYYY-MM-DD format (optional, defaults to today)
 
     Response structure:
     {
@@ -2550,6 +2555,8 @@ def jobs_calendar():
         # 1. Parse & clamp query params
         # ------------------------------------------------------------------
         days_param = request.args.get('days', 2)
+        start_date_param = request.args.get('start_date')
+        
         try:
             days_ahead = int(days_param)
         except ValueError:
@@ -2559,9 +2566,19 @@ def jobs_calendar():
         # ------------------------------------------------------------------
         # 2. Build date range (ISO strings to match Job pickup_date)
         # ------------------------------------------------------------------
-        today = datetime.utcnow().date()
+        if start_date_param:
+            try:
+                # Parse the provided start date
+                start_date = datetime.strptime(start_date_param, '%Y-%m-%d').date()
+            except ValueError:
+                # Invalid date format, fallback to today
+                start_date = datetime.utcnow().date()
+        else:
+            # Default to today if no start_date provided
+            start_date = datetime.utcnow().date()
+            
         date_range = [
-            (today + timedelta(days=i)).strftime('%Y-%m-%d')
+            (start_date + timedelta(days=i)).strftime('%Y-%m-%d')
             for i in range(days_ahead)
         ]
 

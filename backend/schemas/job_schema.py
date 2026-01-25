@@ -27,6 +27,7 @@ class JobSchema(SQLAlchemyAutoSchema):
     dropoff_location = auto_field()
     pickup_date = auto_field()
     pickup_time = auto_field()
+    dropoff_time = auto_field()
     passenger_name = auto_field()
     passenger_email = auto_field()
     passenger_mobile = auto_field()
