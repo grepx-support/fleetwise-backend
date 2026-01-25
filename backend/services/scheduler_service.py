@@ -164,9 +164,18 @@ class SchedulerService:
                         if existing_alert.reminder_count < max_reminders:
                             # Check if enough time has passed since the last reminder
                             from datetime import datetime
+                            import pytz
                             # Use last_reminder_at if available, otherwise fall back to created_at for backward compatibility
                             last_reminder_time = existing_alert.last_reminder_at or existing_alert.created_at
-                            time_since_last_reminder = (datetime.utcnow() - last_reminder_time).total_seconds() / 60
+                            # Ensure both times are in the same timezone for comparison
+                            singapore_tz = pytz.timezone('Asia/Singapore')
+                            current_time_sgt = datetime.now(singapore_tz)
+                            # Convert last_reminder_time to Singapore timezone if it's naive
+                            if last_reminder_time.tzinfo is None:
+                                last_reminder_time_sg = singapore_tz.localize(last_reminder_time)
+                            else:
+                                last_reminder_time_sg = last_reminder_time.astimezone(singapore_tz)
+                            time_since_last_reminder = (current_time_sgt - last_reminder_time_sg).total_seconds() / 60
                             
                             if time_since_last_reminder >= reminder_interval:
                                 # Update the alert to increment reminder count
@@ -197,7 +206,10 @@ class SchedulerService:
             from flask import current_app
             from datetime import datetime, timedelta
             with current_app.app_context():
-                cutoff_time = datetime.utcnow() - timedelta(hours=24)
+                import pytz
+                singapore_tz = pytz.timezone('Asia/Singapore')
+                current_time_sgt = datetime.now(singapore_tz)
+                cutoff_time = current_time_sgt - timedelta(hours=24)
                 
                 # Find alerts that are older than 24 hours and have been acknowledged or cleared
                 from sqlalchemy import and_, or_
