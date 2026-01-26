@@ -68,7 +68,7 @@ def validate_job_row(
     elif service_value not in services:
         error_messages.append(f"Service '{service_value}' not found in database")
     else:
-        validated_data['service_type'] = service_value  # Store service name
+        validated_data['service_id'] = services[service_value]
 
     # Validate contractor (optional)
     contractor_value = row_data.get('contractor', '').strip()
@@ -184,7 +184,7 @@ def get_validation_lookups() -> Dict[str, Any]:
         
         # Get services (active only)
         services = Service.query.filter_by(status='Active').all()
-        service_lookup = {service.name: service.name for service in services}  # Keep name as key and value for compatibility
+        service_lookup = {service.name: service.id for service in services}
 
         # Get contractors (active only)
         contractors = Contractor.query.filter_by(status='Active').all()
@@ -201,7 +201,7 @@ def get_validation_lookups() -> Dict[str, Any]:
 
         if not service_lookup:
             services = Service.query.all()
-            service_lookup = {service.name: service.name for service in services}
+            service_lookup = {service.name: service.id for service in services}
 
         return {
             'customers': customer_lookup,
