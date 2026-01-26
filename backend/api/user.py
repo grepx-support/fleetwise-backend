@@ -5,6 +5,7 @@ from backend.services.driver_auth_service import DriverAuthService, DriverAuthEr
 from backend.schemas.user_schema import UserSchema
 from backend.schemas.customer_schema import CustomerSchema
 from backend.schemas.driver_schema import DriverSchema
+from backend.utils.validation import validate_password_strength, validate_admin_password_change_data
 import logging
 from flask_security.decorators import roles_required, auth_required, roles_accepted
 from flask_security import current_user
@@ -143,6 +144,52 @@ def update_user(user_id):
         return jsonify({'error': se.message}), 400
     except Exception as e:
         logging.error(f"Unhandled error in update_user: {e}", exc_info=True)
+        return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
+
+
+@user_bp.route('/users/<int:user_id>/admin-change-password', methods=['PUT'])
+@roles_required('admin')
+def admin_change_password(user_id):
+    """
+    Admin endpoint to change any user's password
+    
+    Expected JSON:
+    {
+        "new_password": "NewPassword123!",
+        "confirm_password": "NewPassword123!"
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Request body must be JSON'}), 400
+        
+        new_password = data.get('new_password', '').strip()
+        confirm_password = data.get('confirm_password', '').strip()
+        
+        if not new_password:
+            return jsonify({'error': 'New password is required'}), 400
+        if not confirm_password:
+            return jsonify({'error': 'Confirm password is required'}), 400
+        if new_password != confirm_password:
+            return jsonify({'error': 'Passwords do not match'}), 400
+        
+        # Validate password strength
+        is_valid_password, _ = validate_password_strength(new_password)
+        if not is_valid_password:
+            return jsonify({'error': 'Password must be at least 8 characters with 1 uppercase, 1 lowercase, 1 number, and 1 special character'}), 400
+        
+        success = PasswordResetService.admin_change_password(user_id, new_password)
+        
+        if success:
+            return jsonify({'message': 'Password has been changed successfully.'}), 200
+        else:
+            return jsonify({'error': 'Unable to change password. Please try again later.'}), 500
+            
+    except PasswordResetError as pre:
+        return jsonify({'error': pre.message}), pre.code
+    except Exception as e:
+        logging.error(f"Unhandled error in admin_change_password: {e}", exc_info=True)
         return jsonify({'error': 'An unexpected error occurred. Please try again later.'}), 500
 
 @user_bp.route('/users/<int:user_id>', methods=['DELETE'])
