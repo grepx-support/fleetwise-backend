@@ -1543,8 +1543,10 @@ def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=
         preview_rows = []
         valid_count = 0
         error_count = 0
-
-        # Helper function to normalize time format (defined outside loop for performance)
+        xls_duplicate_count = 0
+        db_duplicate_count = 0
+        
+        # First pass: validate rows and collect data (XLS duplicate detection occurs in second pass)
         def normalize_time(time_str):
             """Convert time without colon (e.g., '0900', '930') to HH:MM format"""
             if not time_str:
@@ -1777,11 +1779,77 @@ def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=
                 valid_count += 1
                 preview_rows.append(row_data)
         
-
+        # Second pass: Detect duplicates in valid and error rows
+        # Check for XLS duplicates (within file) and DB duplicates (in database)
+        # Key uses the same fields as confirm_upload: customer, service, pickup_date, pickup_location, dropoff_location, pickup_time
+        seen_combinations = {}  # key: (customer, service, pickup_date, pickup_location, dropoff_location, pickup_time) -> list of row numbers
+        
+        for row_data in preview_rows:
+            # Create combination key for duplicate detection (must match confirm_upload / DB duplicate logic)
+            combination_key = (
+                row_data.get('customer', '').strip(),
+                row_data.get('service', '').strip(),
+                row_data.get('pickup_date', '').strip(),
+                row_data.get('pickup_location', '').strip(),
+                row_data.get('dropoff_location', '').strip(),
+                row_data.get('pickup_time', '').strip()
+            )
+            
+            # Check for XLS duplicate (same data in file) - do this for ALL rows regardless of validity
+            if combination_key in seen_combinations and combination_key != ('', '', '', '', '', ''):
+                # Mark as XLS duplicate (only if not empty fields)
+                was_valid = row_data.get('is_valid', False)
+                row_data['is_valid'] = False
+                row_data['error_message'] = f"Duplicate in file - same customer/service/date/pickup/dropoff/time appears in row(s) {', '.join(map(str, seen_combinations[combination_key]))}"
+                xls_duplicate_count += 1
+                if was_valid:  # If it was valid before, decrement valid count and increment error count
+                    valid_count -= 1
+                    error_count += 1
+            else:
+                # Track this combination for future duplicate detection
+                if combination_key != ('', '', '', '', '', ''):
+                    if combination_key not in seen_combinations:
+                        seen_combinations[combination_key] = []
+                    seen_combinations[combination_key].append(row_data.get('row_number'))
+                
+                # Only check DB duplicates for valid rows
+                if row_data.get('is_valid', False):
+                    # Check for DB duplicate (already in database) - find ALL matching jobs
+                    try:
+                        existing_jobs = Job.query.filter_by(
+                            customer_id=row_data.get('customer_id'),
+                            service_id=row_data.get('service_id'),
+                            pickup_date=row_data.get('pickup_date'),
+                            pickup_location=row_data.get('pickup_location'),
+                            dropoff_location=row_data.get('dropoff_location'),
+                            pickup_time=row_data.get('pickup_time'),
+                            is_deleted=False
+                        ).all()
+                        
+                        if existing_jobs:
+                            # Format all job IDs in the error message
+                            job_ids = [f"#{job.id}" for job in existing_jobs]
+                            job_ids_str = " and ".join(job_ids) if len(job_ids) > 1 else job_ids[0]
+                            
+                            # Mark as DB duplicate
+                            row_data['is_valid'] = False
+                            row_data['error_message'] = f"Duplicate in database - job already exists as Job {job_ids_str}"
+                            db_duplicate_count += 1
+                            valid_count -= 1
+                            error_count += 1
+                        else:
+                            # No duplicate found in DB; combination already tracked for XLS duplicates
+                            pass
+                    except Exception as dup_error:
+                        logging.warning(f"Error checking for database duplicates: {dup_error}")
+                        # Continue processing even if duplicate check fails; duplicate tracking is handled above
+                        pass
         
         return {
             'valid_count': valid_count,
             'error_count': error_count,
+            'xls_duplicate_count': xls_duplicate_count,
+            'db_duplicate_count': db_duplicate_count,
             'rows': preview_rows,
             'json_data': json.dumps(preview_rows),
             'column_mapping': column_map,
@@ -1840,7 +1908,12 @@ def confirm_upload():
             return jsonify({'error': 'No preview data found'}), 400
 
         # Get optional parameter to allow duplicate jobs (for recurring uploads)
+        # Support both 'allow_duplicates' and 'force_create' for backwards compatibility
         allow_duplicates = preview_data.get('allow_duplicates', False)
+        force_create = preview_data.get('force_create', False)
+        
+        if force_create:
+            allow_duplicates = True
 
         if allow_duplicates:
             logging.info("Duplicate detection disabled for this upload (allow_duplicates=True)")
@@ -2017,7 +2090,8 @@ def confirm_upload():
             try:
                 # Check if job already exists (duplicate detection)
                 if not allow_duplicates:
-                    existing_job = Job.query.filter_by(
+                    # Find ALL existing jobs with the same combination (not just the first one)
+                    existing_jobs = Job.query.filter_by(
                         customer_id=job_data['customer_id'],
                         pickup_location=job_data['pickup_location'],
                         dropoff_location=job_data['dropoff_location'],
@@ -2025,14 +2099,18 @@ def confirm_upload():
                         pickup_time=job_data['pickup_time'],
                         service_type=job_data['service_type'],
                         is_deleted=False
-                    ).first()
+                    ).all()
 
-                    if existing_job:
+                    if existing_jobs:
+                        # Format all job IDs in the error message
+                        job_ids = [f"#{job.id}" for job in existing_jobs]
+                        job_ids_str = " and ".join(job_ids) if len(job_ids) > 1 else job_ids[0]
+                        
                         skipped_rows.append({
                             'row_number': row_number,
-                            'reason': f'Duplicate job - already exists as Job #{existing_job.id}'
+                            'reason': f'Duplicate job - already exists as Job {job_ids_str}'
                         })
-                        logging.warning(f"Skipping duplicate job for row {row_number}: Job #{existing_job.id}")
+                        logging.warning(f"Skipping duplicate job for row {row_number}: Job {job_ids_str}")
                         continue
 
                 # Check for driver scheduling conflict
