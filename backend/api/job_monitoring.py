@@ -99,12 +99,14 @@ def update_job_status_otw(job_id):
         
         # Store old status for audit
         old_status = job.status
+        import pytz
+        singapore_tz = pytz.timezone('Asia/Singapore')
         job.status = JobStatus.OTW.value
-        job.updated_at = datetime.utcnow()
+        job.updated_at = datetime.now(singapore_tz).astimezone(pytz.UTC)
         
         # Set start_time if not already set
         if job.start_time is None:
-            job.start_time = datetime.utcnow()
+            job.start_time = datetime.now(singapore_tz).astimezone(pytz.UTC)
         
         # Clear any monitoring alerts for this job
         JobMonitoringAlert.clear_alert(job_id)
@@ -167,9 +169,13 @@ def run_job_monitoring_now():
         # Run the monitoring function directly
         scheduler_service.monitor_overdue_jobs()
         
+        import pytz
+        singapore_tz = pytz.timezone('Asia/Singapore')
+        timestamp_utc = datetime.now(singapore_tz).astimezone(pytz.UTC)
+        
         return jsonify({
             'message': 'Job monitoring completed successfully',
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': timestamp_utc.isoformat()
         }), 200
         
     except Exception as e:

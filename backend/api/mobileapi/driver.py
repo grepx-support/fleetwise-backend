@@ -15,6 +15,11 @@ from backend.models.job_photo import JobPhoto
 from backend.models.photo_config import PhotoConfig
 from backend.models.driver_remark import DriverRemark
 from backend.models.job_audit import JobAudit
+from backend.models.job_monitoring_alert import JobMonitoringAlert
+from backend.models.user import User
+from backend.services.push_notification_service import PushNotificationService
+import pytz
+from dateutil.parser import parse
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import os
@@ -857,3 +862,424 @@ def update_job_collection(job_id: int):
         job_data['updated_at'] = job.updated_at.isoformat()
 
     return jsonify(job_data), 200
+
+
+# ---------------- DRIVER ALERTS ----------------
+@mobile_driver_bp.route('/driver/alerts', methods=['GET'])
+@auth_required()
+@roles_accepted('driver')
+def get_driver_alerts():
+    """
+    Get active delayed trip alerts for the logged-in driver.
+    Returns alerts with job details, elapsed time, and actions.
+    """
+    try:
+        driver_id = current_user.driver_id
+        if not driver_id:
+            return jsonify({'error': 'Driver not authenticated'}), 403
+        
+        # Get active alerts for this driver
+        alerts = JobMonitoringAlert.query.filter(
+            JobMonitoringAlert.driver_id == driver_id,
+            JobMonitoringAlert.status == 'active'
+        ).all()
+        
+        # Preload all jobs referenced by the alerts to avoid N+1 queries
+        job_ids = {alert.job_id for alert in alerts if alert.job_id}
+        jobs_by_id = {}
+        if job_ids:
+            jobs = Job.query.filter(Job.id.in_(job_ids)).all()
+            jobs_by_id = {job.id: job for job in jobs}
+        
+        alert_list = []
+        for alert in alerts:
+            job = jobs_by_id.get(alert.job_id)
+            if job:
+                # Calculate elapsed time since pickup_time
+                elapsed_minutes = None
+                if job.pickup_date and job.pickup_time:
+                    pickup_str = f"{job.pickup_date} {job.pickup_time}"
+                    try:
+                        pickup_datetime = parse(pickup_str)
+                        # If the parsed datetime doesn't have timezone info, assume it's local time
+                        if pickup_datetime.tzinfo is None:
+                            # Use local timezone (assumes the pickup time is in local time, not UTC)
+                            local_tz = pytz.timezone('Asia/Singapore')  # Assuming Singapore timezone
+                            pickup_datetime = local_tz.localize(pickup_datetime)
+                            # Convert to UTC for comparison
+                            pickup_datetime = pickup_datetime.astimezone(pytz.UTC)
+                        else:
+                            # If timezone info exists, convert to UTC for comparison
+                            pickup_datetime = pickup_datetime.astimezone(pytz.UTC)
+                        
+                        current_time = datetime.now(pytz.UTC)
+                        elapsed_seconds = (current_time - pickup_datetime).total_seconds()
+                        elapsed_minutes = int(elapsed_seconds / 60)
+                    except Exception as e:
+                        logging.error(f"Failed to calculate elapsed time for job {job.id}: {e}")
+                
+                # Convert alert created_at to Singapore timezone for consistent display
+                singapore_tz = pytz.timezone('Asia/Singapore')
+                created_at_sg = alert.created_at.astimezone(singapore_tz) if alert.created_at.tzinfo else alert.created_at.replace(tzinfo=pytz.UTC).astimezone(singapore_tz)
+                
+                alert_list.append({
+                    'id': alert.id,
+                    'job_id': job.id,
+                    'job_id_display': f"#{job.id}",
+                    'passenger_name': job.passenger_name,
+                    'pickup_location': job.pickup_location,
+                    'delay_minutes': elapsed_minutes,  # Delay in minutes since pickup time
+                    'pickup_datetime_formatted': f"{job.pickup_date} {job.pickup_time}",  # Combined pickup date and time
+                    'elapsed_minutes': elapsed_minutes,
+                    'reminder_count': alert.reminder_count,
+                    'created_at': created_at_sg.isoformat(),
+                    'actions': [
+                        {'type': 'view_start_trip', 'label': 'View & Start Trip'},
+                        {'type': 'acknowledge', 'label': 'Acknowledge'}
+                    ]
+                })
+        
+        # Get alert count for badge
+        alert_count = len(alert_list)
+        
+        # Use Singapore timezone for the response timestamp
+        singapore_tz = pytz.timezone('Asia/Singapore')
+        timestamp_sg = datetime.now(singapore_tz)
+        
+        return jsonify({
+            'alerts': alert_list,
+            'alert_count': alert_count,
+            'timestamp': timestamp_sg.isoformat()
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Error fetching driver alerts: {e}", exc_info=True)
+        return jsonify({'error': 'An error occurred while fetching alerts'}), 500
+
+
+@mobile_driver_bp.route('/driver/alerts/<int:alert_id>/acknowledge', methods=['POST'])
+@auth_required()
+@roles_accepted('driver')
+def acknowledge_driver_alert(alert_id):
+    """
+    Acknowledge a specific alert, removing it from active alerts.
+    """
+    try:
+        driver_id = current_user.driver_id
+        if not driver_id:
+            return jsonify({'error': 'Driver not authenticated'}), 403
+        
+        # Get the alert and verify it belongs to the driver
+        alert = JobMonitoringAlert.query.filter(
+            JobMonitoringAlert.id == alert_id,
+            JobMonitoringAlert.driver_id == driver_id,
+            JobMonitoringAlert.status == 'active'
+        ).first()
+        
+        if not alert:
+            return jsonify({'error': 'Alert not found or already acknowledged'}), 404
+        
+        # Acknowledge the alert
+        success = JobMonitoringAlert.acknowledge_alert(alert_id)
+        
+        if success:
+            return jsonify({
+                'message': 'Alert acknowledged successfully',
+                'alert_id': alert_id
+            }), 200
+        else:
+            return jsonify({'error': 'Failed to acknowledge alert'}), 500
+            
+    except Exception as e:
+        logging.error(f"Error acknowledging driver alert: {e}", exc_info=True)
+        return jsonify({'error': 'An error occurred while acknowledging alert'}), 500
+
+
+@mobile_driver_bp.route('/driver/push-notification-token', methods=['POST'])
+@auth_required()
+@roles_accepted('driver')
+def update_push_notification_token():
+    """
+    Update the driver's push notification token.
+    """
+    try:
+        driver_id = current_user.driver_id
+        if not driver_id:
+            return jsonify({'error': 'Driver not authenticated'}), 403
+        
+        data = request.get_json()
+        token = data.get('token')
+        platform = data.get('platform', 'android')  # 'android' or 'ios'
+        
+        if not token:
+            return jsonify({'error': 'Push notification token is required'}), 400
+        
+        # Update the user's device token
+        user = User.query.filter_by(driver_id=driver_id).first()
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        if platform.lower() == 'ios':
+            user.ios_device_token = token
+        else:
+            user.android_device_token = token
+        
+        db.session.commit()
+        
+        return jsonify({
+            'message': 'Push notification token updated successfully',
+            'platform': platform
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Error updating push notification token: {e}", exc_info=True)
+        return jsonify({'error': 'An error occurred while updating token'}), 500
+
+
+@mobile_driver_bp.route('/driver/jobs/<int:job_id>/start-trip', methods=['POST'])
+@auth_required()
+@roles_accepted('driver')
+def start_trip_from_alert(job_id):
+    """
+    Start a trip directly from an alert, updating job status to OTW.
+    """
+    try:
+        driver_id = current_user.driver_id
+        if not driver_id:
+            return jsonify({'error': 'Driver not authenticated'}), 403
+        
+        # Get the job and verify it belongs to the driver
+        job = Job.query.filter_by(id=job_id, driver_id=driver_id).first()
+        if not job:
+            return jsonify({'error': 'Job not found or not assigned to this driver'}), 404
+        
+        # Check if job can transition to OTW
+        if not job.can_transition_to(JobStatus.OTW.value):
+            return jsonify({
+                'error': f'Job cannot transition from {job.status} to {JobStatus.OTW.value}'
+            }), 400
+        
+        # Store old status for audit
+        old_status = job.status
+        import pytz
+        singapore_tz = pytz.timezone('Asia/Singapore')
+        job.status = JobStatus.OTW.value
+        job.updated_at = datetime.now(singapore_tz).astimezone(pytz.UTC)
+        
+        # Set start_time if not already set
+        if job.start_time is None:
+            job.start_time = datetime.now(singapore_tz).astimezone(pytz.UTC)
+        
+        # Clear any monitoring alerts for this job
+        JobMonitoringAlert.clear_alert(job_id)
+        
+        # Create audit record
+        from backend.models.job_audit import JobAudit
+        audit = JobAudit(
+            job_id=job.id,
+            old_status=old_status,
+            new_status=JobStatus.OTW.value,
+            changed_by=current_user.id if hasattr(request, 'user') and request.user else None
+        )
+        db.session.add(audit)
+        
+        db.session.commit()
+        
+        # Send push notification to driver if available
+        try:
+            if job.driver_id:
+                driver = DriverService.get_by_id(job.driver_id)
+                if driver:
+                    user = User.query.filter_by(driver_id=driver.id).first()
+                    if user:
+                        for token in [user.android_device_token, user.ios_device_token]:
+                            if token:
+                                PushNotificationService.send(
+                                    token=token,
+                                    title="Trip Started",
+                                    body=f"Job #{job.id} status updated to On The Way",
+                                    data={"job_id": str(job.id), "status": "otw"}
+                                )
+        except Exception as e:
+            logging.warning(f"Failed to send push notification for job {job.id}: {e}")
+        
+        return jsonify({
+            'message': 'Trip started successfully',
+            'job_id': job_id,
+            'old_status': old_status,
+            'new_status': JobStatus.OTW.value
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Error starting trip from alert: {e}", exc_info=True)
+        return jsonify({'error': 'An error occurred while starting trip'}), 500
+
+
+@mobile_driver_bp.route('/driver/alerts/history', methods=['GET'])
+@auth_required()
+@roles_accepted('driver')
+def get_driver_alert_history():
+    """
+    Get alert history for the logged-in driver (acknowledged/cleared alerts within 24 hours).
+    """
+    from datetime import timedelta  # Import timedelta locally
+    try:
+        driver_id = current_user.driver_id
+        if not driver_id:
+            return jsonify({'error': 'Driver not authenticated'}), 403
+        
+        # Get alert history for this driver (acknowledged/cleared within last 24 hours)
+        cutoff_time = datetime.now(pytz.UTC) - timedelta(hours=24)
+        
+        # Query that handles both acknowledged_at and cleared_at timestamps
+        from sqlalchemy import and_, or_
+        alerts = JobMonitoringAlert.query.filter(
+            JobMonitoringAlert.driver_id == driver_id,
+            JobMonitoringAlert.status.in_(['acknowledged', 'cleared']),
+            or_(
+                and_(JobMonitoringAlert.status == 'acknowledged', JobMonitoringAlert.acknowledged_at >= cutoff_time),
+                and_(JobMonitoringAlert.status == 'cleared', JobMonitoringAlert.cleared_at >= cutoff_time)
+            )
+        ).order_by(JobMonitoringAlert.created_at.desc()).limit(50).all()
+        
+        # Preload all jobs referenced by the alerts to avoid N+1 queries
+        job_ids = {alert.job_id for alert in alerts if alert.job_id}
+        jobs_by_id = {}
+        if job_ids:
+            jobs = Job.query.filter(Job.id.in_(job_ids)).all()
+            jobs_by_id = {job.id: job for job in jobs}
+        
+        alert_history = []
+        for alert in alerts:
+            job = jobs_by_id.get(alert.job_id)
+            if job:
+                # Determine action taken based on status
+                action_taken = 'acknowledged' if alert.status == 'acknowledged' else 'auto-cleared'
+                timestamp = alert.acknowledged_at if alert.status == 'acknowledged' else alert.cleared_at
+                
+                # Convert all datetime objects to Singapore timezone for consistent display
+                singapore_tz = pytz.timezone('Asia/Singapore')
+                alert_time_sg = alert.created_at.astimezone(singapore_tz) if alert.created_at.tzinfo else alert.created_at.replace(tzinfo=pytz.UTC).astimezone(singapore_tz)
+                
+                if timestamp:
+                    if timestamp.tzinfo:
+                        action_timestamp_sg = timestamp.astimezone(singapore_tz)
+                    else:
+                        action_timestamp_sg = timestamp.replace(tzinfo=pytz.UTC).astimezone(singapore_tz)
+                else:
+                    action_timestamp_sg = None
+                
+                alert_history.append({
+                    'id': alert.id,
+                    'job_id': job.id,
+                    'job_id_display': f"#{job.id}",
+                    'passenger_name': job.passenger_name,
+                    'pickup_location': job.pickup_location,
+                    'alert_time': alert_time_sg.isoformat(),
+                    'action_taken': action_taken,
+                    'action_timestamp': action_timestamp_sg.isoformat() if action_timestamp_sg else None,
+                    'reminder_count': alert.reminder_count
+                })
+        
+        # Use Singapore timezone for the response timestamp
+        singapore_tz = pytz.timezone('Asia/Singapore')
+        timestamp_sg = datetime.now(singapore_tz)
+        
+        return jsonify({
+            'alert_history': alert_history,
+            'total_count': len(alert_history),
+            'timestamp': timestamp_sg.isoformat()
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Error fetching driver alert history: {e}", exc_info=True)
+        return jsonify({'error': 'An error occurred while fetching alert history'}), 500
+
+
+@mobile_driver_bp.route('/driver/jobs-with-alerts', methods=['GET'])
+@auth_required()
+@roles_accepted('driver')
+def get_jobs_with_alerts():
+    """
+    Get jobs with active alerts for the logged-in driver.
+    Used to show visual indicators on job cards.
+    """
+    try:
+        driver_id = current_user.driver_id
+        if not driver_id:
+            return jsonify({'error': 'Driver not authenticated'}), 403
+        
+        # Get active alerts for this driver
+        active_alerts = JobMonitoringAlert.query.filter(
+            JobMonitoringAlert.driver_id == driver_id,
+            JobMonitoringAlert.status == 'active'
+        ).all()
+        
+        # Extract job IDs that have alerts
+        alert_job_ids = [alert.job_id for alert in active_alerts]
+        
+        # Preload all jobs referenced by the alerts to avoid N+1 queries
+        job_ids = {alert.job_id for alert in active_alerts if alert.job_id}
+        jobs_by_id = {}
+        if job_ids:
+            jobs = Job.query.filter(Job.id.in_(job_ids)).all()
+            jobs_by_id = {job.id: job for job in jobs}
+        
+        # Get job details for these alerts
+        jobs_with_alerts = []
+        for alert in active_alerts:
+            job = jobs_by_id.get(alert.job_id)
+            if job:
+                # Calculate elapsed time since pickup_time
+                elapsed_minutes = None
+                if job.pickup_date and job.pickup_time:
+                    pickup_str = f"{job.pickup_date} {job.pickup_time}"
+                    try:
+                        pickup_datetime = parse(pickup_str)
+                        # If the parsed datetime doesn't have timezone info, assume it's local time
+                        if pickup_datetime.tzinfo is None:
+                            # Use local timezone (assumes the pickup time is in local time, not UTC)
+                            local_tz = pytz.timezone('Asia/Singapore')  # Assuming Singapore timezone
+                            pickup_datetime = local_tz.localize(pickup_datetime)
+                            # Convert to UTC for comparison
+                            pickup_datetime = pickup_datetime.astimezone(pytz.UTC)
+                        
+                        current_time = datetime.now(pytz.UTC)
+                        elapsed_seconds = (current_time - pickup_datetime).total_seconds()
+                        elapsed_minutes = int(elapsed_seconds / 60)
+                    except Exception as e:
+                        logging.error(f"Failed to calculate elapsed time for job {job.id}: {e}")
+                
+                # Convert alert created_at to Singapore timezone for consistent display
+                singapore_tz = pytz.timezone('Asia/Singapore')
+                alert_created_at_sg = alert.created_at.astimezone(singapore_tz) if alert.created_at.tzinfo else alert.created_at.replace(tzinfo=pytz.UTC).astimezone(singapore_tz)
+                
+                jobs_with_alerts.append({
+                    'job_id': job.id,
+                    'job_id_display': f"#{job.id}",
+                    'passenger_name': job.passenger_name,
+                    'pickup_location': job.pickup_location,
+                    'delay_minutes': elapsed_minutes,  # Delay in minutes since pickup time
+                    'pickup_datetime_formatted': f"{job.pickup_date} {job.pickup_time}",  # Combined pickup date and time
+                    'pickup_time': job.pickup_time,
+                    'elapsed_minutes': elapsed_minutes,
+                    'reminder_count': alert.reminder_count,
+                    'alert_created_at': alert_created_at_sg.isoformat()
+                })
+        
+        # Use Singapore timezone for the response timestamp
+        singapore_tz = pytz.timezone('Asia/Singapore')
+        timestamp_sg = datetime.now(singapore_tz)
+        
+        return jsonify({
+            'jobs_with_alerts': jobs_with_alerts,
+            'alert_job_ids': alert_job_ids,
+            'alert_count': len(alert_job_ids),
+            'timestamp': timestamp_sg.isoformat()
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Error fetching jobs with alerts: {e}", exc_info=True)
+        return jsonify({'error': 'An error occurred while fetching jobs with alerts'}), 500
