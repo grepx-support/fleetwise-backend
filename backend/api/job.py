@@ -1546,11 +1546,7 @@ def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=
         xls_duplicate_count = 0
         db_duplicate_count = 0
         
-        # Track seen combinations for XLS duplicate detection (within file)
-        seen_combinations = {}  # key: (customer, service, pickup_date) -> list of row numbers
-        
-        # First pass: collect all data and detect XLS duplicates
-        all_rows_data = []
+        # First pass: validate rows and collect data (XLS duplicate detection occurs in second pass)
         def normalize_time(time_str):
             """Convert time without colon (e.g., '0900', '930') to HH:MM format"""
             if not time_str:
@@ -1785,29 +1781,33 @@ def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=
         
         # Second pass: Detect duplicates in valid and error rows
         # Check for XLS duplicates (within file) and DB duplicates (in database)
-        seen_combinations = {}  # key: (customer, service, pickup_date) -> list of row numbers
+        # Key uses the same fields as confirm_upload: customer, service, pickup_date, pickup_location, dropoff_location, pickup_time
+        seen_combinations = {}  # key: (customer, service, pickup_date, pickup_location, dropoff_location, pickup_time) -> list of row numbers
         
         for row_data in preview_rows:
-            # Create combination key for duplicate detection
+            # Create combination key for duplicate detection (must match confirm_upload / DB duplicate logic)
             combination_key = (
                 row_data.get('customer', '').strip(),
                 row_data.get('service', '').strip(),
-                row_data.get('pickup_date', '').strip()
+                row_data.get('pickup_date', '').strip(),
+                row_data.get('pickup_location', '').strip(),
+                row_data.get('dropoff_location', '').strip(),
+                row_data.get('pickup_time', '').strip()
             )
             
             # Check for XLS duplicate (same data in file) - do this for ALL rows regardless of validity
-            if combination_key in seen_combinations and combination_key != ('', '', ''):
+            if combination_key in seen_combinations and combination_key != ('', '', '', '', '', ''):
                 # Mark as XLS duplicate (only if not empty fields)
                 was_valid = row_data.get('is_valid', False)
                 row_data['is_valid'] = False
-                row_data['error_message'] = f"Duplicate in file - same customer/service/date appears in row(s) {', '.join(map(str, seen_combinations[combination_key]))}"
+                row_data['error_message'] = f"Duplicate in file - same customer/service/date/pickup/dropoff/time appears in row(s) {', '.join(map(str, seen_combinations[combination_key]))}"
                 xls_duplicate_count += 1
-                if was_valid:  # If it was valid before, decrement valid count
+                if was_valid:  # If it was valid before, decrement valid count and increment error count
                     valid_count -= 1
-                error_count += 1
+                    error_count += 1
             else:
                 # Track this combination for future duplicate detection
-                if combination_key != ('', '', ''):
+                if combination_key != ('', '', '', '', '', ''):
                     if combination_key not in seen_combinations:
                         seen_combinations[combination_key] = []
                     seen_combinations[combination_key].append(row_data.get('row_number'))
@@ -1819,7 +1819,11 @@ def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=
                         existing_jobs = Job.query.filter_by(
                             customer_id=row_data.get('customer_id'),
                             service_id=row_data.get('service_id'),
-                            pickup_date=row_data.get('pickup_date')
+                            pickup_date=row_data.get('pickup_date'),
+                            pickup_location=row_data.get('pickup_location'),
+                            dropoff_location=row_data.get('dropoff_location'),
+                            pickup_time=row_data.get('pickup_time'),
+                            is_deleted=False
                         ).all()
                         
                         if existing_jobs:
@@ -1834,16 +1838,12 @@ def process_excel_file_preview(file_path, column_mapping=None, is_customer_user=
                             valid_count -= 1
                             error_count += 1
                         else:
-                            # No duplicate found, track this combination
-                            if combination_key not in seen_combinations:
-                                seen_combinations[combination_key] = []
-                            seen_combinations[combination_key].append(row_data.get('row_number'))
+                            # No duplicate found in DB; combination already tracked for XLS duplicates
+                            pass
                     except Exception as dup_error:
                         logging.warning(f"Error checking for database duplicates: {dup_error}")
-                        # Continue processing even if duplicate check fails
-                        if combination_key not in seen_combinations:
-                            seen_combinations[combination_key] = []
-                        seen_combinations[combination_key].append(row_data.get('row_number'))
+                        # Continue processing even if duplicate check fails; duplicate tracking is handled above
+                        pass
         
         return {
             'valid_count': valid_count,
