@@ -19,6 +19,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
+    # Add dropoff_time column to job table
+    op.add_column('job', sa.Column('dropoff_time', sa.String(length=32), nullable=True))
+    
     # Create table for driver leave overrides
     op.create_table('leave_override',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -45,6 +48,9 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
+    # Remove dropoff_time column from job table
+    op.drop_column('job', 'dropoff_time')
+    
     # Drop leave_override table
     op.drop_index('idx_leave_override_created_by', table_name='leave_override')
     op.drop_index('idx_leave_override_leave_date', table_name='leave_override')
