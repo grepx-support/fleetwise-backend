@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import and_, or_
 from backend.models.job import Job
 from backend.models.driver import Driver
+import pytz
 
 
 class JobMonitoringAlert(db.Model):
@@ -100,15 +101,29 @@ class JobMonitoringAlert(db.Model):
             )
         ).order_by(desc(cls.created_at)).all()
         
+        # Preload all jobs and drivers referenced by the alerts to avoid N+1 queries
+        job_ids = {alert.job_id for alert in alerts if alert.job_id}
+        jobs_by_id = {}
+        drivers_by_id = {}
+        
+        if job_ids:
+            jobs = Job.query.filter(Job.id.in_(job_ids)).all()
+            jobs_by_id = {job.id: job for job in jobs}
+            
+            # Get driver IDs for the jobs
+            driver_ids = {job.driver_id for job in jobs if job.driver_id}
+            if driver_ids:
+                drivers = Driver.query.filter(Driver.id.in_(driver_ids)).all()
+                drivers_by_id = {driver.id: driver for driver in drivers}
+        
         # Enhance with job and driver details
         result = []
         for alert in alerts:
-            job = Job.query.get(alert.job_id)
+            job = jobs_by_id.get(alert.job_id)
             if job:
-                driver = Driver.query.get(job.driver_id) if job.driver_id else None
+                driver = drivers_by_id.get(job.driver_id) if job.driver_id else None
                 
                 # Calculate elapsed time since pickup_time
-                import pytz
                 from dateutil.parser import parse
                 
                 pickup_datetime = None
@@ -131,8 +146,6 @@ class JobMonitoringAlert(db.Model):
                     elapsed_minutes = int(elapsed_seconds / 60)
                 
                 # Convert UTC timestamps to Singapore timezone for consistent display
-                import pytz
-                singapore_tz = pytz.timezone('Asia/Singapore')
                 created_at_sgt = alert.created_at.astimezone(singapore_tz)
                 
                 # Also convert acknowledged_at, cleared_at, and last_reminder_at if they exist
@@ -260,7 +273,7 @@ class JobMonitoringAlert(db.Model):
                     try:
                         parsed_date = parse(pickup_date_str)
                         formatted_date = parsed_date.strftime('%Y-%m-%d')
-                    except:
+                    except (ValueError, TypeError):
                         logging.error(f"Cannot parse pickup_date '{pickup_date_str}' for job {job.id}")
                         continue
                 
@@ -306,7 +319,7 @@ class JobMonitoringAlert(db.Model):
                     # If timezone info exists, convert to Singapore timezone for consistency
                     pickup_datetime = pickup_datetime.astimezone(singapore_tz)
                 
-                # Calculate the deadline: pickup time - threshold minutes (subtract threshold from pickup time)
+                # Calculate the deadline: pickup time - threshold minutes (subtract threshold from pickup time for pre-alert detection)
                 deadline = pickup_datetime - timedelta(minutes=threshold_minutes)
                 
                 # Calculate elapsed time for logging (convert both to UTC for accurate calculation)

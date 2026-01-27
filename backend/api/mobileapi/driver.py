@@ -884,9 +884,16 @@ def get_driver_alerts():
             JobMonitoringAlert.status == 'active'
         ).all()
         
+        # Preload all jobs referenced by the alerts to avoid N+1 queries
+        job_ids = {alert.job_id for alert in alerts if alert.job_id}
+        jobs_by_id = {}
+        if job_ids:
+            jobs = Job.query.filter(Job.id.in_(job_ids)).all()
+            jobs_by_id = {job.id: job for job in jobs}
+        
         alert_list = []
         for alert in alerts:
-            job = Job.query.get(alert.job_id)
+            job = jobs_by_id.get(alert.job_id)
             if job:
                 # Calculate elapsed time since pickup_time
                 elapsed_minutes = None
@@ -1055,12 +1062,14 @@ def start_trip_from_alert(job_id):
         
         # Store old status for audit
         old_status = job.status
+        import pytz
+        singapore_tz = pytz.timezone('Asia/Singapore')
         job.status = JobStatus.OTW.value
-        job.updated_at = datetime.now(timezone.utc)
+        job.updated_at = datetime.now(singapore_tz).astimezone(pytz.UTC)
         
         # Set start_time if not already set
         if job.start_time is None:
-            job.start_time = datetime.now(timezone.utc)
+            job.start_time = datetime.now(singapore_tz).astimezone(pytz.UTC)
         
         # Clear any monitoring alerts for this job
         JobMonitoringAlert.clear_alert(job_id)
@@ -1135,9 +1144,16 @@ def get_driver_alert_history():
             )
         ).order_by(JobMonitoringAlert.created_at.desc()).limit(50).all()
         
+        # Preload all jobs referenced by the alerts to avoid N+1 queries
+        job_ids = {alert.job_id for alert in alerts if alert.job_id}
+        jobs_by_id = {}
+        if job_ids:
+            jobs = Job.query.filter(Job.id.in_(job_ids)).all()
+            jobs_by_id = {job.id: job for job in jobs}
+        
         alert_history = []
         for alert in alerts:
-            job = Job.query.get(alert.job_id)
+            job = jobs_by_id.get(alert.job_id)
             if job:
                 # Determine action taken based on status
                 action_taken = 'acknowledged' if alert.status == 'acknowledged' else 'auto-cleared'
@@ -1146,7 +1162,14 @@ def get_driver_alert_history():
                 # Convert all datetime objects to Singapore timezone for consistent display
                 singapore_tz = pytz.timezone('Asia/Singapore')
                 alert_time_sg = alert.created_at.astimezone(singapore_tz) if alert.created_at.tzinfo else alert.created_at.replace(tzinfo=pytz.UTC).astimezone(singapore_tz)
-                action_timestamp_sg = timestamp.astimezone(singapore_tz) if timestamp and timestamp.tzinfo else timestamp.replace(tzinfo=pytz.UTC).astimezone(singapore_tz) if timestamp else None
+                
+                if timestamp:
+                    if timestamp.tzinfo:
+                        action_timestamp_sg = timestamp.astimezone(singapore_tz)
+                    else:
+                        action_timestamp_sg = timestamp.replace(tzinfo=pytz.UTC).astimezone(singapore_tz)
+                else:
+                    action_timestamp_sg = None
                 
                 alert_history.append({
                     'id': alert.id,
@@ -1197,10 +1220,17 @@ def get_jobs_with_alerts():
         # Extract job IDs that have alerts
         alert_job_ids = [alert.job_id for alert in active_alerts]
         
+        # Preload all jobs referenced by the alerts to avoid N+1 queries
+        job_ids = {alert.job_id for alert in active_alerts if alert.job_id}
+        jobs_by_id = {}
+        if job_ids:
+            jobs = Job.query.filter(Job.id.in_(job_ids)).all()
+            jobs_by_id = {job.id: job for job in jobs}
+        
         # Get job details for these alerts
         jobs_with_alerts = []
         for alert in active_alerts:
-            job = Job.query.get(alert.job_id)
+            job = jobs_by_id.get(alert.job_id)
             if job:
                 # Calculate elapsed time since pickup_time
                 elapsed_minutes = None

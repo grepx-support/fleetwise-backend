@@ -99,15 +99,13 @@ def update_job_status_otw(job_id):
         
         # Store old status for audit
         old_status = job.status
-        job.status = JobStatus.OTW.value
         import pytz
         singapore_tz = pytz.timezone('Asia/Singapore')
+        job.status = JobStatus.OTW.value
         job.updated_at = datetime.now(singapore_tz).astimezone(pytz.UTC)
         
         # Set start_time if not already set
         if job.start_time is None:
-            import pytz
-            singapore_tz = pytz.timezone('Asia/Singapore')
             job.start_time = datetime.now(singapore_tz).astimezone(pytz.UTC)
         
         # Clear any monitoring alerts for this job
