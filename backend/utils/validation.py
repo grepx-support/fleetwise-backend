@@ -68,7 +68,7 @@ def validate_job_row(
     elif service_value not in services:
         error_messages.append(f"Service '{service_value}' not found in database")
     else:
-        validated_data['service_type'] = service_value  # Store service name
+        validated_data['service_id'] = services[service_value]
 
     # Validate contractor (optional)
     contractor_value = row_data.get('contractor', '').strip()
@@ -184,7 +184,7 @@ def get_validation_lookups() -> Dict[str, Any]:
         
         # Get services (active only)
         services = Service.query.filter_by(status='Active').all()
-        service_lookup = {service.name: service.name for service in services}  # Keep name as key and value for compatibility
+        service_lookup = {service.name: service.id for service in services}
 
         # Get contractors (active only)
         contractors = Contractor.query.filter_by(status='Active').all()
@@ -201,7 +201,7 @@ def get_validation_lookups() -> Dict[str, Any]:
 
         if not service_lookup:
             services = Service.query.all()
-            service_lookup = {service.name: service.name for service in services}
+            service_lookup = {service.name: service.id for service in services}
 
         return {
             'customers': customer_lookup,
@@ -367,6 +367,37 @@ def validate_password_reset_request_data(data: Dict[str, Any]) -> Tuple[bool, Di
 def validate_password_reset_data(data: Dict[str, Any]) -> Tuple[bool, Dict[str, List[str]]]:
     """
     Validate password reset data (with token).
+    
+    Args:
+        data: Dictionary containing new_password and confirm_password
+        
+    Returns:
+        Tuple of (is_valid, dict_of_field_errors)
+    """
+    errors = {}
+    
+    # Validate new password
+    new_password = data.get('new_password', '').strip()
+    if not new_password:
+        errors['new_password'] = ['New password is required']
+    else:
+        is_valid, password_errors = validate_password_strength(new_password)
+        if not is_valid:
+            errors['new_password'] = password_errors
+    
+    # Validate confirm password
+    confirm_password = data.get('confirm_password', '').strip()
+    if not confirm_password:
+        errors['confirm_password'] = ['Password confirmation is required']
+    elif new_password and confirm_password != new_password:
+        errors['confirm_password'] = ['Password confirmation does not match new password']
+    
+    return len(errors) == 0, errors
+
+
+def validate_admin_password_change_data(data: Dict[str, Any]) -> Tuple[bool, Dict[str, List[str]]]:
+    """
+    Validate admin password change request data.
     
     Args:
         data: Dictionary containing new_password and confirm_password

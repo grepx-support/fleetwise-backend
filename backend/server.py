@@ -345,12 +345,12 @@ def log_response_info(response):
             # Log additional details for authentication failures
             if (request.endpoint and 'login' in str(request.endpoint).lower() and
                 response.status_code == 400):
-                logger.error("🚨 LOGIN FAILURE DETECTED 🚨")
+                logger.error("LOGIN FAILURE DETECTED")
                 if response_data and 'response' in response_data:
                     errors = response_data['response'].get('errors', [])
                     field_errors = response_data['response'].get('field_errors', {})
-                    logger.error(f"🚨 Errors: {errors}")
-                    logger.error(f"🚨 Field errors: {field_errors}")
+                    logger.error(f"Errors: {errors}")
+                    logger.error(f"Field errors: {field_errors}")
         else:
             logger.error(f"Response data: {response.get_data(as_text=True)}")
     return response
