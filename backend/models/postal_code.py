@@ -1,5 +1,5 @@
 from backend.extensions import db
-from datetime import datetime
+from datetime import datetime, timezone
 
 class PostalCode(db.Model):
     __tablename__ = 'postal_codes'
@@ -7,8 +7,8 @@ class PostalCode(db.Model):
     id = db.Column(db.Integer, primary_key=True, index=True)
     postal_code = db.Column(db.String(10), nullable=False, index=True)
     address = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     def to_dict(self):
         return {

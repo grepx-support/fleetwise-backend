@@ -270,9 +270,13 @@ class Job(db.Model):
             # Create naive datetime
             naive_dt = datetime(year, month, day, hour, minute)
             
-            # Localize to display timezone (Singapore) and convert to UTC
-            sg_tz = pytz.timezone('Asia/Singapore')
-            localized_dt = sg_tz.localize(naive_dt)
+            # Get the configured display timezone from settings
+            from backend.utils.timezone_utils import get_display_timezone
+            display_tz_name = get_display_timezone()
+            display_tz = pytz.timezone(display_tz_name)
+            
+            # Localize to display timezone and convert to UTC
+            localized_dt = display_tz.localize(naive_dt)
             utc_dt = localized_dt.astimezone(timezone.utc)
             
             return utc_dt
@@ -286,16 +290,17 @@ class Job(db.Model):
         if utc_dt is None:
             return
         
-        # Convert UTC datetime to Singapore time for display/storage
-        if utc_dt.tzinfo is None:
-            utc_dt = utc_dt.replace(tzinfo=timezone.utc)
+        # Get the configured display timezone from settings
+        from backend.utils.timezone_utils import get_display_timezone
+        display_tz_name = get_display_timezone()
+        display_tz = pytz.timezone(display_tz_name)
         
-        sg_tz = pytz.timezone('Asia/Singapore')
-        sg_dt = utc_dt.astimezone(sg_tz)
+        # Convert UTC datetime to display timezone for storage
+        display_dt = utc_dt.astimezone(display_tz)
         
         # Format date as DD/MM/YYYY and time as HH:MM
-        self.pickup_date = sg_dt.strftime('%d/%m/%Y')
-        self.pickup_time = sg_dt.strftime('%H:%M')
+        self.pickup_date = display_dt.strftime('%d/%m/%Y')
+        self.pickup_time = display_dt.strftime('%H:%M')
     
     @property
     def bill_details(self):
