@@ -238,7 +238,7 @@ class JobMonitoringAlert(db.Model):
                 if pickup_datetime.tzinfo is None:
                     # Use Singapore timezone (as per application configuration)
                     sg_tz = pytz.timezone('Asia/Singapore')
-                    pickup_datetime = sg_tz.localize(pickup_datetime)
+                    pickup_datetime = sg_tz.localize(pickup_datetime, is_dst=None)
                     # Convert to UTC for comparison
                     pickup_datetime = pickup_datetime.astimezone(timezone.utc)
                 else:

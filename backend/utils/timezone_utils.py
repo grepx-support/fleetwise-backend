@@ -30,14 +30,14 @@ def convert_utc_to_display(utc_dt: Union[datetime, str]) -> datetime:
     """
     if isinstance(utc_dt, str):
         # Parse ISO format string to datetime object
+        # Use safe approach: strip Z and make timezone aware
         if utc_dt.endswith('Z'):
-            utc_dt = utc_dt[:-1]  # Remove 'Z' suffix
-        utc_dt = datetime.fromisoformat(utc_dt.replace('Z', '+00:00'))
-    
-    # Ensure the input is timezone-aware in UTC
-    if utc_dt.tzinfo is None:
-        # Assume it's UTC if no timezone info provided
-        utc_dt = utc_dt.replace(tzinfo=timezone.utc)
+            utc_dt = utc_dt[:-1]
+        parsed_dt = datetime.fromisoformat(utc_dt)
+        # Ensure timezone aware in UTC
+        if parsed_dt.tzinfo is None:
+            parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
+        utc_dt = parsed_dt
     elif utc_dt.tzinfo != timezone.utc:
         # Convert to UTC if it's in another timezone
         utc_dt = utc_dt.astimezone(timezone.utc)
@@ -73,17 +73,19 @@ def convert_display_to_utc(display_dt: Union[datetime, str]) -> datetime:
         else:
             # If no timezone info, assume it's in display timezone
             display_tz = pytz.timezone(get_display_timezone())
-            display_dt = display_tz.localize(parsed_dt)
+            display_dt = display_tz.localize(parsed_dt, is_dst=None)
     else:
         # If it's already a datetime object
         if display_dt.tzinfo is None:
             # Assume it's in display timezone
             display_tz = pytz.timezone(get_display_timezone())
-            display_dt = display_tz.localize(display_dt)
-        elif display_dt.tzinfo.zone != get_display_timezone():
-            # Convert to display timezone if it's in another timezone
+            display_dt = display_tz.localize(display_dt, is_dst=None)
+        elif display_dt.tzinfo is not None:
+            # Safely compare timezone zones; stdlib timezones don't have a 'zone' attribute
             display_tz = pytz.timezone(get_display_timezone())
-            display_dt = display_dt.astimezone(display_tz)
+            if getattr(display_dt.tzinfo, "zone", None) != display_tz.zone:
+                # Convert to display timezone if it's in another timezone
+                display_dt = display_dt.astimezone(display_tz)
     
     # Convert to UTC
     utc_dt = display_dt.astimezone(timezone.utc)
@@ -154,7 +156,7 @@ def parse_datetime_string(dt_string: str, tz_aware: bool = True) -> Optional[dat
                 
                 # If it's naive, assume it's in the display timezone and convert to UTC
                 display_tz = pytz.timezone(get_display_timezone())
-                dt = display_tz.localize(dt)
+                dt = display_tz.localize(dt, is_dst=None)
                 dt = dt.astimezone(timezone.utc)
                 
                 return dt

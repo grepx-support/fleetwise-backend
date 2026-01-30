@@ -178,7 +178,7 @@ def create_job():
         errors = schema.validate(data)
         if errors:
             return jsonify(errors), 400
-                    
+        
         # Check for driver scheduling conflict
         driver_id = data.get('driver_id')
         pickup_date = data.get('pickup_date')

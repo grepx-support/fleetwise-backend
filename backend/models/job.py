@@ -276,7 +276,7 @@ class Job(db.Model):
             display_tz = pytz.timezone(display_tz_name)
             
             # Localize to display timezone and convert to UTC
-            localized_dt = display_tz.localize(naive_dt)
+            localized_dt = display_tz.localize(naive_dt, is_dst=None)
             utc_dt = localized_dt.astimezone(timezone.utc)
             
             return utc_dt
