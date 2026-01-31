@@ -1,9 +1,9 @@
 from backend.extensions import db
-from datetime import datetime
+from datetime import datetime, timezone
+import pytz
 from sqlalchemy import and_, or_
 from backend.models.job import Job
 from backend.models.driver import Driver
-import pytz
 
 
 class JobMonitoringAlert(db.Model):
@@ -14,7 +14,7 @@ class JobMonitoringAlert(db.Model):
     driver_id = db.Column(db.Integer, db.ForeignKey('driver.id', ondelete='SET NULL'), nullable=True, index=True)
     status = db.Column(db.String(32), nullable=False, default='active', index=True)  # 'active', 'acknowledged', 'cleared'
     reminder_count = db.Column(db.Integer, nullable=False, default=0)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(pytz.timezone('Asia/Singapore')).astimezone(pytz.UTC))
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     acknowledged_at = db.Column(db.DateTime, nullable=True)
     cleared_at = db.Column(db.DateTime, nullable=True)
     last_reminder_at = db.Column(db.DateTime, nullable=True)  # Track when last reminder was sent (added via migration)
@@ -38,22 +38,17 @@ class JobMonitoringAlert(db.Model):
             if existing_alert:
                 # Update reminder count only - don't modify created_at to preserve semantic meaning
                 existing_alert.reminder_count += 1
-                import pytz
-                # Update the last reminder timestamp with Singapore timezone
-                singapore_tz = pytz.timezone('Asia/Singapore')
-                existing_alert.last_reminder_at = datetime.now(singapore_tz).astimezone(pytz.UTC)
+                # Update the last reminder timestamp
+                existing_alert.last_reminder_at = datetime.now(timezone.utc)
                 db.session.commit()
                 return existing_alert
             else:
                 # Create new alert
-                import pytz
-                # Set created_at with Singapore timezone
-                singapore_tz = pytz.timezone('Asia/Singapore')
                 alert = cls(
                     job_id=job_id,
                     driver_id=driver_id,
                     status='active',
-                    created_at=datetime.now(singapore_tz).astimezone(pytz.UTC)
+                    created_at=datetime.now(timezone.utc)
                 )
                 db.session.add(alert)
                 db.session.commit()
@@ -70,10 +65,8 @@ class JobMonitoringAlert(db.Model):
             if existing_alert:
                 # Update the existing alert - don't modify created_at to preserve semantic meaning
                 existing_alert.reminder_count += 1
-                import pytz
-                # Update the last reminder timestamp with Singapore timezone
-                singapore_tz = pytz.timezone('Asia/Singapore')
-                existing_alert.last_reminder_at = datetime.now(singapore_tz).astimezone(pytz.UTC)
+                # Update the last reminder timestamp
+                existing_alert.last_reminder_at = datetime.now(timezone.utc)
                 db.session.commit()
                 return existing_alert
             else:
@@ -87,10 +80,7 @@ class JobMonitoringAlert(db.Model):
         
         # Get alerts that are still active and not older than 24 hours
         # We keep dismissed alerts for 24 hours as per requirement
-        import pytz
-        singapore_tz = pytz.timezone('Asia/Singapore')
-        current_time_sgt = datetime.now(singapore_tz)
-        cutoff_time = current_time_sgt.astimezone(pytz.UTC)
+        cutoff_time = datetime.now(timezone.utc)
         alerts = cls.query.filter(
             or_(
                 cls.status == 'active',
@@ -130,22 +120,27 @@ class JobMonitoringAlert(db.Model):
                 if job.pickup_date and job.pickup_time:
                     pickup_str = f"{job.pickup_date} {job.pickup_time}"
                     try:
+                        # Parse the pickup datetime string
                         pickup_datetime = parse(pickup_str)
-                        # Assume pickup time is in local timezone, convert to UTC for comparison
-                        pickup_datetime = pickup_datetime.replace(tzinfo=pytz.UTC)
+                        # Since the job pickup_date and pickup_time are stored as strings
+                        # representing local time in Singapore, we need to properly handle timezone conversion
+                        if pickup_datetime.tzinfo is None:
+                            # Assume it's in Singapore timezone
+                            sg_tz = pytz.timezone('Asia/Singapore')
+                            pickup_datetime = sg_tz.localize(pickup_datetime)
+                        # Convert to UTC for comparison
+                        pickup_datetime = pickup_datetime.astimezone(pytz.UTC)
                     except:
                         # If parsing fails, skip elapsed time calculation
                         pickup_datetime = None
                 
                 elapsed_minutes = None
                 if pickup_datetime:
-                    # Use consistent timezone for elapsed time calculation
-                    current_time_sgt = datetime.now(singapore_tz)
-                    current_time_utc = current_time_sgt.astimezone(pytz.UTC)
-                    elapsed_seconds = (current_time_utc - pickup_datetime).total_seconds()
+                    elapsed_seconds = (datetime.now(timezone.utc) - pickup_datetime).total_seconds()
                     elapsed_minutes = int(elapsed_seconds / 60)
                 
                 # Convert UTC timestamps to Singapore timezone for consistent display
+                singapore_tz = pytz.timezone('Asia/Singapore')
                 created_at_sgt = alert.created_at.astimezone(singapore_tz)
                 
                 # Also convert acknowledged_at, cleared_at, and last_reminder_at if they exist
@@ -181,10 +176,8 @@ class JobMonitoringAlert(db.Model):
         """Mark an alert as acknowledged"""
         alert = cls.query.get(alert_id)
         if alert and alert.status == 'active':
-            import pytz
-            # Set acknowledged time with Singapore timezone
-            singapore_tz = pytz.timezone('Asia/Singapore')
-            alert.acknowledged_at = datetime.now(singapore_tz).astimezone(pytz.UTC)
+            alert.status = 'acknowledged'
+            alert.acknowledged_at = datetime.now(timezone.utc)
             db.session.commit()
             return True
         return False
@@ -193,13 +186,9 @@ class JobMonitoringAlert(db.Model):
     def clear_alert(cls, job_id):
         """Clear all alerts for a job when status changes to OTW or job is canceled"""
         alerts = cls.query.filter_by(job_id=job_id).all()
-        import pytz
-        # Set cleared time with Singapore timezone
-        singapore_tz = pytz.timezone('Asia/Singapore')
-        current_time_utc = datetime.now(singapore_tz).astimezone(pytz.UTC)
         for alert in alerts:
             alert.status = 'cleared'
-            alert.cleared_at = current_time_utc
+            alert.cleared_at = datetime.now(timezone.utc)
         db.session.commit()
     
     @classmethod
@@ -208,13 +197,9 @@ class JobMonitoringAlert(db.Model):
         if not job_ids:
             return
         alerts = cls.query.filter(cls.job_id.in_(job_ids)).all()
-        import pytz
-        # Set cleared time with Singapore timezone
-        singapore_tz = pytz.timezone('Asia/Singapore')
-        current_time_utc = datetime.now(singapore_tz).astimezone(pytz.UTC)
         for alert in alerts:
             alert.status = 'cleared'
-            alert.cleared_at = current_time_utc
+            alert.cleared_at = datetime.now(timezone.utc)
         db.session.commit()
     
     @classmethod
@@ -225,22 +210,9 @@ class JobMonitoringAlert(db.Model):
         from datetime import timedelta
         from dateutil.parser import parse
         import logging
-            
-        # Get threshold from system settings if not provided
-        if threshold_minutes is None:
-            try:
-                from backend.api.job_monitoring import get_monitoring_settings_from_db
-                settings = get_monitoring_settings_from_db()
-                threshold_minutes = settings.get('pickup_threshold_minutes', 15)
-            except Exception as e:
-                logging.warning(f"Failed to load threshold from settings, using default 15: {e}")
-                threshold_minutes = 15
-            
-        # Use Singapore timezone consistently for monitoring as per application configuration
-        singapore_tz = pytz.timezone('Asia/Singapore')
-        current_time = datetime.now(singapore_tz)
-        current_time_utc = current_time.astimezone(pytz.UTC)
-        logging.info(f"Job monitoring check at {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')} (Singapore time), threshold: {threshold_minutes} minutes")
+        
+        current_time = datetime.now(timezone.utc)
+        logging.info(f"Job monitoring check at {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')} (UTC), threshold: {threshold_minutes} minutes")
         
         # Find confirmed jobs where pickup_time + threshold_minutes < current_time
         overdue_jobs = []
@@ -259,82 +231,35 @@ class JobMonitoringAlert(db.Model):
         
         for job in jobs:
             try:
-                # More robust date/time parsing
-                # Handle various date formats
-                pickup_date_str = str(job.pickup_date).strip()
-                pickup_time_str = str(job.pickup_time).strip()
-                
-                # Validate and normalize date format (expect YYYY-MM-DD)
-                if len(pickup_date_str) == 10 and pickup_date_str[4] == '-' and pickup_date_str[7] == '-':
-                    # Already in correct format YYYY-MM-DD
-                    formatted_date = pickup_date_str
-                else:
-                    # Try to parse and reformat
-                    try:
-                        parsed_date = parse(pickup_date_str)
-                        formatted_date = parsed_date.strftime('%Y-%m-%d')
-                    except (ValueError, TypeError):
-                        logging.error(f"Cannot parse pickup_date '{pickup_date_str}' for job {job.id}")
-                        continue
-                
-                # Validate and normalize time format (expect HH:MM)
-                if len(pickup_time_str) >= 5 and ':' in pickup_time_str:
-                    # Extract HH:MM portion
-                    time_parts = pickup_time_str.split(':')
-                    if len(time_parts) >= 2:
-                        hour = time_parts[0].zfill(2)  # Pad with leading zero if needed
-                        minute = time_parts[1][:2].zfill(2)  # Take first 2 chars and pad
-                        formatted_time = f"{hour}:{minute}"
-                    else:
-                        logging.error(f"Invalid time format '{pickup_time_str}' for job {job.id}")
-                        continue
-                else:
-                    logging.error(f"Invalid time format '{pickup_time_str}' for job {job.id}")
-                    continue
-                
-                # Construct properly formatted datetime string
-                pickup_str = f"{formatted_date} {formatted_time}"
-                logging.info(f"Parsing datetime for job {job.id}: '{pickup_str}'")
-                
-                # Parse the properly formatted string
+                # Construct full pickup datetime
+                pickup_str = f"{job.pickup_date} {job.pickup_time}"
                 pickup_datetime = parse(pickup_str)
-                
-                # If the parsed datetime doesn't have timezone info, assume it's in Singapore timezone
+                # If the parsed datetime doesn't have timezone info, assume it's local time
                 if pickup_datetime.tzinfo is None:
-                    # Use local timezone (assumes the pickup time is in Singapore timezone)
-                    local_tz = pytz.timezone('Asia/Singapore')  # Singapore timezone
-                    pickup_datetime = local_tz.localize(pickup_datetime)
-                    
-                    # Handle edge case: if pickup time is genuinely in the past
-                    # Only adjust date if pickup time is earlier TODAY and we've already passed it
-                    # AND the job should logically be for tomorrow (like overnight jobs)
-                    if (pickup_datetime.date() == current_time.date() and 
-                        pickup_datetime.time() < current_time.time() and
-                        pickup_datetime.hour < 6):  # Only adjust for early morning times
-                        # This handles cases like job scheduled for 5AM but it's now 1PM
-                        from datetime import timedelta
-                        pickup_datetime = pickup_datetime + timedelta(days=1)
-                        logging.info(f"Adjusted pickup date forward by 1 day for job {job.id}: {pickup_datetime}")
+                    # Use Singapore timezone (as per application configuration)
+                    sg_tz = pytz.timezone('Asia/Singapore')
+                    pickup_datetime = sg_tz.localize(pickup_datetime, is_dst=None)
+                    # Convert to UTC for comparison
+                    pickup_datetime = pickup_datetime.astimezone(timezone.utc)
                 else:
-                    # If timezone info exists, convert to Singapore timezone for consistency
-                    pickup_datetime = pickup_datetime.astimezone(singapore_tz)
+                    # If timezone info exists, convert to UTC for comparison
+                    pickup_datetime = pickup_datetime.astimezone(timezone.utc)
                 
                 # Calculate the deadline: pickup time - threshold minutes (subtract threshold from pickup time for pre-alert detection)
                 deadline = pickup_datetime - timedelta(minutes=threshold_minutes)
                 
                 # Calculate elapsed time for logging (convert both to UTC for accurate calculation)
-                pickup_datetime_utc = pickup_datetime.astimezone(pytz.UTC)
-                current_time_utc = current_time.astimezone(pytz.UTC)
-                elapsed_since_pickup = (current_time_utc - pickup_datetime_utc).total_seconds() / 60
+                current_time_utc = datetime.now(timezone.utc)
+                elapsed_since_pickup = (current_time_utc - pickup_datetime).total_seconds() / 60
                 
-                logging.info(f"Job {job.id}: pickup {pickup_datetime}, threshold {threshold_minutes}, deadline {deadline}, current {current_time}, elapsed {elapsed_since_pickup:.1f} min")
+                logging.info(f"Job {job.id}: pickup {pickup_datetime}, threshold {threshold_minutes}, deadline {deadline}, current {current_time_utc}, elapsed {elapsed_since_pickup:.1f} min")
                 
                 # Check if the pre-alert condition is met (all in same timezone)
-                if deadline <= current_time < pickup_datetime:
-                    logging.info(f"Job {job.id} pre-alert condition met - deadline {deadline} <= current {current_time} < pickup {pickup_datetime}")
+                if deadline <= current_time_utc < pickup_datetime:
+                    logging.info(f"Job {job.id} pre-alert condition met - deadline {deadline} <= current {current_time_utc} < pickup {pickup_datetime}")
                     overdue_jobs.append(job)
                 else:
-                    logging.info(f"Job {job.id} pre-alert condition not met - deadline {deadline} > current {current_time} or current {current_time} >= pickup {pickup_datetime}")
+                    logging.info(f"Job {job.id} pre-alert condition not met - deadline {deadline} > current {current_time_utc} or current {current_time_utc} >= pickup {pickup_datetime}")
             except Exception as e:
                 # If parsing fails, skip this job and log detailed error
                 logging.error(f"Failed to parse datetime for job {job.id}: date='{job.pickup_date}', time='{job.pickup_time}', error: {str(e)}")

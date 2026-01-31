@@ -2,6 +2,8 @@ from backend.extensions import db
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy import false
 from enum import Enum
+from datetime import datetime, timezone
+import pytz
 from backend.models.driver import Driver
 from backend.models.vehicle import Vehicle
 from backend.models.service import Service
@@ -241,6 +243,65 @@ class Job(db.Model):
             minutes = int((duration_seconds % 3600) // 60)
             return f"{hours}h {minutes}m"
 
+    @property
+    def pickup_datetime(self):
+        """Combine pickup_date and pickup_time into a timezone-aware datetime in UTC."""
+        if not self.pickup_date or not self.pickup_time:
+            return None
+        
+        # Parse the date and time strings
+        try:
+            # Parse date (assuming DD/MM/YYYY format)
+            date_parts = self.pickup_date.split('/')
+            if len(date_parts) == 3:
+                day, month, year = map(int, date_parts)
+            else:
+                # Handle other date formats if needed
+                date_parts = self.pickup_date.split('-')
+                if len(date_parts) == 3:
+                    day, month, year = map(int, date_parts)
+                else:
+                    # If format is YYYY-MM-DD
+                    year, month, day = map(int, self.pickup_date.split('-'))
+            
+            # Parse time (assuming HH:MM format)
+            hour, minute = map(int, self.pickup_time.split(':'))
+            
+            # Create naive datetime
+            naive_dt = datetime(year, month, day, hour, minute)
+            
+            # Get the configured display timezone from settings
+            from backend.utils.timezone_utils import get_display_timezone
+            display_tz_name = get_display_timezone()
+            display_tz = pytz.timezone(display_tz_name)
+            
+            # Localize to display timezone and convert to UTC
+            localized_dt = display_tz.localize(naive_dt, is_dst=None)
+            utc_dt = localized_dt.astimezone(timezone.utc)
+            
+            return utc_dt
+        except (ValueError, IndexError):
+            # If parsing fails, return None
+            return None
+    
+    @pickup_datetime.setter
+    def pickup_datetime(self, utc_dt):
+        """Set pickup_date and pickup_time from a UTC datetime."""
+        if utc_dt is None:
+            return
+        
+        # Get the configured display timezone from settings
+        from backend.utils.timezone_utils import get_display_timezone
+        display_tz_name = get_display_timezone()
+        display_tz = pytz.timezone(display_tz_name)
+        
+        # Convert UTC datetime to display timezone for storage
+        display_dt = utc_dt.astimezone(display_tz)
+        
+        # Format date as DD/MM/YYYY and time as HH:MM
+        self.pickup_date = display_dt.strftime('%d/%m/%Y')
+        self.pickup_time = display_dt.strftime('%H:%M')
+    
     @property
     def bill_details(self):
         """Get the associated bill if it exists"""

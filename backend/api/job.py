@@ -10,7 +10,7 @@ import tempfile
 import os
 import json
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import io
 from io import BytesIO
 from flask_security.decorators import roles_accepted, auth_required
@@ -178,7 +178,7 @@ def create_job():
         errors = schema.validate(data)
         if errors:
             return jsonify(errors), 400
-            
+        
         # Check for driver scheduling conflict
         driver_id = data.get('driver_id')
         pickup_date = data.get('pickup_date')
@@ -847,7 +847,7 @@ def download_job_template():
         
         # Create sample data using actual database values
         sample_data = []
-        today = datetime.now()
+        today = datetime.now(timezone.utc)
 
         # Pre-check and extract safe values for optional fields
         contractor_value = contractors[0].name if contractors else ''
@@ -2565,7 +2565,7 @@ def reinstate_job(job_id):
             try:
                 from datetime import datetime
                 pickup_date = datetime.strptime(job.pickup_date, '%Y-%m-%d').date()
-                today = datetime.now().date()
+                today = datetime.now(timezone.utc).date()
                 if pickup_date < today and previous_status in ['new', 'pending', 'confirmed', 'otw']:
                     # Downgrade to 'new' status if pickup date has passed
                     previous_status = 'new'
@@ -2650,10 +2650,10 @@ def jobs_calendar():
                 start_date = datetime.strptime(start_date_param, '%Y-%m-%d').date()
             except ValueError:
                 # Invalid date format, fallback to today
-                start_date = datetime.utcnow().date()
+                start_date = datetime.now(timezone.utc).date()
         else:
             # Default to today if no start_date provided
-            start_date = datetime.utcnow().date()
+            start_date = datetime.now(timezone.utc).date()
             
         date_range = [
             (start_date + timedelta(days=i)).strftime('%Y-%m-%d')
@@ -3561,7 +3561,7 @@ def update_job_status(job_id):
                 if custom_timestamp.tzinfo is None:
                     # For naive timestamps, we'll do a more lenient comparison
                     # Get current time in local timezone
-                    now_local = datetime.now()
+                    now_local = datetime.now(timezone.utc)
                     # If the timestamp is reasonably close to now (within 24 hours), allow it
                     # This handles cases where frontend sends local time without timezone info
                     time_diff = now_local - custom_timestamp
@@ -3569,6 +3569,11 @@ def update_job_status(job_id):
                         return jsonify({
                             'success': False,
                             'message': 'Cannot set future timestamp for status change'
+                        }), 400
+                    elif time_diff.total_seconds() > 86400:  # More than 24 hours in the past
+                        return jsonify({
+                            'success': False,
+                            'message': 'Cannot set timestamp more than 24 hours in the past for status change'
                         }), 400
                     # If it's not clearly in the future, treat it as valid
                 else:
@@ -3578,6 +3583,11 @@ def update_job_status(job_id):
                         return jsonify({
                             'success': False,
                             'message': 'Cannot set future timestamp for status change'
+                        }), 400
+                    elif (now - custom_timestamp).total_seconds() > 86400:  # More than 24 hours in the past
+                        return jsonify({
+                            'success': False,
+                            'message': 'Cannot set timestamp more than 24 hours in the past for status change'
                         }), 400
                 
                 # Validate chronological order with existing audit records

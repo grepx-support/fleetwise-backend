@@ -573,7 +573,7 @@ class JobService:
                         audit_record.new_status = data.get('status', getattr(job_for_compare, 'status', None))
                         audit_record.additional_data = audit_data
                         audit_record.reason = reason
-                        audit_record.changed_at = datetime.now(pytz.timezone('Asia/Singapore'))  # Singapore local time
+                        audit_record.changed_at = datetime.now(timezone.utc)  # UTC time
                         db.session.add(audit_record)
                         db.session.flush()  # Force flush to DB
                         # Do not commit here; let main commit handle it

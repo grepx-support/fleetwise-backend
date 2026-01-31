@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, time
+from datetime import datetime, timezone, time
 from sqlalchemy import and_, or_
 from backend.extensions import db
 from backend.models.leave_override import LeaveOverride
@@ -264,7 +264,7 @@ class LeaveOverrideService:
 
             # Perform soft delete
             override.is_deleted = True
-            override.updated_at = datetime.utcnow()
+            override.updated_at = datetime.now(timezone.utc)
             db.session.commit()
             logger.info(f"Override {override_id} deleted. {len(affected_jobs)} job(s) affected.")
 
@@ -285,7 +285,7 @@ class LeaveOverrideService:
             count = 0
             for override in overrides:
                 override.is_deleted = True
-                override.updated_at = datetime.utcnow()
+                override.updated_at = datetime.now(timezone.utc)
                 count += 1
 
             if count > 0:
