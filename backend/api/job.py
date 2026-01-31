@@ -2668,6 +2668,7 @@ def jobs_calendar():
             Job.query
             .filter(Job.pickup_date.in_(date_range))
             .filter(Job.status.in_(allowed_statuses))
+            .filter(Job.is_deleted.is_(False))  # Filter out deleted jobs
             .options(
                 db.joinedload(Job.driver),
                 db.joinedload(Job.customer)
@@ -2952,7 +2953,8 @@ def jobs_table_unbilled():
                 return jsonify({'error': 'Invalid customer_id'}), 400
         query = Job.query.filter(
             Job.invoice_id == None,
-            Job.status == 'jc'
+            Job.status == 'jc',
+            Job.is_deleted.is_(False)
         )
         if customer_id is not None:
             query = query.filter(Job.customer_id == customer_id)
