@@ -1,10 +1,7 @@
+"""
+Deprecated module.
 
-# --- SYSTEM SETTINGS: TIMEZONE ---
-@settings_bp.route('/settings/system/timezone', methods=['GET'])
-@auth_required()
-def get_system_timezone():
-    """
-    Get the configured system timezone.
-    """
-    from backend.utils.timezone_utils import get_display_timezone
-    return jsonify({'timezone': get_display_timezone()}), 200
+The `/settings/system/timezone` route is now defined in
+`backend/api/settings.py`. This file is kept to avoid import
+errors but intentionally does not register any routes.
+"""

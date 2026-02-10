@@ -8,7 +8,7 @@ in critical services throughout the application.
 import functools
 import time
 import logging
-from typing import Callable, Any, Optional
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -243,7 +243,8 @@ class CircuitBreakerContext:
                     self.cb_state['open'] = True
                     self.cb_state['half_open'] = False
                     logger.error(f"💥 Circuit breaker OPENED for {self.service_name} after {self.cb_state['failures']} failures: {str(exc_val)}")
-                return True  # Suppress the exception
+                # Do not suppress the exception; allow it to propagate
+                return False
         else:
             # Success case
             self.cb_state['failures'] = 0

@@ -44,7 +44,8 @@ class MonitoredSQLAlchemy(SQLAlchemy):
         """Perform a health check on the database connection."""
         try:
             # Execute a simple query to test connectivity
-            result = self.session.execute("SELECT 1").scalar()
+            from sqlalchemy import text
+            result = self.session.execute(text("SELECT 1")).scalar()
             return result == 1
         except Exception as e:
             logger.error(f"Database health check failed: {e}")

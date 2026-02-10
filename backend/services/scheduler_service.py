@@ -1,16 +1,13 @@
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, Any
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR, EVENT_JOB_MISSED
-
-from flask import current_app
 from backend.models.password_reset_token import PasswordResetToken
 from backend.models.job_monitoring_alert import JobMonitoringAlert
-from backend.models.job import Job
 from backend.extensions import db
 
 logger = logging.getLogger(__name__)
@@ -329,8 +326,11 @@ class SchedulerService:
         """Start the scheduler with enhanced logging - only in main process"""
         # Only start scheduler in the main Flask process, not in worker processes
         import os
-        if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
-            logger.info("Scheduler service skipped - not in main process")
+        is_main_process = (os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or 
+                          os.environ.get('ENABLE_SCHEDULER') == 'true')
+        
+        if not is_main_process:
+            logger.info("Scheduler service skipped - not in main process or scheduler not enabled")
             return
             
         if not self.scheduler.running:

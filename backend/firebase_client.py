@@ -1,7 +1,6 @@
 import os
 import logging
 import atexit
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 _firebase_initialized = False
@@ -63,7 +62,7 @@ def initialize_firebase() -> bool:
         
         # Initialize Firebase app
         cred = credentials.Certificate(cred_dict)
-        _firebase_app = firebase_admin.initialize_app(cred, name="fleetwise-app")
+        _firebase_app = firebase_admin.initialize_app(cred)
         _firebase_initialized = True
         
         logger.info("Firebase initialized successfully")
