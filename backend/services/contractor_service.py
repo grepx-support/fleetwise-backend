@@ -1,4 +1,5 @@
 import logging
+import time
 from backend.extensions import db
 from backend.models.contractor import Contractor
 from backend.models.contractor_service_pricing import ContractorServicePricing
@@ -17,6 +18,9 @@ from backend.models.settings import UserSettings
 from sqlalchemy.exc import SQLAlchemyError
 from backend.models.bill import Bill
 from backend.models.driver import Driver
+
+# PDF generation timeout configuration
+PDF_GENERATION_TIMEOUT_SECONDS = 60  # 60 seconds timeout for PDF generation
 
 class ServiceError(Exception):
     def __init__(self, message):
@@ -246,9 +250,20 @@ class ContractorService:
             logging.error(f"Error calculating contractor commission for job {job.id}: {e}", exc_info=True)
             return 0.0
         
-    @staticmethod
-    def contractor_invoice_download(bill_id):
-        try:
+            # Check for timeout at key points
+            if time.time() - start_time > timeout_seconds:
+                current_app.logger.warning(f"PDF generation timed out for bill {bill_id}")
+                raise TimeoutError(f"PDF generation exceeded {timeout_seconds} seconds")
+            
+            bill = Bill.query.filter_by(id=bill_id).first()
+            print("Contractor:", bill.id, bill.contractor_id, bill.driver_id)
+            if not bill:
+                raise ValueError("Contractor not found for bill")
+
+            contractor_date = bill.date.date() if hasattr(bill.date, "date") else bill.date
+            jobs = bill.jobs
+            if not jobs:
+                raise ValueError("No jobs found for contractor bill")
             bill = Bill.query.filter_by(id=bill_id).first()
             print("Contractor:", bill.id, bill.contractor_id, bill.driver_id)
             if not bill:
@@ -359,16 +374,25 @@ class ContractorService:
             temp_pdf = None
 
             try:
+                # Check for timeout before PDF generation
+                if time.time() - start_time > timeout_seconds:
+                    current_app.logger.warning(f"PDF generation timed out before starting for bill {bill_id}")
+                    raise TimeoutError(f"PDF generation exceeded {timeout_seconds} seconds")
                 
                 # Step 1: Write to a temporary file in the same directory (same filesystem)
                 with NamedTemporaryFile(dir=storage_month_dir, suffix=".pdf", delete=False) as tmp_file:
                     temp_pdf = Path(tmp_file.name)
+                    current_app.logger.info(f"Generating PDF for bill {bill_id} at {temp_pdf}")
+                    
+                    pdf_start_time = time.time()
                     pdf_result = generator.generate_invoice(
                         invoice=contractor_invoice,
                         template_name="simple_contractor_invoice",
                         output_path=temp_pdf,
                         format_type=OutputFormat.PDF,
                      )
+                    pdf_duration = time.time() - pdf_start_time
+                    current_app.logger.info(f"PDF generation completed in {pdf_duration:.2f}s for bill {bill_id}")
                     
 
                 # Step 2: Validate that PDF generation succeeded
@@ -383,6 +407,9 @@ class ContractorService:
                 temp_pdf = None  # Prevent cleanup in finally block
                 current_app.logger.info(f"Contractor Invoice PDF saved atomically: {pdf_final_path}")
             
+            except TimeoutError:
+                current_app.logger.error(f"PDF generation timed out for bill {bill_id}")
+                raise
             except Exception as e:
                 current_app.logger.error(
                     f"Error during PDF generation or atomic save for invoice {bill_id}: {e}", 
@@ -400,6 +427,14 @@ class ContractorService:
             
             if not pdf_final_path.exists():
                 raise RuntimeError(f"Contractor Invoice PDF missing after atomic save: {pdf_final_path}")
+            
+            # Final timeout check before returning
+            total_duration = time.time() - start_time
+            if total_duration > timeout_seconds:
+                current_app.logger.warning(f"Overall process timed out for bill {bill_id} after {total_duration:.2f}s")
+                raise TimeoutError(f"Process exceeded {timeout_seconds} seconds")
+            
+            current_app.logger.info(f"Contractor invoice PDF generation completed successfully for bill {bill_id} in {total_duration:.2f}s")
             
             return send_file(
                 pdf_final_path,
