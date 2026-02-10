@@ -11,10 +11,19 @@ from typing import Optional, Union
 def get_display_timezone() -> str:
     """
     Get the configured display timezone from system settings.
-    For now, defaults to Asia/Singapore, but can be extended to read from settings.
+    Defaults to Asia/Singapore if not configured or if outside app context.
     """
-    # In production, this would read from system settings
-    # For now, defaulting to Asia/Singapore as per requirements
+    try:
+        from flask import has_app_context
+        if has_app_context():
+            from backend.models.system_settings import SystemSettings
+            settings = SystemSettings.query.filter_by(setting_key='display_timezone').first()
+            if settings and settings.setting_value:
+                return settings.setting_value.get('timezone', "Asia/Singapore")
+    except Exception:
+        # Fallback if DB access fails or import error
+        pass
+        
     return "Asia/Singapore"
 
 
