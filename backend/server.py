@@ -40,6 +40,10 @@ from flask import Flask, jsonify, request, send_from_directory, abort
 # Enhanced logging setup with rotation
 import logging.handlers
 
+# Import enhanced logging components
+from backend.utils.system_monitor import start_system_monitoring, stop_system_monitoring
+from backend.utils.request_logger import RequestLogger
+
 # Resource monitoring configuration
 RESOURCE_MONITORING_INTERVAL = 60  # Check every 60 seconds
 HIGH_MEMORY_THRESHOLD = 80.0  # Percentage
@@ -176,6 +180,10 @@ except Exception as e:
     logger.error("App will continue, but password reset emails won't work")
     # Don't raise for mail - app can work without it
 
+# Configure request logging
+app.before_request(RequestLogger.before_request)
+app.after_request(RequestLogger.after_request)
+
 # Initialize scheduler for background tasks - only in main process
 try:
     # Only start scheduler if explicitly enabled or in main Flask process
@@ -188,6 +196,11 @@ try:
         logger.info("Scheduler service initialized successfully in main process")
     else:
         logger.info("Scheduler service disabled - not in main process or scheduler not enabled")
+    
+    # Start system monitoring
+    start_system_monitoring()
+    logger.info("System monitoring started")
+    
 except Exception as e:
     logger.error(f"WARNING: Failed to initialize scheduler: {e}")
     logger.error("App will continue, but scheduled tasks won't run")
@@ -321,7 +334,8 @@ blueprints = [
     ('driver_leave', '/api'),
     ('leave_override', '/api'),
     ('pipeline', '/api'),
-    ('job_monitoring', '/api')
+    ('job_monitoring', '/api'),
+    ('frontend_logs', '/api')
 ]
 
 for blueprint_name, prefix in blueprints:
@@ -930,6 +944,13 @@ def uploaded_file(filename):
 def cleanup_logging():
     """Clean up logging handlers gracefully."""
     logger.info("Shutting down logging system...")
+    
+    # Stop system monitoring
+    try:
+        stop_system_monitoring()
+        logger.info("System monitoring stopped")
+    except Exception as e:
+        logger.error(f"Error stopping system monitoring: {e}")
     
     # Close all handlers
     for handler in logging.root.handlers[:]:

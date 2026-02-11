@@ -1,0 +1,27 @@
+[Unit]
+Description=Fleetwise S3 Log Uploader
+After=network.target
+Requires=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/app
+Environment=PYTHONPATH=/app
+EnvironmentFile=/app/config/log_uploader.env
+ExecStart=/usr/bin/python3 /app/scripts/s3_log_uploader.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/app/logs /var/log
+
+[Install]
+WantedBy=multi-user.target
