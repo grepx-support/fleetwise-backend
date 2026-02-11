@@ -1,6 +1,11 @@
 import logging
+import time
+from datetime import datetime
+from typing import Dict, Any
+
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR, EVENT_JOB_MISSED
 from backend.models.password_reset_token import PasswordResetToken
 from backend.models.job_monitoring_alert import JobMonitoringAlert
 from backend.extensions import db
@@ -9,11 +14,41 @@ logger = logging.getLogger(__name__)
 
 
 class SchedulerService:
-    """Service for scheduled background tasks"""
+    """Service for scheduled background tasks with enhanced monitoring and resource management"""
 
     def __init__(self):
         self.scheduler = BackgroundScheduler()
+        self.job_stats = {}
+        self.setup_event_listeners()
         self.setup_jobs()
+        
+    def setup_event_listeners(self):
+        """Setup event listeners for job monitoring."""
+        def job_executed(event):
+            job_id = event.job_id
+            if job_id not in self.job_stats:
+                self.job_stats[job_id] = {'executions': 0, 'errors': 0, 'last_run': None}
+            
+            self.job_stats[job_id]['executions'] += 1
+            self.job_stats[job_id]['last_run'] = datetime.now()
+            logger.info(f"Job {job_id} executed successfully")
+            
+        def job_error(event):
+            job_id = event.job_id
+            if job_id not in self.job_stats:
+                self.job_stats[job_id] = {'executions': 0, 'errors': 0, 'last_run': None}
+            
+            self.job_stats[job_id]['errors'] += 1
+            self.job_stats[job_id]['last_run'] = datetime.now()
+            logger.error(f"Job {job_id} failed: {event.exception}")
+            
+        def job_missed(event):
+            job_id = event.job_id
+            logger.warning(f"Job {job_id} was missed at {event.scheduled_run_time}")
+            
+        self.scheduler.add_listener(job_executed, EVENT_JOB_EXECUTED)
+        self.scheduler.add_listener(job_error, EVENT_JOB_ERROR)
+        self.scheduler.add_listener(job_missed, EVENT_JOB_MISSED)
 
     def setup_jobs(self):
         """Configure all scheduled jobs"""
@@ -99,24 +134,43 @@ class SchedulerService:
             logger.error(f"Error updating monitoring schedule: {e}", exc_info=True)
 
     def cleanup_expired_tokens(self):
-        """Clean up expired and used password reset tokens"""
+        """Clean up expired and used password reset tokens with timeout protection"""
+        start_time = time.time()
+        timeout_seconds = 60  # 1 minute timeout
+        
         try:
             from flask import current_app
             with current_app.app_context():
+                # Check for timeout
+                if time.time() - start_time > timeout_seconds:
+                    logger.warning("Token cleanup timed out during app context setup")
+                    return
+                
                 count = PasswordResetToken.cleanup_expired_tokens()
                 db.session.commit()
                 logger.info(f"Token cleanup completed: {count} tokens removed")
         except Exception as e:
             logger.error(f"Token cleanup failed: {e}", exc_info=True)
-            db.session.rollback()
+            try:
+                db.session.rollback()
+            except Exception as rollback_error:
+                logger.error(f"Token cleanup rollback failed: {rollback_error}", exc_info=True)
 
     def monitor_overdue_jobs(self):
-        """Monitor jobs that haven't started within the configured threshold minutes of pickup time"""
+        """Monitor jobs that haven't started within the configured threshold minutes of pickup time with timeout protection"""
         logger.info("=== Starting job monitoring cycle ===")
+        start_time = time.time()
+        timeout_seconds = 300  # 5 minute timeout
+        
         try:
             # Import the app instance directly from the module
             from backend.server import app
             with app.app_context():
+                # Check for timeout
+                if time.time() - start_time > timeout_seconds:
+                    logger.warning("Job monitoring timed out during app context setup")
+                    return
+                
                 # Get custom monitoring settings
                 from backend.api.job_monitoring import get_monitoring_settings_from_db
                 settings = get_monitoring_settings_from_db()
@@ -152,7 +206,12 @@ class SchedulerService:
                 
                 logger.info(f"Found {len(overdue_jobs)} overdue jobs to process")
                 
-                for job in overdue_jobs:
+                for i, job in enumerate(overdue_jobs):
+                    # Check for timeout periodically
+                    if time.time() - start_time > timeout_seconds:
+                        logger.warning(f"Job monitoring timed out while processing job {i+1}/{len(overdue_jobs)}")
+                        break
+                    
                     # Check if there's already an active alert for this job
                     existing_alert = JobMonitoringAlert.query.filter_by(
                         job_id=job.id,
@@ -201,11 +260,19 @@ class SchedulerService:
                 logger.error(f"Job monitoring rollback failed: {rollback_error}", exc_info=True)
 
     def cleanup_old_alerts(self):
-        """Clean up alerts that are older than 24 hours and have been acknowledged/cleared"""
+        """Clean up alerts that are older than 24 hours and have been acknowledged/cleared with timeout protection"""
+        start_time = time.time()
+        timeout_seconds = 120  # 2 minute timeout
+        
         try:
             from flask import current_app
             from datetime import datetime, timedelta
             with current_app.app_context():
+                # Check for timeout
+                if time.time() - start_time > timeout_seconds:
+                    logger.warning("Alert cleanup timed out during app context setup")
+                    return
+                
                 import pytz
                 singapore_tz = pytz.timezone('Asia/Singapore')
                 current_time_sgt = datetime.now(singapore_tz)
@@ -229,29 +296,115 @@ class SchedulerService:
                 ).all()
                 
                 count = len(old_alerts)
+                logger.info(f"Found {count} old alerts to clean up")
+                
+                # Process alerts with timeout check
+                processed_count = 0
                 for alert in old_alerts:
-                    db.session.delete(alert)
+                    if time.time() - start_time > timeout_seconds:
+                        logger.warning(f"Alert cleanup timed out after processing {processed_count}/{count} alerts")
+                        break
+                    
+                    try:
+                        db.session.delete(alert)
+                        processed_count += 1
+                    except Exception as delete_error:
+                        logger.error(f"Failed to delete alert {alert.id}: {delete_error}")
+                        continue
                 
                 db.session.commit()
-                logger.info(f"Alert cleanup completed: removed {count} old alerts")
+                logger.info(f"Alert cleanup completed: removed {processed_count} old alerts")
+                
         except Exception as e:
             logger.error(f"Alert cleanup failed: {e}", exc_info=True)
-            db.session.rollback()
+            try:
+                db.session.rollback()
+            except Exception as rollback_error:
+                logger.error(f"Alert cleanup rollback failed: {rollback_error}", exc_info=True)
 
     def start(self):
-        """Start the scheduler"""
+        """Start the scheduler with enhanced logging - only in main process"""
+        # Only start scheduler in the main Flask process, not in worker processes
+        import os
+        is_main_process = (os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or 
+                          os.environ.get('ENABLE_SCHEDULER') == 'true')
+        
+        if not is_main_process:
+            logger.info("Scheduler service skipped - not in main process or scheduler not enabled")
+            return
+            
         if not self.scheduler.running:
             self.scheduler.start()
-            logger.info("Scheduler service started successfully")
-            logger.info(f"Scheduler jobs: {[job.id for job in self.scheduler.get_jobs()]}")
+            logger.info("Scheduler service started successfully in main process")
+            jobs = self.scheduler.get_jobs()
+            logger.info(f"Scheduler jobs: {[job.id for job in jobs]}")
+            logger.info(f"Total jobs scheduled: {len(jobs)}")
         else:
             logger.info("Scheduler service was already running")
 
     def shutdown(self):
-        """Shutdown the scheduler gracefully"""
+        """Shutdown the scheduler gracefully with cleanup"""
         if self.scheduler.running:
-            self.scheduler.shutdown()
+            logger.info("Shutting down scheduler service...")
+            # Log final statistics
+            self.log_scheduler_stats()
+            # Shutdown scheduler
+            self.scheduler.shutdown(wait=True)  # Wait for jobs to finish
             logger.info("Scheduler service stopped")
+        
+    def get_stats(self) -> Dict[str, Any]:
+        """Get scheduler statistics and health information."""
+        return {
+            'running': self.scheduler.running,
+            'job_count': len(self.scheduler.get_jobs()),
+            'job_stats': self.job_stats,
+            'next_run_times': {
+                job.id: job.next_run_time.isoformat() if job.next_run_time else None
+                for job in self.scheduler.get_jobs()
+            }
+        }
+        
+    def log_scheduler_stats(self):
+        """Log detailed scheduler statistics."""
+        stats = self.get_stats()
+        logger.info(f"Scheduler Stats: {stats}")
+        
+        # Log individual job performance
+        for job_id, job_stat in self.job_stats.items():
+            success_rate = (
+                job_stat['executions'] / (job_stat['executions'] + job_stat['errors']) * 100
+                if (job_stat['executions'] + job_stat['errors']) > 0 else 0
+            )
+            logger.info(f"Job {job_id}: {job_stat['executions']} executions, "
+                       f"{job_stat['errors']} errors, {success_rate:.1f}% success rate")
+        
+    def pause_job(self, job_id: str) -> bool:
+        """Pause a specific job."""
+        try:
+            self.scheduler.pause_job(job_id)
+            logger.info(f"Job {job_id} paused")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to pause job {job_id}: {e}")
+            return False
+            
+    def resume_job(self, job_id: str) -> bool:
+        """Resume a specific job."""
+        try:
+            self.scheduler.resume_job(job_id)
+            logger.info(f"Job {job_id} resumed")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to resume job {job_id}: {e}")
+            return False
+            
+    def health_check(self) -> bool:
+        """Perform scheduler health check."""
+        try:
+            return self.scheduler.running and len(self.scheduler.get_jobs()) > 0
+        except Exception as e:
+            logger.error(f"Scheduler health check failed: {e}")
+            return False
 
 
 scheduler_service = SchedulerService()

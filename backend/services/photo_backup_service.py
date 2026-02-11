@@ -12,9 +12,14 @@ import os
 import shutil
 import hashlib
 import logging
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
+
+# File size limits (in bytes)
+MAX_PHOTO_SIZE = 10 * 1024 * 1024  # 10MB
+CHUNK_SIZE = 64 * 1024  # 64KB chunks for streaming
 
 logger = logging.getLogger(__name__)
 
@@ -81,9 +86,32 @@ class PhotoBackupService:
             logger.error(f"Failed to create backup directory {backup_path}: {e}")
             raise PhotoBackupError(f"Cannot create backup directory: {str(e)}")
 
+    def validate_file_size(self, file_path: str) -> bool:
+        """
+        Validate that file size is within acceptable limits.
+
+        Args:
+            file_path: Path to file to validate
+
+        Returns:
+            True if file size is acceptable, False otherwise
+        """
+        try:
+            file_size = os.path.getsize(file_path)
+            if file_size > MAX_PHOTO_SIZE:
+                logger.error(f"File too large: {file_path} ({file_size} bytes > {MAX_PHOTO_SIZE} bytes)")
+                return False
+            if file_size == 0:
+                logger.error(f"File is empty: {file_path}")
+                return False
+            return True
+        except Exception as e:
+            logger.error(f"Failed to validate file size for {file_path}: {e}")
+            return False
+    
     def calculate_file_hash(self, file_path: str) -> str:
         """
-        Calculate MD5 hash of file for deduplication.
+        Calculate MD5 hash of file for deduplication with streaming.
 
         Args:
             file_path: Path to file to hash
@@ -96,9 +124,23 @@ class PhotoBackupService:
         """
         try:
             md5_hash = hashlib.md5()
+            file_size = os.path.getsize(file_path)
+            bytes_processed = 0
+            start_time = time.time()
+            
             with open(file_path, 'rb') as f:
-                for chunk in iter(lambda: f.read(8192), b''):
+                while chunk := f.read(CHUNK_SIZE):
                     md5_hash.update(chunk)
+                    bytes_processed += len(chunk)
+                    
+                    # Log progress for large files
+                    if file_size > 5 * 1024 * 1024:  # > 5MB
+                        progress = (bytes_processed / file_size) * 100
+                        if progress % 20 < (CHUNK_SIZE / file_size) * 100:  # Log every ~20%
+                            logger.debug(f"Hashing progress: {progress:.1f}% ({bytes_processed}/{file_size} bytes)")
+            
+            duration = time.time() - start_time
+            logger.debug(f"File hashing completed in {duration:.2f}s ({file_size} bytes)")
             return md5_hash.hexdigest()
         except Exception as e:
             logger.error(f"Failed to calculate hash for {file_path}: {e}")
@@ -176,10 +218,16 @@ class PhotoBackupService:
         """
         temp_file_path = None
         try:
-            # Step 1: Validate source file
+            # Step 1: Validate source file existence and size
             source_path = Path(source_file_path)
             if not source_path.exists():
                 error_msg = f"Source file does not exist: {source_file_path}"
+                logger.error(error_msg)
+                return False, "", error_msg
+                
+            # Validate file size
+            if not self.validate_file_size(source_file_path):
+                error_msg = f"Source file size validation failed: {source_file_path}"
                 logger.error(error_msg)
                 return False, "", error_msg
 
@@ -204,13 +252,39 @@ class PhotoBackupService:
                 logger.info(f"Photo already backed up (idempotent): {relative_path}")
                 return True, relative_path, None
 
-            # Step 6: Copy file to backup directory
+            # Step 6: Copy file to backup directory with streaming
             try:
-                shutil.copy2(source_file_path, str(backup_file_path))
-                logger.info(f"Photo copied to backup: {backup_file_path}")
+                start_time = time.time()
+                file_size = os.path.getsize(source_file_path)
+                bytes_copied = 0
+                
+                with open(source_file_path, 'rb') as src, open(backup_file_path, 'wb') as dst:
+                    while chunk := src.read(CHUNK_SIZE):
+                        dst.write(chunk)
+                        bytes_copied += len(chunk)
+                        
+                        # Log progress for large files
+                        if file_size > 5 * 1024 * 1024:  # > 5MB
+                            progress = (bytes_copied / file_size) * 100
+                            if progress % 20 < (CHUNK_SIZE / file_size) * 100:  # Log every ~20%
+                                logger.debug(f"Copy progress: {progress:.1f}% ({bytes_copied}/{file_size} bytes)")
+                
+                # Preserve metadata
+                shutil.copystat(source_file_path, str(backup_file_path))
+                
+                duration = time.time() - start_time
+                logger.info(f"Photo copied to backup: {backup_file_path} ({duration:.2f}s, {file_size} bytes)")
+                
             except Exception as e:
                 error_msg = f"Failed to copy file to backup: {str(e)}"
                 logger.error(error_msg)
+                # Attempt cleanup of partial file
+                try:
+                    if backup_file_path.exists():
+                        backup_file_path.unlink()
+                        logger.info(f"Cleaned up partial backup file: {backup_file_path}")
+                except Exception as cleanup_error:
+                    logger.error(f"Failed to cleanup partial backup: {cleanup_error}")
                 return False, "", error_msg
 
             # Step 7: Verify backup integrity (compare hashes)
@@ -238,12 +312,19 @@ class PhotoBackupService:
             return False, "", str(e)
         except Exception as e:
             error_msg = f"Unexpected error during photo backup: {str(e)}"
-            logger.error(error_msg)
+            logger.error(error_msg, exc_info=True)
+            # Attempt cleanup on unexpected errors
+            try:
+                if 'backup_file_path' in locals() and backup_file_path.exists():
+                    backup_file_path.unlink()
+                    logger.info(f"Cleaned up backup file after error: {backup_file_path}")
+            except Exception as cleanup_error:
+                logger.error(f"Failed to cleanup after error: {cleanup_error}")
             return False, "", error_msg
 
     def cleanup_temporary_file(self, file_path: str) -> bool:
         """
-        Cleanup temporary file after successful backup.
+        Cleanup temporary file after successful backup with enhanced error handling.
 
         Args:
             file_path: Path to temporary file to delete
@@ -254,11 +335,25 @@ class PhotoBackupService:
         try:
             temp_path = Path(file_path)
             if temp_path.exists():
+                # Check if file is writable before attempting deletion
+                if not os.access(file_path, os.W_OK):
+                    logger.warning(f"Cannot delete readonly file: {file_path}")
+                    return False
+                    
+                # Get file size for logging
+                file_size = temp_path.stat().st_size
                 temp_path.unlink()
-                logger.info(f"Cleaned up temporary file: {file_path}")
+                logger.info(f"Cleaned up temporary file: {file_path} ({file_size} bytes)")
                 return True
-        except Exception as e:
-            logger.warning(f"Failed to cleanup temporary file {file_path}: {e}")
+            else:
+                logger.debug(f"Temporary file not found (already deleted): {file_path}")
+                return True
+        except PermissionError as e:
+            logger.warning(f"Permission denied when deleting temporary file {file_path}: {e}")
             return False
-
-        return True
+        except OSError as e:
+            logger.warning(f"OS error when deleting temporary file {file_path}: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error during temporary file cleanup {file_path}: {e}", exc_info=True)
+            return False
