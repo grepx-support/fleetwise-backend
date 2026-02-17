@@ -23,5 +23,5 @@ itsdangerous==2.1.2
 cffi>=1.15.0
 cryptography==45.0.7
 APScheduler==3.10.4
+setuptools==68.2.2
 psutil
-setuptools
